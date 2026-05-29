@@ -30,10 +30,13 @@ interface AuthContextType {
     resume?: { name: string; uploadDate: string } | null;
   }) => Promise<void>;
   updateProfessorProfile: (profile: {
+    name?: string;
     department?: string;
     title?: string;
     contactEmail?: string;
     officeHours?: string;
+    bioUrl?: string;
+    photoBase64?: string;
   }) => Promise<void>;
 }
 
@@ -92,13 +95,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function updateProfessorProfile(profile: {
+    name?: string;
     department?: string;
     title?: string;
     contactEmail?: string;
     officeHours?: string;
+    bioUrl?: string;
+    photoBase64?: string;
   }): Promise<void> {
     const data = await updateProfessorSetup(profile);
     setSetupState(data.setup);
+    if (profile.name?.trim()) {
+      setUser((current) => (current ? { ...current, name: profile.name!.trim() } : current));
+    }
   }
 
   return (

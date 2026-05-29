@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useData, ApplicationQuestion, ResearchPosting } from '../../contexts/DataContext';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -45,23 +45,53 @@ export default function PostResearchDialog({
   const { addPosting, updatePosting } = useData();
   const isEditing = !!postingToEdit;
   const [step, setStep] = useState(1);
-  const professorProfile = (setupState?.profile as { department?: string } | null) ?? null;
+  const professorProfile = (setupState?.profile as { department?: string; bioUrl?: string } | null) ?? null;
 
   const [category, setCategory] = useState(postingToEdit?.category ?? '');
   const [title, setTitle] = useState(postingToEdit?.title ?? '');
   const [overview, setOverview] = useState(postingToEdit?.overview ?? '');
+  const [professorBioUrl, setProfessorBioUrl] = useState(postingToEdit?.professorBioUrl ?? professorProfile?.bioUrl ?? '');
   const [studentRoleDescription, setStudentRoleDescription] = useState(postingToEdit?.studentRoleDescription ?? '');
   const [studentGain, setStudentGain] = useState(postingToEdit?.studentGain ?? '');
   const [requiredQualifications, setRequiredQualifications] = useState(postingToEdit?.requiredQualifications ?? '');
   const [preferredQualifications, setPreferredQualifications] = useState(postingToEdit?.preferredQualifications ?? '');
   const [timeCommitmentExpected, setTimeCommitmentExpected] = useState(postingToEdit?.timeCommitmentExpected ?? '');
   const [startDate, setStartDate] = useState(postingToEdit?.startDate ?? '');
-  const [duration, setDuration] = useState(postingToEdit?.duration ?? '');
+  const [endDate, setEndDate] = useState(postingToEdit?.duration ?? '');
   const [applicationDeadline, setApplicationDeadline] = useState(postingToEdit?.applicationDeadline ?? '');
   const [compensation, setCompensation] = useState<ResearchPosting['compensation']>(postingToEdit?.compensation ?? 'tbd');
   const [questions, setQuestions] = useState<ApplicationQuestion[]>(postingToEdit?.questions ?? []);
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [currentWordLimit, setCurrentWordLimit] = useState('');
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    if (postingToEdit) {
+      setStep(1);
+      setCategory(postingToEdit.category ?? '');
+      setTitle(postingToEdit.title ?? '');
+      setOverview(postingToEdit.overview ?? '');
+      setProfessorBioUrl(postingToEdit.professorBioUrl ?? professorProfile?.bioUrl ?? '');
+      setStudentRoleDescription(postingToEdit.studentRoleDescription ?? '');
+      setStudentGain(postingToEdit.studentGain ?? '');
+      setRequiredQualifications(postingToEdit.requiredQualifications ?? '');
+      setPreferredQualifications(postingToEdit.preferredQualifications ?? '');
+      setTimeCommitmentExpected(postingToEdit.timeCommitmentExpected ?? '');
+      setStartDate(postingToEdit.startDate ?? '');
+      setEndDate(postingToEdit.duration ?? '');
+      setApplicationDeadline(postingToEdit.applicationDeadline ?? '');
+      setCompensation(postingToEdit.compensation ?? 'tbd');
+      setQuestions(postingToEdit.questions ?? []);
+      setCurrentQuestion('');
+      setCurrentWordLimit('');
+      return;
+    }
+
+    resetForm();
+  }, [open, postingToEdit]);
 
   const handleAddQuestion = () => {
     if (currentQuestion.trim()) {
@@ -88,13 +118,31 @@ export default function PostResearchDialog({
       return;
     }
 
-    if (!category || !title || !overview || !studentRoleDescription || !studentGain || !requiredQualifications || !preferredQualifications || !timeCommitmentExpected || !startDate || !duration || !applicationDeadline) {
-      toast.error('Please fill in all required fields');
+    const requiredFieldChecks: Array<{ label: string; valid: boolean }> = [
+      { label: 'Category', valid: Boolean(category) },
+      { label: 'Project Title', valid: Boolean(title.trim()) },
+      { label: 'Overview / Description', valid: Boolean(overview.trim()) },
+      { label: 'Student Role Description', valid: Boolean(studentRoleDescription.trim()) },
+      { label: 'What the Student Will Gain', valid: Boolean(studentGain.trim()) },
+      { label: 'Required Qualifications', valid: Boolean(requiredQualifications.trim()) },
+      { label: 'Preferred Qualifications', valid: Boolean(preferredQualifications.trim()) },
+      { label: 'Expected Time Commitment', valid: Boolean(timeCommitmentExpected.trim()) },
+      { label: 'Start Date', valid: Boolean(startDate) },
+      { label: 'End Date', valid: Boolean(endDate) },
+      { label: 'Application Deadline', valid: Boolean(applicationDeadline) },
+    ];
+
+    const missingFields = requiredFieldChecks
+      .filter((field) => !field.valid)
+      .map((field) => field.label);
+
+    if (missingFields.length > 0) {
+      toast.error(`Please fill in: ${missingFields.join(', ')}`);
       return;
     }
 
-    if (questions.length < 2 || questions.length > 4) {
-      toast.error('Please include between 2 and 4 application questions.');
+    if (questions.length < 1 || questions.length > 4) {
+      toast.error('Please include between 1 and 4 application questions.');
       return;
     }
 
@@ -102,6 +150,7 @@ export default function PostResearchDialog({
       professorId: user!.id,
       professorName: user!.name,
       professorEmail: user!.email,
+      professorBioUrl: professorBioUrl.trim() || undefined,
       professorDepartment: professorProfile?.department ?? 'Unknown Department',
       category,
       title,
@@ -112,7 +161,7 @@ export default function PostResearchDialog({
       preferredQualifications,
       timeCommitmentExpected,
       startDate,
-      duration,
+      duration: endDate,
       applicationDeadline,
       compensation,
       questions,
@@ -136,13 +185,14 @@ export default function PostResearchDialog({
     setCategory('');
     setTitle('');
     setOverview('');
+    setProfessorBioUrl(professorProfile?.bioUrl ?? '');
     setStudentRoleDescription('');
     setStudentGain('');
     setRequiredQualifications('');
     setPreferredQualifications('');
     setTimeCommitmentExpected('');
     setStartDate('');
-    setDuration('');
+    setEndDate('');
     setApplicationDeadline('');
     setCompensation('tbd');
     setQuestions([]);
@@ -190,6 +240,17 @@ export default function PostResearchDialog({
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="professorBioUrl">Professor Bio URL</Label>
+                <Input
+                  id="professorBioUrl"
+                  type="url"
+                  placeholder="https://..."
+                  value={professorBioUrl}
+                  onChange={(e) => setProfessorBioUrl(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="role">Student Role Description *</Label>
                 <Textarea
                   id="role"
@@ -231,8 +292,8 @@ export default function PostResearchDialog({
                   <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Duration *</Label>
-                  <Input value={duration} onChange={(e) => setDuration(e.target.value)} />
+                  <Label>End Date *</Label>
+                  <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
                 </div>
               </div>
               <div className="space-y-2">
@@ -259,7 +320,7 @@ export default function PostResearchDialog({
 
           {step === 4 && (
             <div className="space-y-2">
-              <Label>Application Questions (2-4 required)</Label>
+              <Label>Application Questions * (up to 4)</Label>
               <div className="space-y-2">
                 {questions.map((q, index) => (
                   <div key={index} className="flex items-center gap-2">

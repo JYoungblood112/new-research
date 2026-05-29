@@ -54,6 +54,7 @@ function getSetupState(store, user) {
   const profile = store.professorProfiles.find((p) => p.userId === user.id) ?? null;
   const completed =
     !!profile &&
+    !!user.name?.trim() &&
     !!profile.department?.trim() &&
     !!profile.title?.trim() &&
     !!profile.contactEmail?.trim() &&
@@ -63,8 +64,10 @@ function getSetupState(store, user) {
     completed,
     profile,
     steps: {
-      basic: !!profile?.department?.trim() && !!profile?.title?.trim(),
-      contact: !!profile?.contactEmail?.trim() && !!profile?.officeHours?.trim(),
+      basic: !!user?.name?.trim() && !!profile?.department?.trim() && !!profile?.title?.trim(),
+      contact:
+        !!profile?.contactEmail?.trim() &&
+        !!profile?.officeHours?.trim(),
     },
   };
 }
@@ -224,6 +227,8 @@ app.post('/api/auth/stub-sso', (req, res) => {
         title: '',
         contactEmail: user.email,
         officeHours: '',
+        bioUrl: '',
+        photoBase64: '',
       });
     }
 
@@ -304,10 +309,20 @@ app.put('/api/setup/professor', authRequired, (req, res) => {
   }
 
   const next = req.body ?? {};
+  if (typeof next.name === 'string' && next.name.trim()) {
+    user.name = next.name.trim();
+  }
   profile.department = typeof next.department === 'string' ? next.department : profile.department;
   profile.title = typeof next.title === 'string' ? next.title : profile.title;
   profile.contactEmail = typeof next.contactEmail === 'string' ? next.contactEmail : profile.contactEmail;
-  profile.officeHours = typeof next.officeHours === 'string' ? next.officeHours : profile.officeHours;
+  profile.officeHours =
+    typeof next.officeHours === 'string'
+      ? next.officeHours
+      : typeof next.office === 'string'
+        ? next.office
+        : profile.officeHours;
+  profile.bioUrl = typeof next.bioUrl === 'string' ? next.bioUrl : profile.bioUrl;
+  profile.photoBase64 = typeof next.photoBase64 === 'string' ? next.photoBase64 : profile.photoBase64;
 
   writeStore(store);
   return res.json({ setup: getSetupState(store, user) });

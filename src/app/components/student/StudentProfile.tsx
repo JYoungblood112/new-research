@@ -8,6 +8,10 @@ import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { toast } from 'sonner';
 
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 const YEARS = ['Freshman', 'Sophomore', 'Junior', 'Senior', 'Graduate'];
 const SKILL_SUGGESTIONS = [
   'Python',
@@ -76,13 +80,33 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
   const [resumeFile, setResumeFile] = useState<ResumeFileState | null>(null);
   const [photoBase64, setPhotoBase64] = useState<string | null>(studentProfile?.photoBase64 ?? null);
   const [aiAction, setAiAction] = useState<null | 'autofill' | 'skills'>(null);
-  const initials =
-    displayName
-      ?.split(' ')
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join('') || 'U';
+  const [showValidationErrors, setShowValidationErrors] = useState(false);
+  const [resumeFormatError, setResumeFormatError] = useState(false);
+  const [photoFormatError, setPhotoFormatError] = useState(false);
+  const trimmedDisplayName = displayName.trim();
+  const trimmedDisplayEmail = displayEmail.trim();
+  const trimmedMajor = major.trim();
+  const hasResume = Boolean(studentProfile?.resume || resumeFile);
+  const missingDisplayName = showValidationErrors && !trimmedDisplayName;
+  const missingDisplayEmail = showValidationErrors && !trimmedDisplayEmail;
+  const missingMajor = showValidationErrors && !trimmedMajor;
+  const missingYear = showValidationErrors && !year;
+  const missingResume = showValidationErrors && !hasResume;
+  const hasInvalidDisplayEmail = Boolean(trimmedDisplayEmail) && !isValidEmail(trimmedDisplayEmail);
+  const initials = (() => {
+    const parts = (displayName || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+    if (parts.length === 0) {
+      return 'U';
+    }
+
+    const firstInitial = parts[0][0]?.toUpperCase() ?? 'U';
+    const lastInitial = parts.length > 1 ? parts[parts.length - 1][0]?.toUpperCase() ?? '' : '';
+    return `${firstInitial}${lastInitial}`;
+  })();
 
   const inputClassName =
     'h-12 rounded-2xl border-[#d9d9d9] bg-white px-4 text-[#111111] shadow-none placeholder:text-[#9b9b9b] disabled:cursor-default disabled:bg-[#fafafa] disabled:opacity-100 disabled:text-[#111111]';
@@ -152,9 +176,11 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
         return;
       }
       if (!file.name.endsWith('.pdf')) {
-        toast.error('Only PDF files are accepted');
+        setResumeFormatError(true);
         return;
       }
+
+      setResumeFormatError(false);
 
       const base64 = await fileToBase64(file);
       const fileState: ResumeFileState = { name: file.name, base64 };
@@ -197,15 +223,36 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
   };
 
   const handleSaveProfile = async () => {
+    setShowValidationErrors(true);
+
+    const missingRequiredFields: string[] = [];
+    if (!trimmedDisplayName) missingRequiredFields.push('Full Name');
+    if (!trimmedDisplayEmail) missingRequiredFields.push('Email');
+    if (!trimmedMajor) missingRequiredFields.push('Major');
+    if (!year) missingRequiredFields.push('Academic Year');
+    if (!hasResume) missingRequiredFields.push('Resume');
+
+    if (missingRequiredFields.length > 0) {
+      toast.error(`Please fill in: ${missingRequiredFields.join(', ')}`);
+      return false;
+    }
+
+    if (hasInvalidDisplayEmail) {
+      toast.error('Please enter a valid email address.');
+      return false;
+    }
+
     try {
       await updateStudentProfile({
-        name: displayName.trim() || user?.name,
-        email: displayEmail.trim() || undefined,
+        name: trimmedDisplayName || user?.name,
+        email: trimmedDisplayEmail || undefined,
         photoBase64: photoBase64 ?? undefined,
-        major: major.trim() || undefined,
+        major: trimmedMajor || undefined,
         graduationYear: year || undefined,
         skills,
       });
+      setResumeFormatError(false);
+      setShowValidationErrors(false);
       toast.success(mode === 'setup' ? 'Setup completed successfully!' : 'Profile updated successfully!');
       return true;
     } catch (error) {
@@ -223,19 +270,11 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
     setSkills(studentProfile?.skills || []);
     setSkillInput('');
     setDebouncedSkillInput('');
+    setResumeFormatError(false);
+    setPhotoFormatError(false);
   };
 
   const handleSetupSubmit = async () => {
-    if (!major.trim() || !year || skills.length === 0) {
-      toast.error('Complete your major, academic year, and skills before continuing.');
-      return;
-    }
-
-    if (!studentProfile?.resume) {
-      toast.error('Upload your resume before continuing.');
-      return;
-    }
-
     const saved = await handleSaveProfile();
     if (saved) {
       onSetupComplete?.();
@@ -280,8 +319,9 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
       <div className="relative -mt-10 px-6 pb-6">
         <div className="mx-auto max-w-4xl">
           <div className="flex flex-col items-center gap-5 border-b border-[#ececec] pb-7 md:flex-row md:items-end md:gap-6 md:pb-6">
-            <div className="relative group flex shrink-0 cursor-pointer" onClick={() => document.getElementById('photo-upload')?.click()}>
-              <div className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-4 border-white bg-[linear-gradient(145deg,#d86666,#b4232f)] text-2xl font-medium text-white shadow-[0_12px_24px_rgba(180,35,47,0.18)]">
+            <div className="flex shrink-0 flex-col items-center gap-2">
+              <div data-interactive="true" className="relative group flex cursor-pointer" onClick={() => document.getElementById('photo-upload')?.click()}>
+              <div className={`flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-4 bg-[linear-gradient(145deg,#d86666,#b4232f)] text-2xl font-medium text-white shadow-[0_12px_24px_rgba(180,35,47,0.18)] ${photoFormatError ? 'border-destructive/80' : 'border-white'}`}>
                 {photoBase64 ? (
                   <img src={`data:image/jpeg;base64,${photoBase64}`} alt="Profile" className="size-full object-cover" />
                 ) : (
@@ -291,6 +331,23 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
               <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
                 <Camera className="size-6 text-white" />
               </div>
+              {photoBase64 && (
+                <button
+                  type="button"
+                  className="absolute -right-1 -top-1 z-10 inline-flex size-6 items-center justify-center rounded-full bg-red-700 text-white shadow hover:bg-red-800"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setPhotoBase64(null);
+                    setPhotoFormatError(false);
+                  }}
+                  aria-label="Remove profile photo"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+              </div>
+              {photoFormatError && <p className="text-xs text-destructive">Only JPG, PNG, or WEBP files are accepted</p>}
             </div>
 
             <div className="flex-1 space-y-2 text-center md:text-left">
@@ -302,57 +359,80 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
                 </p>
               </div>
             </div>
-
-            <div className="rounded-full border border-[#e5e5e5] bg-[#fafafa] px-4 py-2 text-xs font-medium text-red-700">
-              Resume required for applications
-            </div>
           </div>
 
           <div className="mt-7 grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
-                <Label className={labelClassName}>Full Name</Label>
+                <Label className={labelClassName}>Full Name <span className="text-red-700">*</span></Label>
                 <Input
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   disabled={isAiBusy}
                   placeholder="Your full name"
-                  className={inputClassName}
+                  aria-invalid={missingDisplayName}
+                  className={`${inputClassName} ${
+                    missingDisplayName
+                      ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
+                      : ''
+                  }`}
                 />
+                {missingDisplayName && <p className="mt-2 text-xs text-destructive">This field is required</p>}
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="major" className={labelClassName}>
-                  Major
+                  Major <span className="text-red-700">*</span>
                 </Label>
                 <Input
                   id="major"
                   value={major}
                   onChange={(e) => setMajor(e.target.value)}
                   placeholder="Computer Science"
-                  className={inputClassName}
+                  aria-invalid={missingMajor}
+                  className={`${inputClassName} ${
+                    missingMajor
+                      ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
+                      : ''
+                  }`}
                   disabled={isAiBusy}
                 />
+                {missingMajor && <p className="mt-2 text-xs text-destructive">This field is required</p>}
               </div>
 
               <div className="space-y-2">
-                <Label className={labelClassName}>Email</Label>
+                <Label className={labelClassName}>Email <span className="text-red-700">*</span></Label>
                 <Input
                   value={displayEmail}
                   onChange={(e) => setDisplayEmail(e.target.value)}
                   disabled={isAiBusy}
                   placeholder="your@andrew.cmu.edu"
-                  className={inputClassName}
+                  aria-invalid={missingDisplayEmail || hasInvalidDisplayEmail}
+                  className={`${inputClassName} ${
+                    missingDisplayEmail || hasInvalidDisplayEmail
+                      ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
+                      : ''
+                  }`}
                 />
+                {missingDisplayEmail && <p className="mt-2 text-xs text-destructive">This field is required</p>}
+                {hasInvalidDisplayEmail && (
+                  <p className="mt-2 text-xs text-destructive" role="alert" aria-live="polite">
+                    Email is invalid
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="year" className={labelClassName}>
-                  Academic Year
+                  Academic Year <span className="text-red-700">*</span>
                 </Label>
                 <Select value={year} onValueChange={setYear}>
                   <SelectTrigger
                     id="year"
-                    className="h-12 rounded-2xl border-[#d9d9d9] bg-white px-4 text-[#111111] shadow-none data-[placeholder]:text-[#9b9b9b]"
+                    className={`h-12 rounded-2xl bg-white px-4 text-[#111111] shadow-none data-[placeholder]:text-[#9b9b9b] ${
+                      missingYear
+                        ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
+                        : 'border-[#d9d9d9]'
+                    }`}
                     disabled={isAiBusy}
                   >
                     <SelectValue placeholder="Select year" />
@@ -365,6 +445,7 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
                     ))}
                   </SelectContent>
                 </Select>
+                {missingYear && <p className="mt-2 text-xs text-destructive">This field is required</p>}
               </div>
 
               <div className="space-y-2 md:col-span-2">
@@ -422,7 +503,7 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
 
               <div className="space-y-3 md:col-span-2">
                 <div className="flex items-center justify-between gap-3">
-                  <Label className={labelClassName}>Resume</Label>
+                  <Label className={labelClassName}>Resume <span className="text-red-700">*</span></Label>
                   <div className="flex items-center gap-2">
                     {isAiBusy && (
                       <span className="flex items-center gap-1.5 text-xs text-[#8a8a8a]">
@@ -462,7 +543,9 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
                 ) : (
                   <label
                     htmlFor="resume-upload"
-                    className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[22px] border border-dashed border-[#d8d8d8] bg-[#fcfcfc] px-6 py-9 text-center transition-colors hover:border-red-300 hover:bg-red-50/30"
+                    className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[22px] border border-dashed bg-[#fcfcfc] px-6 py-9 text-center transition-colors hover:border-red-300 hover:bg-red-50/30 ${
+                      missingResume || resumeFormatError ? 'border-destructive/80' : 'border-[#d8d8d8]'
+                    }`}
                   >
                     <div className="flex size-14 items-center justify-center rounded-2xl bg-red-50 text-red-700">
                       <FileText className="size-6" />
@@ -472,6 +555,11 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
                       <p className="text-xs text-[#8a8a8a]">Use your latest PDF before applying to research opportunities.</p>
                     </div>
                   </label>
+                )}
+                {resumeFormatError ? (
+                  <p className="mt-2 text-xs text-destructive">Resume must be uploaded as a PDF</p>
+                ) : (
+                  missingResume && <p className="mt-2 text-xs text-destructive">This field is required</p>
                 )}
               </div>
           </div>
@@ -520,6 +608,17 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
         onChange={async (e) => {
           const file = e.target.files?.[0];
           if (!file) return;
+          const isSupportedImageType =
+            ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
+            /\.(jpe?g|png|webp)$/i.test(file.name);
+
+          if (!isSupportedImageType) {
+            setPhotoFormatError(true);
+            e.target.value = '';
+            return;
+          }
+
+          setPhotoFormatError(false);
           if (file.size > 5 * 1024 * 1024) {
             toast.error('Photo must be under 5 MB.');
             return;

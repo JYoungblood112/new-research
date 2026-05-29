@@ -1,0 +1,23 @@
+/* Global click affordances for interactive UI elements */
+:where(button, a, summary, label[for], [role="button"], [data-interactive="true"]) {
+	cursor: pointer;
+	transition: transform 140ms ease, filter 140ms ease, box-shadow 140ms ease;
+}
+
+:where(button, a, summary, label[for], [role="button"], [data-interactive="true"]):hover {
+	filter: brightness(0.98);
+}
+
+:where(button, a, summary, label[for], [role="button"], [data-interactive="true"]):active {
+	transform: translateY(1px) scale(0.995);
+}
+
+:where(button, a, summary, label[for], [role="button"], [data-interactive="true"]):focus-visible {
+	outline: 2px solid color-mix(in oklab, var(--ring, #b91c1c) 75%, white);
+	outline-offset: 2px;
+}
+
+:where(button, a, summary, label[for], [role="button"], [data-interactive="true"]):disabled {
+	cursor: not-allowed;
+	transform: none;
+}

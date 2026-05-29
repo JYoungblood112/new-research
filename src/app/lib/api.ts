@@ -25,6 +25,8 @@ export type ProfessorSetupProfile = {
   title?: string;
   contactEmail?: string;
   officeHours?: string;
+  bioUrl?: string;
+  photoBase64?: string;
 };
 
 export type SetupState = {
@@ -100,10 +102,13 @@ export async function updateStudentSetup(payload: {
 }
 
 export async function updateProfessorSetup(payload: {
+  name?: string;
   department?: string;
   title?: string;
   contactEmail?: string;
   officeHours?: string;
+  bioUrl?: string;
+  photoBase64?: string;
 }): Promise<{ setup: SetupState }> {
   return request('/api/setup/professor', {
     method: 'PUT',

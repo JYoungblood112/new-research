@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { UserRole } from '../contexts/AuthContext';
-import { Button } from '../components/ui/button';
-import { GraduationCap, Microscope, UserRound, ArrowRight } from 'lucide-react';
+import { GraduationCap, BookOpen, ArrowRight } from 'lucide-react';
 
 export default function LoginPage() {
   const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
@@ -14,81 +13,136 @@ export default function LoginPage() {
   };
 
   return (
-    <section className="flex min-h-screen flex-col bg-[#eeecea] text-gray-900">
-      <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center px-6 py-10 sm:px-10">
-        <div className="w-full">
-          <div className="text-center">
-            <div className="mb-8 inline-flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-xl bg-red-700/10">
-                <Microscope className="size-5 text-red-700" />
+    <div className="min-h-screen flex">
+      <div className="hidden sm:flex sm:w-1/2 bg-gradient-to-br from-red-600 via-red-700 to-red-900 p-12 flex-col justify-between text-white relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+        <div className="absolute bottom-0 left-0 w-80 h-80 bg-white/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
+
+        <div className="relative z-10">
+          <div className="mb-16">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-14 h-14 bg-white/10 backdrop-blur-sm rounded-2xl flex items-center justify-center border border-white/20">
+                <GraduationCap className="w-8 h-8" />
               </div>
-              <span className="text-[40px] font-medium tracking-tight text-gray-900 sm:text-[44px]">CMU Research Match</span>
+              <div>
+                <h1 className="text-3xl font-bold">CMU Research</h1>
+                <p className="text-red-100">Portal</p>
+              </div>
             </div>
-            <h1 className="text-[52px] font-bold leading-[1.03] tracking-[-0.02em] text-balance text-gray-900 text-[#0f0f0f] sm:text-[64px]">
-              Welcome
-            </h1>
-            <p className="mt-4 text-[16px] font-normal text-[#777777]">
-              Select Student or Professor to continue to CMU SSO
-            </p>
           </div>
 
-          <div className="mx-auto mt-8 grid w-full max-w-4xl grid-cols-1 gap-5 sm:grid-cols-2" role="tablist" aria-label="Role selection">
-            <Button
-              role="tab"
-              aria-selected={selectedRole === 'student'}
-              onClick={() => handleRoleSelection('student')}
-              variant="outline"
-              className={`h-auto w-full cursor-pointer flex-col items-stretch justify-start overflow-hidden whitespace-normal rounded-3xl border p-6 text-left transition-colors duration-150 focus-visible:ring-red-700/35 ${
-                selectedRole === 'student'
-                  ? 'border-red-700/65 bg-red-700/[0.03] ring-1 ring-red-700/20'
-                  : 'border-[#cccccc] bg-white hover:border-red-700/50 hover:bg-red-700/[0.02]'
-              }`}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex size-12 items-center justify-center rounded-xl bg-red-700/[0.15]">
-                  <GraduationCap className="size-6 text-red-700" />
-                </div>
-                <ArrowRight className="size-4 text-red-700/50" />
-              </div>
-              <div className="mt-3">
-                <h3 className="text-[18px] font-semibold leading-tight text-gray-900">Student</h3>
-                <p className="mt-1 text-[14px] font-normal text-gray-500">
-                  Find and apply to research opportunities
-                </p>
-              </div>
-            </Button>
+          <div className="space-y-12">
+            <div>
+              <h2 className="text-4xl font-bold leading-tight mb-4">
+                Connect with
+                <br />
+                groundbreaking
+                <br />
+                research
+              </h2>
+              <p className="text-red-100 text-lg">
+                Join Carnegie Mellon's research community and advance your academic journey
+              </p>
+            </div>
 
-            <Button
-              role="tab"
-              aria-selected={selectedRole === 'professor'}
-              onClick={() => handleRoleSelection('professor')}
-              variant="outline"
-              className={`h-auto w-full cursor-pointer flex-col items-stretch justify-start overflow-hidden whitespace-normal rounded-3xl border p-6 text-left transition-colors duration-150 focus-visible:ring-red-700/35 ${
-                selectedRole === 'professor'
-                  ? 'border-red-700/65 bg-red-700/[0.03] ring-1 ring-red-700/20'
-                  : 'border-[#cccccc] bg-white hover:border-red-700/50 hover:bg-red-700/[0.02]'
-              }`}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex size-12 items-center justify-center rounded-xl bg-red-700/[0.15]">
-                  <UserRound className="size-6 text-red-700" />
-                </div>
-                <ArrowRight className="size-4 text-red-700/50" />
+            <div className="grid grid-cols-2 gap-6">
+              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6">
+                <div className="text-4xl font-bold mb-2">500+</div>
+                <div className="text-red-100 text-sm">Research Projects</div>
               </div>
-              <div className="mt-3">
-                <h3 className="text-[18px] font-semibold leading-tight text-gray-900">Professor</h3>
-                <p className="mt-1 text-[14px] font-normal text-gray-500">
-                  Post projects and review student applications
-                </p>
+              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6">
+                <div className="text-4xl font-bold mb-2">50+</div>
+                <div className="text-red-100 text-sm">Departments</div>
               </div>
-            </Button>
-          </div>
+            </div>
 
-          <div className="mt-5 text-center text-[13px] font-normal text-[#999999]">
-            Choose a role to continue directly to CMU SSO.
+            <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6">
+              <div className="flex items-start gap-3">
+                <div className="text-3xl">&quot;</div>
+                <div>
+                  <p className="text-white/90 mb-3 italic">
+                    This platform connected me with cutting-edge AI research and transformed my academic path.
+                  </p>
+                  <div className="text-sm">
+                    <div className="font-semibold">Sarah Chen</div>
+                    <div className="text-red-100">CS Graduate Student</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+
+        <div className="relative z-10 border-t border-white/20 pt-6">
+          <p className="text-red-100 text-sm">© 2026 Carnegie Mellon University</p>
+          <p className="text-red-200 text-xs mt-1">Empowering the next generation of researchers</p>
+        </div>
       </div>
-    </section>
+
+      <div className="flex-1 flex items-center justify-center p-8 bg-gray-50">
+        <div className="w-full max-w-md">
+          <div className="sm:hidden flex items-center gap-3 mb-8">
+            <div className="w-12 h-12 bg-red-600 rounded-xl flex items-center justify-center">
+              <GraduationCap className="w-7 h-7 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">CMU Research</h1>
+              <p className="text-gray-500 text-sm">Portal</p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
+            <div className="p-8">
+              <div className="text-center mb-8">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome</h2>
+                <p className="text-gray-600">Choose your role to get started</p>
+              </div>
+
+              <div className="space-y-4">
+                <button
+                  onClick={() => handleRoleSelection('professor')}
+                  className="w-full p-6 border-2 border-gray-200 rounded-xl hover:border-red-500 hover:bg-red-50 transition-all group"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center group-hover:bg-red-200 transition-colors">
+                        <BookOpen className="w-6 h-6 text-red-600" />
+                      </div>
+                      <div className="text-left">
+                        <h3 className="text-lg font-semibold text-gray-900">Professor</h3>
+                        <p className="text-sm text-gray-500">Post research opportunities</p>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-5 h-5 text-gray-400 group-hover:text-red-600 transition-colors" />
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleRoleSelection('student')}
+                  className="w-full p-6 border-2 border-gray-200 rounded-xl hover:border-red-500 hover:bg-red-50 transition-all group"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center group-hover:bg-blue-200 transition-colors">
+                        <GraduationCap className="w-6 h-6 text-blue-600" />
+                      </div>
+                      <div className="text-left">
+                        <h3 className="text-lg font-semibold text-gray-900">Student</h3>
+                        <p className="text-sm text-gray-500">Find and apply to research</p>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-5 h-5 text-gray-400 group-hover:text-red-600 transition-colors" />
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-center text-sm text-gray-500 mt-6">
+            Need help? Contact <span className="text-red-600">research-support@andrew.cmu.edu</span>
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }

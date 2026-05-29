@@ -2,6 +2,8 @@ import { createBrowserRouter, Navigate } from 'react-router';
 import LoginPage from './pages/LoginPage';
 import SsoPage from './pages/SsoPage';
 import ProfessorDashboard from './pages/professor/ProfessorDashboard';
+import ProfessorProfilePage from './pages/professor/ProfessorProfilePage';
+import ProfessorSetupPage from './pages/professor/ProfessorSetupPage';
 import StudentDashboard from './pages/student/StudentDashboard';
 import StudentResearchDetailPage from './pages/student/StudentResearchDetailPage';
 import StudentSetupPage from './pages/student/StudentSetupPage';
@@ -24,6 +26,11 @@ function ProtectedRoute({
     typeof window !== 'undefined' &&
     localStorage.getItem(`student_onboarding_${user.id}`) === 'true';
 
+  const hasCompletedProfessorOnboarding =
+    user?.role === 'professor' &&
+    typeof window !== 'undefined' &&
+    localStorage.getItem(`professor_onboarding_${user.id}`) === 'true';
+
   if (loadingSession) {
     return <div className="min-h-screen bg-gray-50" />;
   }
@@ -42,6 +49,14 @@ function ProtectedRoute({
     (!setupState?.completed || !hasCompletedStudentOnboarding)
   ) {
     return <Navigate to="/student/setup" replace />;
+  }
+
+  if (
+    requireSetupComplete &&
+    user.role === 'professor' &&
+    (!setupState?.completed || !hasCompletedProfessorOnboarding)
+  ) {
+    return <Navigate to="/professor/setup" replace />;
   }
 
   return <>{children}</>;
@@ -68,8 +83,28 @@ export const router = createBrowserRouter([
     path: '/professor/dashboard',
     element: (
       <Root>
-        <ProtectedRoute allowedRole="professor">
+        <ProtectedRoute allowedRole="professor" requireSetupComplete>
           <ProfessorDashboard />
+        </ProtectedRoute>
+      </Root>
+    ),
+  },
+  {
+    path: '/professor/setup',
+    element: (
+      <Root>
+        <ProtectedRoute allowedRole="professor">
+          <ProfessorSetupPage />
+        </ProtectedRoute>
+      </Root>
+    ),
+  },
+  {
+    path: '/professor/profile',
+    element: (
+      <Root>
+        <ProtectedRoute allowedRole="professor" requireSetupComplete>
+          <ProfessorProfilePage />
         </ProtectedRoute>
       </Root>
     ),

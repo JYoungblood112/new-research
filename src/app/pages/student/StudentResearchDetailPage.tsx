@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useData } from '../../contexts/DataContext';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
-import { LogOut, ArrowLeft } from 'lucide-react';
+import { LogOut, ArrowLeft, ExternalLink } from 'lucide-react';
 import ApplyToResearchDialog from '../../components/student/ApplyToResearchDialog';
 
 export default function StudentResearchDetailPage() {
@@ -66,6 +66,17 @@ export default function StudentResearchDetailPage() {
                   {posting.category}
                 </span>
               </CardDescription>
+              {posting.professorBioUrl ? (
+                <a
+                  href={posting.professorBioUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-red-700 hover:text-red-800"
+                >
+                  View professor bio
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              ) : null}
             </CardHeader>
             <CardContent className="space-y-0 text-sm">
               <div className="mb-0 rounded-lg border-b border-[#f0ece8] pb-4 transition-colors duration-150 hover:bg-[#faf6f3]">
@@ -98,7 +109,7 @@ export default function StudentResearchDetailPage() {
                     <p className="text-[13px] font-medium text-foreground">{new Date(posting.startDate).toLocaleDateString()}</p>
                   </div>
                   <div className="rounded-md p-2 transition-colors duration-150 hover:bg-white/95">
-                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Duration</p>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">End Date</p>
                     <p className="text-[13px] font-medium text-foreground">{posting.duration}</p>
                   </div>
                   <div className="rounded-md p-2 transition-colors duration-150 hover:bg-white/95">

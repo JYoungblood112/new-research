@@ -19,13 +19,6 @@ const countWords = (text: string): number => {
   return text.trim().split(/\s+/).filter(Boolean).length;
 };
 
-const countSentences = (text: string): number => {
-  return text
-    .split(/[.!?]+/)
-    .map((part) => part.trim())
-    .filter(Boolean).length;
-};
-
 export default function ApplyToResearchDialog({
   postingId,
   open,
@@ -72,12 +65,6 @@ export default function ApplyToResearchDialog({
         toast.error('Some answers exceed the word limit');
         return;
       }
-    }
-
-    const sentenceCount = countSentences(note);
-    if (sentenceCount < 1 || sentenceCount > 3) {
-      toast.error('Quick note must be between 1 and 3 sentences.');
-      return;
     }
 
     addApplication({
@@ -219,7 +206,7 @@ export default function ApplyToResearchDialog({
               )}
 
               <div className="space-y-2">
-                <Label>Quick Note to Professor (1-3 sentences)</Label>
+                <Label>Quick Note to Professor (optional)</Label>
                 <Textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
