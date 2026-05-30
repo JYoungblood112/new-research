@@ -13,6 +13,8 @@ export type StudentSetupProfile = {
   name?: string;
   major?: string;
   graduationYear?: string;
+  linkedInUrl?: string;
+  githubUrl?: string;
   skills?: string[];
   interests?: string[];
   resume?: { name: string; uploadDate: string } | null;
@@ -61,6 +63,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const errorPayload = await response.json().catch(() => ({}));
+    if (response.status === 401) {
+      throw new Error('Your session expired. Please sign in again.');
+    }
     throw new Error(errorPayload.error || `Request failed with ${response.status}`);
   }
 
@@ -92,6 +97,8 @@ export async function updateStudentSetup(payload: {
   photoBase64?: string;
   major?: string;
   graduationYear?: string;
+  linkedInUrl?: string;
+  githubUrl?: string;
   skills?: string[];
   interests?: string[];
   resume?: { name: string; uploadDate: string } | null;

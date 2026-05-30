@@ -12,6 +12,22 @@ export default function StudentDashboard() {
   const { user, logout, setupState } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('browse');
+  const [canLeaveProfile, setCanLeaveProfile] = useState<null | (() => Promise<boolean>)>(null);
+
+  const requestTabChange = async (nextTab: string) => {
+    if (nextTab === activeTab) {
+      return;
+    }
+
+    if (activeTab === 'profile' && nextTab !== 'profile' && canLeaveProfile) {
+      const canLeave = await canLeaveProfile();
+      if (!canLeave) {
+        return;
+      }
+    }
+
+    setActiveTab(nextTab);
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -36,7 +52,7 @@ export default function StudentDashboard() {
             href: '#',
             onClick: (event) => {
               event.preventDefault();
-              setActiveTab('browse');
+              void requestTabChange('browse');
             },
           },
           {
@@ -44,7 +60,7 @@ export default function StudentDashboard() {
             href: '#',
             onClick: (event) => {
               event.preventDefault();
-              setActiveTab('applications');
+              void requestTabChange('applications');
             },
           },
           {
@@ -52,7 +68,7 @@ export default function StudentDashboard() {
             href: '#',
             onClick: (event) => {
               event.preventDefault();
-              setActiveTab('profile');
+              void requestTabChange('profile');
             },
           },
         ]}
@@ -60,7 +76,9 @@ export default function StudentDashboard() {
           {
             label: user?.name ? `Hi, ${user.name.split(' ')[0]}` : 'Student',
             variant: 'outline',
-            onClick: () => setActiveTab('profile'),
+            onClick: () => {
+              void requestTabChange('profile');
+            },
           },
           {
             label: 'Logout',
@@ -84,7 +102,9 @@ export default function StudentDashboard() {
               <Button
                 variant="link"
                 className="h-auto p-0 text-red-800"
-                onClick={() => setActiveTab('profile')}
+                onClick={() => {
+                  void requestTabChange('profile');
+                }}
               >
                 Go to Profile →
               </Button>
@@ -92,7 +112,13 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <Tabs
+          value={activeTab}
+          onValueChange={(nextTab) => {
+            void requestTabChange(nextTab);
+          }}
+          className="space-y-4"
+        >
           <TabsList className="h-auto rounded-2xl border border-[#dddddd] bg-white p-1.5">
             <TabsTrigger
               value="browse"
@@ -123,7 +149,11 @@ export default function StudentDashboard() {
           </TabsContent>
 
           <TabsContent value="profile">
-            <StudentProfile />
+            <StudentProfile
+              onRegisterLeaveGuard={(handler) => {
+                setCanLeaveProfile(() => handler);
+              }}
+            />
           </TabsContent>
         </Tabs>
       </main>

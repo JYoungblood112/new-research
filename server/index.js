@@ -4,11 +4,12 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { readStore, writeStore, randomId } from './store.js';
 import { validateCmuEmail } from './sso.js';
+import { deleteSession, getSessionUserId, pruneExpiredSessions, refreshSession, setSession } from './sessionStore.js';
 
 const app = express();
 const port = Number(process.env.PORT ?? 4000);
-const sessions = new Map();
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
+const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 8;
 
 app.use(
   cors({
@@ -74,10 +75,28 @@ function getSetupState(store, user) {
 
 function authRequired(req, res, next) {
   const token = req.cookies.cmu_session;
-  if (!token || !sessions.has(token)) {
+  if (!token) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  req.sessionUserId = sessions.get(token);
+
+  const currentSessionUserId = getSessionUserId(token);
+  if (!currentSessionUserId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const sessionUserId = refreshSession(token, Date.now() + SESSION_MAX_AGE_MS);
+  if (!sessionUserId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  res.cookie('cmu_session', token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: false,
+    maxAge: SESSION_MAX_AGE_MS,
+  });
+
+  req.sessionUserId = sessionUserId;
   return next();
 }
 
@@ -220,6 +239,8 @@ app.post('/api/auth/stub-sso', (req, res) => {
         name: trimmedName,
         major: '',
         graduationYear: '',
+        linkedInUrl: '',
+        githubUrl: '',
         skills: [],
         interests: [],
         resume: null,
@@ -243,12 +264,12 @@ app.post('/api/auth/stub-sso', (req, res) => {
   }
 
   const token = randomId('sess');
-  sessions.set(token, user.id);
+  setSession(token, user.id, Date.now() + SESSION_MAX_AGE_MS);
   res.cookie('cmu_session', token, {
     httpOnly: true,
     sameSite: 'lax',
     secure: false,
-    maxAge: 1000 * 60 * 60 * 8,
+    maxAge: SESSION_MAX_AGE_MS,
   });
 
   const freshStore = readStore();
@@ -270,7 +291,7 @@ app.get('/api/auth/session', authRequired, (req, res) => {
 
 app.post('/api/auth/logout', authRequired, (req, res) => {
   const token = req.cookies.cmu_session;
-  sessions.delete(token);
+  deleteSession(token);
   res.clearCookie('cmu_session');
   res.json({ ok: true });
 });
@@ -295,6 +316,8 @@ app.put('/api/setup/student', authRequired, (req, res) => {
   profile.photoBase64 = typeof next.photoBase64 === 'string' ? next.photoBase64 : profile.photoBase64;
   profile.major = typeof next.major === 'string' ? next.major : profile.major;
   profile.graduationYear = typeof next.graduationYear === 'string' ? next.graduationYear : profile.graduationYear;
+  profile.linkedInUrl = typeof next.linkedInUrl === 'string' ? next.linkedInUrl : profile.linkedInUrl;
+  profile.githubUrl = typeof next.githubUrl === 'string' ? next.githubUrl : profile.githubUrl;
   profile.resume = next.resume ?? profile.resume;
   profile.skills = Array.isArray(next.skills) ? next.skills : profile.skills;
   profile.interests = Array.isArray(next.interests) ? next.interests : profile.interests;
@@ -390,6 +413,7 @@ app.post('/api/ai/parse-resume', authRequired, async (req, res) => {
 });
 
 app.listen(port, () => {
+  pruneExpiredSessions();
   // eslint-disable-next-line no-console
   console.log(`CMU Research Match server listening on http://localhost:${port}`);
 });

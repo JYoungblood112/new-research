@@ -564,6 +564,63 @@ const MOCK_POSTINGS: ResearchPosting[] = [
   },
 ];
 
+function buildSeedApplications(postings: ResearchPosting[]): Application[] {
+  const applicants = [
+    {
+      studentId: 'seed_student_jonathan',
+      studentName: 'Jonathan Youngblood',
+      studentEmail: 'jyounb2@andrew.cmu.edu',
+      studentMajor: 'AI + Business',
+      quickNote: 'I am excited to contribute to this project and deepen my research skills.',
+      status: 'Shortlisted' as const,
+      resumeName: 'jonathan_youngblood_resume.pdf',
+      submittedAt: '2026-05-21T14:00:00.000Z',
+    },
+    {
+      studentId: 'seed_student_sarah',
+      studentName: 'Sarah Chen',
+      studentEmail: 'schen2@andrew.cmu.edu',
+      studentMajor: 'Computer Science',
+      quickNote: 'Strong interest in model development and empirical evaluation.',
+      status: 'Interview' as const,
+      resumeName: 'sarah_chen_resume.pdf',
+      submittedAt: '2026-05-19T10:30:00.000Z',
+    },
+    {
+      studentId: 'seed_student_alex',
+      studentName: 'Alex Rivera',
+      studentEmail: 'arivera@andrew.cmu.edu',
+      studentMajor: 'Information Systems',
+      quickNote: 'Motivated to grow in research and contribute to project execution.',
+      status: 'Pending' as const,
+      resumeName: 'alex_rivera_resume.pdf',
+      submittedAt: '2026-05-18T09:15:00.000Z',
+    },
+  ];
+
+  return postings.slice(0, 9).map((posting, index) => {
+    const seed = applicants[index % applicants.length];
+    return {
+      id: `seed_app_${posting.id}`,
+      postingId: posting.id,
+      studentId: `${seed.studentId}_${posting.id}`,
+      studentName: seed.studentName,
+      studentEmail: seed.studentEmail,
+      studentMajor: seed.studentMajor,
+      resume: {
+        name: seed.resumeName,
+        uploadDate: seed.submittedAt,
+      },
+      answers: {
+        'Why are you interested in this research project?': seed.quickNote,
+      },
+      quickNote: seed.quickNote,
+      status: seed.status,
+      submittedAt: seed.submittedAt,
+    };
+  });
+}
+
 const requireProjectApproval = import.meta.env.VITE_REQUIRE_PROJECT_APPROVAL === 'true';
 
 const PROFESSOR_BIO_URL_BY_EMAIL: Record<string, string> = {
@@ -613,7 +670,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const [applications, setApplications] = useState<Application[]>(() => {
     const saved = localStorage.getItem('applications');
-    return saved ? JSON.parse(saved) : [];
+    const seedApplications = buildSeedApplications(postings);
+
+    if (!saved) {
+      return seedApplications;
+    }
+
+    try {
+      const parsed = JSON.parse(saved) as Application[];
+      if (!Array.isArray(parsed)) {
+        return seedApplications;
+      }
+
+      const existingIds = new Set(parsed.map((application) => application.id));
+      const missingSeeds = seedApplications.filter((application) => !existingIds.has(application.id));
+      return [...parsed, ...missingSeeds];
+    } catch {
+      return seedApplications;
+    }
   });
 
   useEffect(() => {

@@ -59,6 +59,7 @@ interface StudentProfileProps {
   onSetupComplete?: () => void;
   includeInterestsSection?: boolean;
   setupSubmitLabel?: string;
+  onRegisterLeaveGuard?: (handler: () => Promise<boolean>) => void;
 }
 
 export default function StudentProfile({
@@ -66,6 +67,7 @@ export default function StudentProfile({
   onSetupComplete,
   includeInterestsSection = true,
   setupSubmitLabel,
+  onRegisterLeaveGuard,
 }: StudentProfileProps) {
   const { user, setupState, updateStudentProfile } = useAuth();
   const studentProfile = setupState?.profile as
@@ -74,6 +76,8 @@ export default function StudentProfile({
         photoBase64?: string;
         major?: string;
         graduationYear?: string;
+        linkedInUrl?: string;
+        githubUrl?: string;
         skills?: string[];
         interests?: string[];
         resume?: { name: string; uploadDate: string } | null;
@@ -84,6 +88,8 @@ export default function StudentProfile({
   const [displayEmail, setDisplayEmail] = useState(user?.email || '');
   const [major, setMajor] = useState(studentProfile?.major || '');
   const [year, setYear] = useState(studentProfile?.graduationYear || '');
+  const [linkedInUrl, setLinkedInUrl] = useState(studentProfile?.linkedInUrl || '');
+  const [githubUrl, setGithubUrl] = useState(studentProfile?.githubUrl || '');
   const [interests, setInterests] = useState(studentProfile?.interests || []);
   const [draftInterests, setDraftInterests] = useState(studentProfile?.interests || []);
   const [isEditingResearchInterests, setIsEditingResearchInterests] = useState(mode === 'setup');
@@ -101,6 +107,15 @@ export default function StudentProfile({
   const trimmedDisplayEmail = displayEmail.trim();
   const trimmedMajor = major.trim();
   const hasResume = Boolean(studentProfile?.resume || resumeFile);
+  const hasInvalidDisplayEmail = Boolean(trimmedDisplayEmail) && !isValidEmail(trimmedDisplayEmail);
+  const isSetupMode = mode === 'setup';
+  const isSetupFormReady =
+    Boolean(trimmedDisplayName) &&
+    Boolean(trimmedDisplayEmail) &&
+    !hasInvalidDisplayEmail &&
+    Boolean(trimmedMajor) &&
+    Boolean(year) &&
+    hasResume;
   const missingDisplayName = showValidationErrors && !trimmedDisplayName;
   const missingDisplayEmail = showValidationErrors && !trimmedDisplayEmail;
   const missingMajor = showValidationErrors && !trimmedMajor;
@@ -108,7 +123,6 @@ export default function StudentProfile({
   const shouldRequireInterests = includeInterestsSection;
   const missingInterests = shouldRequireInterests && showValidationErrors && interests.length === 0;
   const missingResume = showValidationErrors && !hasResume;
-  const hasInvalidDisplayEmail = Boolean(trimmedDisplayEmail) && !isValidEmail(trimmedDisplayEmail);
   const initials = (() => {
     const parts = (displayName || '')
       .trim()
@@ -326,6 +340,8 @@ export default function StudentProfile({
         photoBase64: photoBase64 ?? undefined,
         major: trimmedMajor || undefined,
         graduationYear: year || undefined,
+        linkedInUrl: linkedInUrl.trim() || undefined,
+        githubUrl: githubUrl.trim() || undefined,
         interests: includeInterestsSection ? interests : undefined,
         skills,
       });
@@ -340,7 +356,13 @@ export default function StudentProfile({
       }
       return true;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save profile');
+      const message = error instanceof Error ? error.message : 'Failed to save profile';
+      if (message.toLowerCase().includes('session expired') || message.toLowerCase() === 'unauthorized') {
+        toast.error('Your session expired. Please sign in again.');
+        window.location.assign('/');
+        return false;
+      }
+      toast.error(message);
       return false;
     }
   };
@@ -351,6 +373,8 @@ export default function StudentProfile({
     setPhotoBase64(studentProfile?.photoBase64 ?? null);
     setMajor(studentProfile?.major || '');
     setYear(studentProfile?.graduationYear || '');
+    setLinkedInUrl(studentProfile?.linkedInUrl || '');
+    setGithubUrl(studentProfile?.githubUrl || '');
     setInterests(studentProfile?.interests || []);
     setDraftInterests(studentProfile?.interests || []);
     setIsEditingResearchInterests(false);
@@ -368,6 +392,14 @@ export default function StudentProfile({
       onSetupComplete?.();
     }
   };
+
+  useEffect(() => {
+    if (!onRegisterLeaveGuard) {
+      return;
+    }
+
+    onRegisterLeaveGuard(handleSaveProfile);
+  }, [onRegisterLeaveGuard, handleSaveProfile]);
 
   const handleSaveResearchInterests = async () => {
     if (draftInterests.length < 1) {
@@ -478,7 +510,9 @@ export default function StudentProfile({
             <div className="flex-1 space-y-2 text-center md:text-left">
               <p className="text-xs font-medium uppercase tracking-[0.32em] text-[#8c8c8c]">Student Profile</p>
               <div>
-                <h2 className="text-3xl font-semibold tracking-tight text-[#111111]">Edit your profile</h2>
+                <h2 className="text-3xl font-semibold tracking-tight text-[#111111]">
+                  {mode === 'setup' ? 'Input Information' : 'Edit your profile'}
+                </h2>
                 <p className="mt-2 max-w-2xl text-sm text-[#6f6f6f]">
                   Keep your academic details current and maintain a resume ready for research applications.
                 </p>
@@ -571,6 +605,28 @@ export default function StudentProfile({
                   </SelectContent>
                 </Select>
                 {missingYear && <p className="mt-2 text-xs text-destructive">This field is required</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label className={labelClassName}>LinkedIn</Label>
+                <Input
+                  value={linkedInUrl}
+                  onChange={(e) => setLinkedInUrl(e.target.value)}
+                  disabled={isAiBusy}
+                  placeholder="https://www.linkedin.com/in/your-profile"
+                  className={inputClassName}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className={labelClassName}>GitHub</Label>
+                <Input
+                  value={githubUrl}
+                  onChange={(e) => setGithubUrl(e.target.value)}
+                  disabled={isAiBusy}
+                  placeholder="https://github.com/your-username"
+                  className={inputClassName}
+                />
               </div>
 
               {includeInterestsSection ? (
@@ -855,12 +911,12 @@ export default function StudentProfile({
 
       <div className="border-t border-[#ececec] bg-[#fcfcfc] px-6 py-4">
         <div className="mx-auto flex max-w-4xl items-center justify-end gap-3">
-          {mode === 'setup' ? (
+          {isSetupMode ? (
             <Button
               type="button"
               className="rounded-2xl bg-red-700 px-6 text-white shadow-[0_10px_20px_rgba(185,28,28,0.16)] hover:bg-red-800"
               onClick={handleSetupSubmit}
-              disabled={isAiBusy}
+              disabled={isAiBusy || !isSetupFormReady}
             >
               {setupSubmitLabel ?? 'Complete Setup'}
             </Button>

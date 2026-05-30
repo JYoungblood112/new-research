@@ -19,23 +19,6 @@ export default function StudentSetupPage() {
     }
   }, [navigate, onboardingDone, setupState?.completed]);
 
-  useEffect(() => {
-    const profile = setupState?.profile as
-      | {
-          major?: string;
-          graduationYear?: string;
-          resume?: { name: string; uploadDate: string } | null;
-        }
-      | undefined;
-
-    const hasBasicProfile = Boolean(profile?.major?.trim() && profile?.graduationYear);
-    const hasResume = Boolean(profile?.resume);
-
-    if (hasBasicProfile && hasResume && !onboardingDone) {
-      setStep('interests');
-    }
-  }, [onboardingDone, setupState?.profile]);
-
   const handleContinue = () => {
     if (!onboardingKey) {
       return;

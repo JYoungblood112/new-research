@@ -29,6 +29,8 @@ interface AuthContextType {
     photoBase64?: string;
     major?: string;
     graduationYear?: string;
+    linkedInUrl?: string;
+    githubUrl?: string;
     skills?: string[];
     interests?: string[];
     resume?: { name: string; uploadDate: string } | null;
@@ -94,6 +96,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     photoBase64?: string;
     major?: string;
     graduationYear?: string;
+    linkedInUrl?: string;
+    githubUrl?: string;
     skills?: string[];
     interests?: string[];
     resume?: { name: string; uploadDate: string } | null;

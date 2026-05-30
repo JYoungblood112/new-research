@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from 'react-router';
 import LoginPage from './pages/LoginPage';
 import SsoPage from './pages/SsoPage';
 import ProfessorDashboard from './pages/professor/ProfessorDashboard';
+import ApplicantReasoningPage from './pages/professor/ApplicantReasoningPage';
 import ProfessorProfilePage from './pages/professor/ProfessorProfilePage';
 import ProfessorSetupPage from './pages/professor/ProfessorSetupPage';
 import StudentDashboard from './pages/student/StudentDashboard';
@@ -71,6 +72,14 @@ export const router = createBrowserRouter([
     element: (
       <ProtectedRoute allowedRole="professor" requireSetupComplete>
         <ProfessorDashboard />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/professor/applicant-insights/:applicantId',
+    element: (
+      <ProtectedRoute allowedRole="professor" requireSetupComplete>
+        <ApplicantReasoningPage />
       </ProtectedRoute>
     ),
   },
