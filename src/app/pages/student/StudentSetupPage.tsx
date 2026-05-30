@@ -1,13 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
-import { Button } from '../../components/ui/button';
 import StudentProfile from '../../components/student/StudentProfile';
+import StudentResearchInterestsStep from '../../components/student/StudentResearchInterestsStep';
 
 export default function StudentSetupPage() {
   const { user, setupState } = useAuth();
   const navigate = useNavigate();
+  const [step, setStep] = useState<'profile' | 'interests'>('profile');
 
   const onboardingKey = user ? `student_onboarding_${user.id}` : null;
   const onboardingDone = onboardingKey ? localStorage.getItem(onboardingKey) === 'true' : false;
@@ -17,6 +18,23 @@ export default function StudentSetupPage() {
       navigate('/student/dashboard', { replace: true });
     }
   }, [navigate, onboardingDone, setupState?.completed]);
+
+  useEffect(() => {
+    const profile = setupState?.profile as
+      | {
+          major?: string;
+          graduationYear?: string;
+          resume?: { name: string; uploadDate: string } | null;
+        }
+      | undefined;
+
+    const hasBasicProfile = Boolean(profile?.major?.trim() && profile?.graduationYear);
+    const hasResume = Boolean(profile?.resume);
+
+    if (hasBasicProfile && hasResume && !onboardingDone) {
+      setStep('interests');
+    }
+  }, [onboardingDone, setupState?.profile]);
 
   const handleContinue = () => {
     if (!onboardingKey) {
@@ -31,19 +49,38 @@ export default function StudentSetupPage() {
       <main className="mx-auto max-w-5xl px-4 py-8">
         <Card className="mb-5 border-[#ead8ce] bg-[#f8f1ec] shadow-none">
           <CardHeader>
-            <CardTitle>Complete Your Setup</CardTitle>
+            <CardTitle>{step === 'profile' ? 'Complete Your Profile' : 'Choose Research Interests'}</CardTitle>
             <CardDescription>
-              Welcome {user?.name}. Please complete your profile and upload your resume before entering
-              the student portal.
+              {step === 'profile'
+                ? `Welcome ${user?.name}. First, complete your profile and upload your resume.`
+                : `Great progress, ${user?.name}. Now choose at least 1 sub-genre to continue.`}
             </CardDescription>
           </CardHeader>
           <CardContent className="text-sm text-[#8a4d3a]">
-            You only need to do this once. After setup is complete, the Profile page is for updating your
-            information.
+            Step {step === 'profile' ? '1 of 2' : '2 of 2'} - You only need this flow once. After setup,
+            you can edit everything from your profile page.
           </CardContent>
         </Card>
 
-        <StudentProfile mode="setup" onSetupComplete={handleContinue} />
+        {step === 'profile' ? (
+          <StudentProfile
+            mode="setup"
+            includeInterestsSection={false}
+            setupSubmitLabel="Next: Research Interests"
+            onSetupComplete={() => {
+              setStep('interests');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+        ) : (
+          <StudentResearchInterestsStep
+            onBack={() => {
+              setStep('profile');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onContinue={handleContinue}
+          />
+        )}
       </main>
     </div>
   );

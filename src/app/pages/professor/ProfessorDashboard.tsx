@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useData } from '../../contexts/DataContext';
+import { getStudentInterestCounts } from '../../lib/api';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { PlusCircle, LogOut, Eye } from 'lucide-react';
+import { PlusCircle, LogOut, Eye, Users } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import PostResearchDialog from '../../components/professor/PostResearchDialog';
 import ViewApplicationsDialog from '../../components/professor/ViewApplicationsDialog';
@@ -17,11 +18,32 @@ export default function ProfessorDashboard() {
   const [showPostDialog, setShowPostDialog] = useState(false);
   const [selectedPostingId, setSelectedPostingId] = useState<string | null>(null);
   const [editingPosting, setEditingPosting] = useState<any | null>(null);
+  const [interestCounts, setInterestCounts] = useState<Record<string, number>>({});
 
   const myPostings = getPostingsByProfessor(user!.id);
   const publishedPostings = myPostings.filter((p) => p.status === 'published');
   const pendingApprovalPostings = myPostings.filter((p) => p.status === 'pending_approval');
   const closedPostings = myPostings.filter((p) => p.status === 'closed');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void getStudentInterestCounts()
+      .then((payload) => {
+        if (!cancelled) {
+          setInterestCounts(payload.counts ?? {});
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setInterestCounts({});
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -118,6 +140,7 @@ export default function ProfessorDashboard() {
                 <PostingCard
                   key={posting.id}
                   posting={posting}
+                  interestedCount={interestCounts[normalizeInterestKey(posting.category)] ?? 0}
                   onViewApplications={handleViewApplications}
                   onEditPosting={(nextPosting) => {
                     setEditingPosting(nextPosting);
@@ -140,6 +163,7 @@ export default function ProfessorDashboard() {
                     <PostingCard
                       key={posting.id}
                       posting={posting}
+                      interestedCount={interestCounts[normalizeInterestKey(posting.category)] ?? 0}
                       onViewApplications={handleViewApplications}
                       onEditPosting={(nextPosting) => {
                         setEditingPosting(nextPosting);
@@ -162,6 +186,7 @@ export default function ProfessorDashboard() {
                     <PostingCard
                       key={posting.id}
                       posting={posting}
+                      interestedCount={interestCounts[normalizeInterestKey(posting.category)] ?? 0}
                       onViewApplications={handleViewApplications}
                       onEditPosting={(nextPosting) => {
                         setEditingPosting(nextPosting);
@@ -199,12 +224,21 @@ export default function ProfessorDashboard() {
   );
 }
 
+function normalizeInterestKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
 function PostingCard({
   posting,
+  interestedCount,
   onViewApplications,
   onEditPosting,
 }: {
   posting: any;
+  interestedCount: number;
   onViewApplications: (id: string) => void;
   onEditPosting: (posting: any) => void;
 }) {
@@ -242,6 +276,10 @@ function PostingCard({
             <span>Deadline: {new Date(posting.applicationDeadline).toLocaleDateString()}</span>
             <span>Applications: {applications.length}</span>
             <span>Compensation: {posting.compensation}</span>
+            <span className="inline-flex items-center gap-1">
+              <Users className="w-4 h-4" />
+              Potential interest: {interestedCount}
+            </span>
             {pendingCount > 0 && (
               <Badge variant="destructive" className="text-xs">
                 {pendingCount} new

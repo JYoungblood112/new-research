@@ -21,18 +21,68 @@ const CATEGORIES = [
   'Computer Vision',
   'Computational Biology',
   'Other',
-];
+].sort((a, b) => a.localeCompare(b));
 
-const COMPENSATION_OPTIONS = ['All', 'stipend', 'volunteer', 'course credit', 'tbd'] as const;
+const COMPENSATION_OPTIONS = ['All', 'course credit', 'stipend', 'tbd', 'volunteer'] as const;
+const COMPENSATION_LABELS: Record<(typeof COMPENSATION_OPTIONS)[number], string> = {
+  All: 'All Compensation Types',
+  'course credit': 'Course Credit',
+  stipend: 'Stipend',
+  tbd: 'To Be Determined',
+  volunteer: 'Volunteer',
+};
 const SORT_FIELDS = [
-  { value: 'createdAt', label: 'Date posted' },
   { value: 'applicationDeadline', label: 'Application deadline' },
+  { value: 'createdAt', label: 'Date posted' },
 ] as const;
 
 const SORT_ORDERS = [
   { value: 'desc', label: 'Newest / Latest first' },
   { value: 'asc', label: 'Oldest / Soonest first' },
 ] as const;
+
+function formatBrowseEndDate(duration: string, startDate: string) {
+  const parsedDurationDate = new Date(duration);
+  if (!Number.isNaN(parsedDurationDate.getTime())) {
+    return parsedDurationDate.toLocaleDateString();
+  }
+
+  const parsedStartDate = new Date(startDate);
+  if (Number.isNaN(parsedStartDate.getTime())) {
+    return duration;
+  }
+
+  const normalized = duration.toLowerCase();
+  const monthMatch = normalized.match(/(\d+)\s*month/);
+  const weekMatch = normalized.match(/(\d+)\s*week/);
+  let monthsToAdd = 0;
+
+  if (monthMatch) {
+    monthsToAdd = Number.parseInt(monthMatch[1], 10);
+  } else if (/2\s*semester/.test(normalized)) {
+    monthsToAdd = 8;
+  } else if (/1\s*semester/.test(normalized) || /\bsemester\b/.test(normalized)) {
+    monthsToAdd = 4;
+  } else if (/academic\s*year|\b1\s*year\b|12\s*month/.test(normalized)) {
+    monthsToAdd = 12;
+  } else if (/\b2\s*year\b|24\s*month/.test(normalized)) {
+    monthsToAdd = 24;
+  }
+
+  const estimatedEndDate = new Date(parsedStartDate);
+  if (monthsToAdd > 0) {
+    estimatedEndDate.setMonth(estimatedEndDate.getMonth() + monthsToAdd);
+    return estimatedEndDate.toLocaleDateString();
+  }
+
+  if (weekMatch) {
+    const weeksToAdd = Number.parseInt(weekMatch[1], 10);
+    estimatedEndDate.setDate(estimatedEndDate.getDate() + weeksToAdd * 7);
+    return estimatedEndDate.toLocaleDateString();
+  }
+
+  return parsedStartDate.toLocaleDateString();
+}
 
 export default function BrowseResearch() {
   const { postings } = useData();
@@ -122,7 +172,7 @@ export default function BrowseResearch() {
                 <SelectContent>
                   {COMPENSATION_OPTIONS.map((option) => (
                     <SelectItem key={option} value={option}>
-                      {option === 'All' ? 'All compensation types' : option}
+                      {COMPENSATION_LABELS[option]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -199,15 +249,19 @@ export default function BrowseResearch() {
           sortedPostings.map((posting) => (
             <Card key={posting.id} className="border-[#d0ceca] transition-shadow hover:shadow-md">
               <CardHeader>
+                {/** Show bio link only when a non-empty URL exists. */}
+                {(() => {
+                  const professorBioUrl = posting.professorBioUrl?.trim() ?? '';
+                  return (
                 <div className="flex items-start justify-between">
                   <div className="space-y-1">
                     <CardTitle>{posting.title}</CardTitle>
                     <CardDescription>
                       {posting.professorName} • {posting.professorDepartment}
                     </CardDescription>
-                    {posting.professorBioUrl ? (
+                    {professorBioUrl ? (
                       <a
-                        href={posting.professorBioUrl}
+                        href={professorBioUrl}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-800"
@@ -221,6 +275,8 @@ export default function BrowseResearch() {
                     {posting.category}
                   </Badge>
                 </div>
+                  );
+                })()}
               </CardHeader>
 
               <CardContent className="space-y-4">
@@ -234,7 +290,7 @@ export default function BrowseResearch() {
                   <div className="flex items-center gap-4 text-gray-600">
                     <div className="flex items-center gap-2">
                       <Clock className="h-4 w-4" />
-                      End date: {posting.duration}
+                      End date: {formatBrowseEndDate(posting.duration, posting.startDate)}
                     </div>
                     <div className="flex items-center gap-2">
                       <Calendar className="h-4 w-4" />
@@ -243,7 +299,7 @@ export default function BrowseResearch() {
                   </div>
                   <div className="flex items-center gap-2 text-gray-600">
                     <BadgeDollarSign className="h-4 w-4" />
-                    Compensation: {posting.compensation}
+                    Compensation: {COMPENSATION_LABELS[posting.compensation]}
                   </div>
                 </div>
 

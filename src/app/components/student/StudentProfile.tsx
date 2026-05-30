@@ -2,6 +2,7 @@ import { Camera, CheckCircle, FileText, Loader2, Upload, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseResumeWithAi } from '../../lib/api';
+import { RESEARCH_SUBJECT_GROUPS } from '../../lib/researchTaxonomy';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -46,6 +47,8 @@ const SKILL_SUGGESTIONS = [
   'Statistics',
 ];
 
+const RESEARCH_INTEREST_GROUPS = RESEARCH_SUBJECT_GROUPS;
+
 type ResumeFileState = {
   name: string;
   base64: string;
@@ -54,9 +57,16 @@ type ResumeFileState = {
 interface StudentProfileProps {
   mode?: 'edit' | 'setup';
   onSetupComplete?: () => void;
+  includeInterestsSection?: boolean;
+  setupSubmitLabel?: string;
 }
 
-export default function StudentProfile({ mode = 'edit', onSetupComplete }: StudentProfileProps) {
+export default function StudentProfile({
+  mode = 'edit',
+  onSetupComplete,
+  includeInterestsSection = true,
+  setupSubmitLabel,
+}: StudentProfileProps) {
   const { user, setupState, updateStudentProfile } = useAuth();
   const studentProfile = setupState?.profile as
     | {
@@ -74,6 +84,10 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
   const [displayEmail, setDisplayEmail] = useState(user?.email || '');
   const [major, setMajor] = useState(studentProfile?.major || '');
   const [year, setYear] = useState(studentProfile?.graduationYear || '');
+  const [interests, setInterests] = useState(studentProfile?.interests || []);
+  const [draftInterests, setDraftInterests] = useState(studentProfile?.interests || []);
+  const [isEditingResearchInterests, setIsEditingResearchInterests] = useState(mode === 'setup');
+  const [customInterestInput, setCustomInterestInput] = useState('');
   const [skills, setSkills] = useState(studentProfile?.skills || []);
   const [skillInput, setSkillInput] = useState('');
   const [debouncedSkillInput, setDebouncedSkillInput] = useState('');
@@ -91,6 +105,8 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
   const missingDisplayEmail = showValidationErrors && !trimmedDisplayEmail;
   const missingMajor = showValidationErrors && !trimmedMajor;
   const missingYear = showValidationErrors && !year;
+  const shouldRequireInterests = includeInterestsSection;
+  const missingInterests = shouldRequireInterests && showValidationErrors && interests.length === 0;
   const missingResume = showValidationErrors && !hasResume;
   const hasInvalidDisplayEmail = Boolean(trimmedDisplayEmail) && !isValidEmail(trimmedDisplayEmail);
   const initials = (() => {
@@ -114,6 +130,8 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
   const tagInputRef = useRef<HTMLDivElement | null>(null);
   const isAiBusy = aiAction !== null;
   const normalizedSkillSet = new Set(skills.map((skill) => skill.toLowerCase()));
+  const normalizedInterestSet = new Set(interests.map((interest) => interest.toLowerCase()));
+  const normalizedDraftInterestSet = new Set(draftInterests.map((interest) => interest.toLowerCase()));
   const filteredSuggestions = SKILL_SUGGESTIONS.filter((suggestion) => {
     if (!debouncedSkillInput.trim()) {
       return !normalizedSkillSet.has(suggestion.toLowerCase());
@@ -166,6 +184,64 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
 
   const removeSkill = (skillToRemove: string) => {
     setSkills((current) => current.filter((skill) => skill !== skillToRemove));
+  };
+
+  const toggleInterest = (subject: string) => {
+    setInterests((current) => {
+      const exists = current.some((interest) => interest.toLowerCase() === subject.toLowerCase());
+      if (exists) {
+        return current.filter((interest) => interest.toLowerCase() !== subject.toLowerCase());
+      }
+      return [...current, subject];
+    });
+  };
+
+  const removeInterest = (interestToRemove: string) => {
+    setInterests((current) => current.filter((interest) => interest !== interestToRemove));
+  };
+
+  const toggleDraftInterest = (subject: string) => {
+    setDraftInterests((current) => {
+      const exists = current.some((interest) => interest.toLowerCase() === subject.toLowerCase());
+      if (exists) {
+        return current.filter((interest) => interest.toLowerCase() !== subject.toLowerCase());
+      }
+      return [...current, subject];
+    });
+  };
+
+  const removeDraftInterest = (interestToRemove: string) => {
+    setDraftInterests((current) => current.filter((interest) => interest !== interestToRemove));
+  };
+
+  const addCustomInterest = () => {
+    const next = customInterestInput.trim();
+    if (!next) {
+      return;
+    }
+
+    setInterests((current) => {
+      if (current.some((interest) => interest.toLowerCase() === next.toLowerCase())) {
+        return current;
+      }
+      return [...current, next];
+    });
+    setCustomInterestInput('');
+  };
+
+  const addCustomDraftInterest = () => {
+    const next = customInterestInput.trim();
+    if (!next) {
+      return;
+    }
+
+    setDraftInterests((current) => {
+      if (current.some((interest) => interest.toLowerCase() === next.toLowerCase())) {
+        return current;
+      }
+      return [...current, next];
+    });
+    setCustomInterestInput('');
   };
 
   const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -230,6 +306,7 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
     if (!trimmedDisplayEmail) missingRequiredFields.push('Email');
     if (!trimmedMajor) missingRequiredFields.push('Major');
     if (!year) missingRequiredFields.push('Academic Year');
+    if (shouldRequireInterests && interests.length === 0) missingRequiredFields.push('Research Interests');
     if (!hasResume) missingRequiredFields.push('Resume');
 
     if (missingRequiredFields.length > 0) {
@@ -249,11 +326,18 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
         photoBase64: photoBase64 ?? undefined,
         major: trimmedMajor || undefined,
         graduationYear: year || undefined,
+        interests: includeInterestsSection ? interests : undefined,
         skills,
       });
       setResumeFormatError(false);
       setShowValidationErrors(false);
-      toast.success(mode === 'setup' ? 'Setup completed successfully!' : 'Profile updated successfully!');
+      if (mode === 'setup') {
+        toast.success(
+          includeInterestsSection ? 'Setup completed successfully!' : 'Profile saved. Continue to research interests.'
+        );
+      } else {
+        toast.success('Profile updated successfully!');
+      }
       return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save profile');
@@ -267,6 +351,10 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
     setPhotoBase64(studentProfile?.photoBase64 ?? null);
     setMajor(studentProfile?.major || '');
     setYear(studentProfile?.graduationYear || '');
+    setInterests(studentProfile?.interests || []);
+    setDraftInterests(studentProfile?.interests || []);
+    setIsEditingResearchInterests(false);
+    setCustomInterestInput('');
     setSkills(studentProfile?.skills || []);
     setSkillInput('');
     setDebouncedSkillInput('');
@@ -281,6 +369,29 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
     }
   };
 
+  const handleSaveResearchInterests = async () => {
+    if (draftInterests.length < 1) {
+      toast.error('Please choose at least 1 sub-genre to continue.');
+      return;
+    }
+
+    try {
+      await updateStudentProfile({ interests: draftInterests });
+      setInterests(draftInterests);
+      setIsEditingResearchInterests(false);
+      setCustomInterestInput('');
+      toast.success('Research interests saved.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save research interests');
+    }
+  };
+
+  const handleCancelResearchInterests = () => {
+    setDraftInterests(interests);
+    setCustomInterestInput('');
+    setIsEditingResearchInterests(false);
+  };
+
   const handleSkillKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter' || event.key === ',') {
       event.preventDefault();
@@ -290,6 +401,20 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
     if (event.key === 'Backspace' && !skillInput && skills.length > 0) {
       event.preventDefault();
       removeSkill(skills[skills.length - 1]);
+    }
+  };
+
+  const handleInterestKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' || event.key === ',') {
+      event.preventDefault();
+      addCustomInterest();
+    }
+  };
+
+  const handleDraftInterestKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' || event.key === ',') {
+      event.preventDefault();
+      addCustomDraftInterest();
     }
   };
 
@@ -448,6 +573,168 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
                 {missingYear && <p className="mt-2 text-xs text-destructive">This field is required</p>}
               </div>
 
+              {includeInterestsSection ? (
+                <div className="space-y-2 md:col-span-2">
+                  <Label className={labelClassName}>Research Interests <span className="text-red-700">*</span></Label>
+                  <p className="text-xs text-[#8a8a8a]">
+                    Select all research areas you are interested in. You can update this anytime.
+                  </p>
+
+                  {mode === 'edit' && !isEditingResearchInterests ? (
+                    <div
+                      className={`cursor-pointer rounded-2xl border p-4 ${missingInterests ? 'border-destructive/80' : 'border-[#d9d9d9]'}`}
+                      onClick={() => {
+                        setDraftInterests(interests);
+                        setCustomInterestInput('');
+                        setIsEditingResearchInterests(true);
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setDraftInterests(interests);
+                          setCustomInterestInput('');
+                          setIsEditingResearchInterests(true);
+                        }
+                      }}
+                    >
+                      {interests.length > 0 ? (
+                        <div className="mb-4 flex flex-wrap gap-2">
+                          {interests.map((interest) => (
+                            <span
+                              key={interest}
+                              className="inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-700"
+                            >
+                              {interest}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mb-4 text-sm text-[#7a7a7a]">No research interests saved yet.</p>
+                      )}
+
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="rounded-2xl border-[#d8d8d8] bg-white px-4 text-[#575757] hover:bg-[#f7f7f7] hover:text-[#111111]"
+                          onClick={() => {
+                            setDraftInterests(interests);
+                            setCustomInterestInput('');
+                            setIsEditingResearchInterests(true);
+                          }}
+                          disabled={isAiBusy}
+                        >
+                          Edit Research Interests
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={`rounded-2xl border p-4 ${missingInterests ? 'border-destructive/80' : 'border-[#d9d9d9]'}`}>
+                      {(mode === 'edit' ? draftInterests : interests).length > 0 && (
+                        <div className="mb-4 flex flex-wrap gap-2">
+                          {(mode === 'edit' ? draftInterests : interests).map((interest) => (
+                            <span
+                              key={interest}
+                              className="inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-700"
+                            >
+                              {interest}
+                              <button
+                                type="button"
+                                className="text-red-500 transition-colors hover:text-red-700"
+                                onClick={() =>
+                                  mode === 'edit' ? removeDraftInterest(interest) : removeInterest(interest)
+                                }
+                                disabled={isAiBusy}
+                                aria-label={`Remove ${interest}`}
+                              >
+                                <X className="size-3.5" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="mb-4 flex gap-2">
+                        <Input
+                          value={customInterestInput}
+                          onChange={(e) => setCustomInterestInput(e.target.value)}
+                          onKeyDown={mode === 'edit' ? handleDraftInterestKeyDown : handleInterestKeyDown}
+                          placeholder="Add custom interest (e.g. Health AI)"
+                          className="h-10 rounded-xl"
+                          disabled={isAiBusy}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={mode === 'edit' ? addCustomDraftInterest : addCustomInterest}
+                          disabled={isAiBusy}
+                        >
+                          Add
+                        </Button>
+                      </div>
+
+                      <div className="space-y-4">
+                        {RESEARCH_INTEREST_GROUPS.map((group) => (
+                          <div key={group.title} className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7b7b7b]">{group.title}</p>
+                            <div className="flex flex-wrap gap-2">
+                              {group.subjects.map((subject) => {
+                                const selected = mode === 'edit'
+                                  ? normalizedDraftInterestSet.has(subject.toLowerCase())
+                                  : normalizedInterestSet.has(subject.toLowerCase());
+                                return (
+                                  <button
+                                    key={subject}
+                                    type="button"
+                                    onClick={() =>
+                                      mode === 'edit' ? toggleDraftInterest(subject) : toggleInterest(subject)
+                                    }
+                                    className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                                      selected
+                                        ? 'border-red-600 bg-red-600 text-white'
+                                        : 'border-[#d2d2d2] bg-[#f8f8f8] text-[#3f3f3f] hover:bg-red-50 hover:border-red-300'
+                                    }`}
+                                    disabled={isAiBusy}
+                                  >
+                                    {subject}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {mode === 'edit' ? (
+                        <div className="mt-4 flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-2xl border-[#d8d8d8] bg-white px-4 text-[#575757] hover:bg-[#f7f7f7] hover:text-[#111111]"
+                            onClick={handleCancelResearchInterests}
+                            disabled={isAiBusy}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            className="rounded-2xl bg-red-700 px-4 text-white hover:bg-red-800"
+                            onClick={handleSaveResearchInterests}
+                            disabled={isAiBusy}
+                          >
+                            Save Research Interests
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+
+                  {missingInterests && <p className="mt-2 text-xs text-destructive">This field is required</p>}
+                </div>
+              ) : null}
+
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="skills" className={labelClassName}>
                   Skills
@@ -575,7 +862,7 @@ export default function StudentProfile({ mode = 'edit', onSetupComplete }: Stude
               onClick={handleSetupSubmit}
               disabled={isAiBusy}
             >
-              Complete Setup
+              {setupSubmitLabel ?? 'Complete Setup'}
             </Button>
           ) : (
             <>

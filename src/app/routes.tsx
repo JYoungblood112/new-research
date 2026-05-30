@@ -7,8 +7,7 @@ import ProfessorSetupPage from './pages/professor/ProfessorSetupPage';
 import StudentDashboard from './pages/student/StudentDashboard';
 import StudentResearchDetailPage from './pages/student/StudentResearchDetailPage';
 import StudentSetupPage from './pages/student/StudentSetupPage';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { DataProvider } from './contexts/DataContext';
+import { useAuth } from './contexts/AuthContext';
 
 function ProtectedRoute({
   children,
@@ -62,97 +61,65 @@ function ProtectedRoute({
   return <>{children}</>;
 }
 
-function Root({ children }: { children: React.ReactNode }) {
-  return (
-    <AuthProvider>
-      <DataProvider>{children}</DataProvider>
-    </AuthProvider>
-  );
-}
-
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: (
-      <Root>
-        <LoginPage />
-      </Root>
-    ),
+    element: <LoginPage />,
   },
   {
     path: '/professor/dashboard',
     element: (
-      <Root>
-        <ProtectedRoute allowedRole="professor" requireSetupComplete>
-          <ProfessorDashboard />
-        </ProtectedRoute>
-      </Root>
+      <ProtectedRoute allowedRole="professor" requireSetupComplete>
+        <ProfessorDashboard />
+      </ProtectedRoute>
     ),
   },
   {
     path: '/professor/setup',
     element: (
-      <Root>
-        <ProtectedRoute allowedRole="professor">
-          <ProfessorSetupPage />
-        </ProtectedRoute>
-      </Root>
+      <ProtectedRoute allowedRole="professor">
+        <ProfessorSetupPage />
+      </ProtectedRoute>
     ),
   },
   {
     path: '/professor/profile',
     element: (
-      <Root>
-        <ProtectedRoute allowedRole="professor" requireSetupComplete>
-          <ProfessorProfilePage />
-        </ProtectedRoute>
-      </Root>
+      <ProtectedRoute allowedRole="professor" requireSetupComplete>
+        <ProfessorProfilePage />
+      </ProtectedRoute>
     ),
   },
   {
     path: '/sso',
-    element: (
-      <Root>
-        <SsoPage />
-      </Root>
-    ),
+    element: <SsoPage />,
   },
   {
     path: '/student/dashboard',
     element: (
-      <Root>
-        <ProtectedRoute allowedRole="student" requireSetupComplete>
-          <StudentDashboard />
-        </ProtectedRoute>
-      </Root>
+      <ProtectedRoute allowedRole="student" requireSetupComplete>
+        <StudentDashboard />
+      </ProtectedRoute>
     ),
   },
   {
     path: '/student/setup',
     element: (
-      <Root>
-        <ProtectedRoute allowedRole="student">
-          <StudentSetupPage />
-        </ProtectedRoute>
-      </Root>
+      <ProtectedRoute allowedRole="student">
+        <StudentSetupPage />
+      </ProtectedRoute>
     ),
   },
   {
     path: '/student/research/:postingId',
     element: (
-      <Root>
-        <ProtectedRoute allowedRole="student" requireSetupComplete>
-          <StudentResearchDetailPage />
-        </ProtectedRoute>
-      </Root>
+      <ProtectedRoute allowedRole="student" requireSetupComplete>
+        <StudentResearchDetailPage />
+      </ProtectedRoute>
     ),
   },
   {
     path: '*',
-    element: (
-      <Root>
-        <Navigate to="/" replace />
-      </Root>
-    ),
+    element: <Navigate to="/" replace />,
   },
 ]);

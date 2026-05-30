@@ -43,8 +43,28 @@ export default function SsoPage() {
         } as const;
 
         const profile = profileByRole[role];
-        const user = await login(profile.email, profile.name, role);
-        navigate(user.role === 'professor' ? '/professor/dashboard' : '/student/dashboard');
+        const { user, setup } = await login(profile.email, profile.name, role);
+
+        // First-time users should land in setup first. Returning users are sent to dashboard.
+        const studentOnboardingDone =
+          user.role === 'student' && localStorage.getItem(`student_onboarding_${user.id}`) === 'true';
+        const professorOnboardingDone =
+          user.role === 'professor' && localStorage.getItem(`professor_onboarding_${user.id}`) === 'true';
+
+        if (user.role === 'student') {
+          navigate(
+            setup.completed && studentOnboardingDone ? '/student/dashboard' : '/student/setup',
+            { replace: true }
+          );
+          return;
+        }
+
+        navigate(
+          setup.completed && professorOnboardingDone
+            ? '/professor/dashboard'
+            : '/professor/setup',
+          { replace: true }
+        );
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'SSO redirect failed');
         navigate('/');

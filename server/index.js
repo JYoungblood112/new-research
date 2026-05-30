@@ -37,8 +37,8 @@ function getSetupState(store, user) {
       !!profile.major?.trim() &&
       !!profile.graduationYear?.trim() &&
       !!profile.resume?.name &&
-      Array.isArray(profile.skills) &&
-      profile.skills.length > 0;
+      Array.isArray(profile.interests) &&
+      profile.interests.length > 0;
 
     return {
       completed,
@@ -46,7 +46,7 @@ function getSetupState(store, user) {
       steps: {
         basic: !!profile?.name?.trim() && !!profile?.major?.trim() && !!profile?.graduationYear?.trim(),
         resume: !!profile?.resume?.name,
-        skills: Array.isArray(profile?.skills) && profile.skills.length > 0,
+        interests: Array.isArray(profile?.interests) && profile.interests.length > 0,
       },
     };
   }
@@ -91,6 +91,13 @@ function getResumePrompt(mode) {
 
 function stripJsonFences(text) {
   return text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+}
+
+function normalizeInterestKey(value) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
 }
 
 function normalizeSkills(skills) {
@@ -326,6 +333,34 @@ app.put('/api/setup/professor', authRequired, (req, res) => {
 
   writeStore(store);
   return res.json({ setup: getSetupState(store, user) });
+});
+
+app.get('/api/insights/student-interest-counts', authRequired, (req, res) => {
+  const store = readStore();
+  const user = store.users.find((u) => u.id === req.sessionUserId);
+  if (!user || user.role !== 'professor') {
+    return res.status(403).json({ error: 'Professor role required.' });
+  }
+
+  const counts = {};
+
+  for (const profile of store.studentProfiles) {
+    const uniqueInterests = new Set(
+      (Array.isArray(profile.interests) ? profile.interests : [])
+        .filter((interest) => typeof interest === 'string')
+        .map((interest) => normalizeInterestKey(interest))
+        .filter(Boolean)
+    );
+
+    for (const interest of uniqueInterests) {
+      counts[interest] = (counts[interest] ?? 0) + 1;
+    }
+  }
+
+  return res.json({
+    counts,
+    totalStudents: store.studentProfiles.length,
+  });
 });
 
 app.post('/api/ai/parse-resume', authRequired, async (req, res) => {

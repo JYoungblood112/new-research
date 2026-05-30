@@ -7,6 +7,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../..
 import { LogOut, ArrowLeft, ExternalLink } from 'lucide-react';
 import ApplyToResearchDialog from '../../components/student/ApplyToResearchDialog';
 
+const COMPENSATION_LABELS = {
+  stipend: 'Stipend',
+  volunteer: 'Volunteer',
+  'course credit': 'Course Credit',
+  tbd: 'To Be Determined',
+} as const;
+
 export default function StudentResearchDetailPage() {
   const { postingId } = useParams();
   const navigate = useNavigate();
@@ -118,7 +125,7 @@ export default function StudentResearchDetailPage() {
                   </div>
                   <div className="rounded-md p-2 transition-colors duration-150 hover:bg-white/95">
                     <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Compensation</p>
-                    <p className="text-[13px] font-medium capitalize text-foreground">{posting.compensation}</p>
+                    <p className="text-[13px] font-medium text-foreground">{COMPENSATION_LABELS[posting.compensation]}</p>
                   </div>
                 </div>
               </div>

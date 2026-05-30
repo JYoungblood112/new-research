@@ -36,6 +36,7 @@ export type SetupState = {
     basic: boolean;
     resume?: boolean;
     skills?: boolean;
+    interests?: boolean;
     contact?: boolean;
   };
 };
@@ -125,4 +126,8 @@ export async function parseResumeWithAi(payload: {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+
+export async function getStudentInterestCounts(): Promise<{ counts: Record<string, number>; totalStudents: number }> {
+  return request('/api/insights/student-interest-counts');
 }

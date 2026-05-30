@@ -32,7 +32,9 @@
       "skills": [
         "nk"
       ],
-      "interests": [],
+      "interests": [
+        "Innovation Management"
+      ],
       "resume": {
         "name": "research.pdf",
         "uploadDate": "2026-05-28T08:14:30.426Z"

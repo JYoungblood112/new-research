@@ -25,6 +25,7 @@ export interface ResearchPosting {
   applicationDeadline: string;
   compensation: 'stipend' | 'volunteer' | 'course credit' | 'tbd';
   questions: ApplicationQuestion[];
+  quickNoteEnabled?: boolean;
   createdAt: string;
   status: 'published' | 'pending_approval' | 'closed';
 }

@@ -16,7 +16,11 @@ interface AuthContextType {
   user: User | null;
   setupState: SetupState | null;
   loadingSession: boolean;
-  login: (email: string, name: string, role: UserRole) => Promise<User>;
+  login: (
+    email: string,
+    name: string,
+    role: UserRole
+  ) => Promise<{ user: User; setup: SetupState }>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   updateStudentProfile: (profile: {
@@ -64,11 +68,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refreshSession();
   }, []);
 
-  async function login(email: string, name: string, role: UserRole): Promise<User> {
+  async function login(
+    email: string,
+    name: string,
+    role: UserRole
+  ): Promise<{ user: User; setup: SetupState }> {
     const data = await stubSsoLogin({ email, name, role });
     setUser(data.user);
     setSetupState(data.setup);
-    return data.user;
+    return { user: data.user, setup: data.setup };
   }
 
   async function logout(): Promise<void> {

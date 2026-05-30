@@ -38,6 +38,7 @@ export default function ApplyToResearchDialog({
 
   const existingApplications = getApplicationsByStudent(user!.id);
   const alreadyApplied = existingApplications.some((app) => app.postingId === postingId);
+  const quickNoteEnabled = posting?.quickNoteEnabled ?? true;
 
   const handleSubmit = () => {
     if (!setupState?.completed || !studentProfile?.resume) {
@@ -78,7 +79,7 @@ export default function ApplyToResearchDialog({
         name: resumeNameOverride ?? studentProfile!.resume!.name,
       },
       answers: posting?.questions ? answers : undefined,
-      quickNote: note.trim(),
+      quickNote: quickNoteEnabled ? note.trim() : '',
       status: 'Pending',
     });
 
@@ -205,15 +206,17 @@ export default function ApplyToResearchDialog({
                 </div>
               )}
 
-              <div className="space-y-2">
-                <Label>Quick Note to Professor (optional)</Label>
-                <Textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Briefly explain your fit and motivation for this project."
-                  rows={3}
-                />
-              </div>
+              {quickNoteEnabled ? (
+                <div className="space-y-2">
+                  <Label>Quick Note to Professor (optional)</Label>
+                  <Textarea
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Briefly explain your fit and motivation for this project."
+                    rows={3}
+                  />
+                </div>
+              ) : null}
 
               <div className="flex justify-end gap-2 pt-4">
                 <Button variant="outline" onClick={() => onOpenChange(false)}>
