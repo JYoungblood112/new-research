@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
+  AlertCircle,
   BarChart3,
   Bell,
   Briefcase,
   Calendar,
+  CheckCircle,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -23,6 +25,7 @@ import {
   Sparkles,
   UserCircle,
   Users,
+  XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -32,6 +35,7 @@ import { getStudentInterestCounts } from '../../lib/api';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { Avatar, AvatarFallback } from '../../components/ui/avatar';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
@@ -39,6 +43,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/ta
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../components/ui/sheet';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Switch } from '../../components/ui/switch';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../components/ui/dropdown-menu';
 
 import PostResearchDialog from '../../components/professor/PostResearchDialog';
 import ResearchImpactPipeline from '../../components/professor/ResearchImpactPipeline';
@@ -58,13 +63,11 @@ type MessageFolder = 'inbox' | 'sent' | 'archived';
 
 const NAV_ITEMS: Array<{ key: SectionKey; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { key: 'opportunities', label: 'Research Opportunities', icon: Briefcase },
   { key: 'applicants', label: 'Applicants', icon: Users },
+  { key: 'opportunities', label: 'Research Opportunities', icon: Briefcase },
   { key: 'messages', label: 'Messages', icon: MessageSquare },
-  { key: 'lab-profile', label: 'Lab Profile', icon: UserCircle },
-  { key: 'impact', label: 'Research Impact Pipeline', icon: Sparkles },
   { key: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { key: 'settings', label: 'Settings', icon: Settings },
+  { key: 'lab-profile', label: 'Lab Profile', icon: UserCircle },
 ];
 
 const TREND_DATA = [42, 46, 40, 53, 61, 58, 67];
@@ -134,9 +137,251 @@ function buildAiInsights(score: number) {
   };
 }
 
+type RequirementStatus = 'met' | 'partial' | 'missing';
+
+type StudentEvidenceProfile = {
+  skills: string[];
+  coursework: string[];
+  githubRepos: Array<{ name: string; description: string }>;
+  personalStatement: string;
+};
+
+const STUDENT_EVIDENCE_OVERRIDES: Record<string, StudentEvidenceProfile> = {
+  mock_app_1: {
+    skills: ['Python', 'ML', 'SQL', 'Research Writing', 'Pandas'],
+    coursework: [
+      '10-601 Machine Learning',
+      '15-210 Parallel and Sequential Data Structures',
+      '10-315 Introduction to Computer Vision',
+    ],
+    githubRepos: [
+      {
+        name: 'ml-research-portfolio',
+        description: 'Model benchmarking and experiment tracking toolkit built in Python.',
+      },
+      {
+        name: 'llm-eval-lab',
+        description: 'Evaluation scripts for instruction-tuned models on scientific text tasks.',
+      },
+    ],
+    personalStatement:
+      'I want to join this lab to apply machine learning to real, high-impact research problems while growing my experimental design and publication skills.',
+  },
+  mock_app_2: {
+    skills: ['Python', 'Computer Vision', 'PyTorch', 'Experiment Design'],
+    coursework: ['10-315 Introduction to Computer Vision', '10-601 Machine Learning', '21-325 Probability'],
+    githubRepos: [
+      {
+        name: 'satellite-self-supervision',
+        description: 'Self-supervised pretraining experiments for multi-spectral satellite imagery.',
+      },
+    ],
+    personalStatement:
+      'I am interested in reproducible computer vision research and careful error analysis for remote sensing systems.',
+  },
+  mock_app_3: {
+    skills: ['Python', 'UX Research', 'Data Analysis'],
+    coursework: ['05-410 User-Centered Research and Evaluation', '36-401 Modern Regression'],
+    githubRepos: [
+      {
+        name: 'adaptive-learning-ui',
+        description: 'Interface experiments for novice programmers with analytics dashboards.',
+      },
+    ],
+    personalStatement:
+      'I want to strengthen my research foundations and learn to run structured studies that improve first-time learner outcomes.',
+  },
+};
+
+function getStudentEvidenceProfile(application: Application): StudentEvidenceProfile {
+  const override = STUDENT_EVIDENCE_OVERRIDES[application.id];
+  if (override) {
+    return override;
+  }
+
+  const major = application.studentMajor.toLowerCase();
+  const statement = application.quickNote?.trim() || 'Interested in applying coursework to research deliverables.';
+
+  if (major.includes('computer') || major.includes('ai')) {
+    return {
+      skills: ['Python', 'Machine Learning', 'Data Analysis'],
+      coursework: ['10-601 Machine Learning', '15-210 Parallel and Sequential Data Structures'],
+      githubRepos: [
+        {
+          name: 'research-ml-tooling',
+          description: 'Python notebooks and scripts for model training, evaluation, and reporting.',
+        },
+      ],
+      personalStatement: statement,
+    };
+  }
+
+  return {
+    skills: ['Python', 'Data Analysis', 'Research Communication'],
+    coursework: ['36-401 Modern Regression', '70-311 Organizational Design and Implementation'],
+    githubRepos: [
+      {
+        name: 'research-workflow-notes',
+        description: 'Project organization templates and experimental writeups for course research.',
+      },
+    ],
+    personalStatement: statement,
+  };
+}
+
+function parseRequirementList(requirements?: string, fallback?: string[]) {
+  const parsed = (requirements ?? '')
+    .split(/\n|;|\.|\|/)
+    .map((entry) => entry.replace(/^[-*\d)\s]+/, '').trim())
+    .filter((entry) => entry.length >= 4);
+
+  if (parsed.length > 0) {
+    return parsed;
+  }
+
+  return fallback ?? [];
+}
+
+function getStatusDisplay(status: RequirementStatus) {
+  if (status === 'met') {
+    return {
+      Icon: CheckCircle,
+      iconClass: 'text-emerald-600',
+      chipClass: 'border border-emerald-200 bg-emerald-50 text-emerald-700',
+      label: 'Met',
+    };
+  }
+
+  if (status === 'partial') {
+    return {
+      Icon: AlertCircle,
+      iconClass: 'text-amber-600',
+      chipClass: 'border border-amber-200 bg-amber-50 text-amber-700',
+      label: 'Partial',
+    };
+  }
+
+  return {
+    Icon: XCircle,
+    iconClass: 'text-red-600',
+    chipClass: 'border border-red-200 bg-red-50 text-red-700',
+    label: 'Missing',
+  };
+}
+
+function analyzeRequirement(
+  requirement: string,
+  profile: StudentEvidenceProfile,
+  application: Application
+): { requirement: string; status: RequirementStatus; assessment: string } {
+  const req = requirement.toLowerCase();
+  const major = application.studentMajor;
+  const statement = profile.personalStatement;
+  const resumeName = application.resume.name;
+
+  const skillMatches = profile.skills.filter((skill) => req.includes(skill.toLowerCase()));
+  const courseMatches = profile.coursework.filter((course) => {
+    const normalized = course.toLowerCase();
+    return (
+      (req.includes('machine learning') && (normalized.includes('machine learning') || normalized.includes('10-601'))) ||
+      (req.includes('python') && normalized.includes('program')) ||
+      (req.includes('vision') && normalized.includes('vision')) ||
+      (req.includes('stat') && (normalized.includes('regression') || normalized.includes('probability'))) ||
+      (req.includes('research') && normalized.includes('research'))
+    );
+  });
+
+  const repoMatches = profile.githubRepos.filter((repo) => {
+    const text = `${repo.name} ${repo.description}`.toLowerCase();
+    return (
+      (req.includes('python') && text.includes('python')) ||
+      (req.includes('ml') && (text.includes('model') || text.includes('machine'))) ||
+      (req.includes('research') && text.includes('experiment')) ||
+      (req.includes('data') && text.includes('data')) ||
+      (req.includes('vision') && text.includes('vision'))
+    );
+  });
+
+  const mentionsPublication = req.includes('publication') || req.includes('published work') || req.includes('paper');
+  if (mentionsPublication) {
+    return {
+      requirement,
+      status: 'missing',
+      assessment: `No publications are listed in ${resumeName}; recommend asking for preprints or writing samples if publication experience is required.`,
+    };
+  }
+
+  const hasStrongEvidence = skillMatches.length > 0 || courseMatches.length > 0 || repoMatches.length > 0;
+  const hasIntentSignal = /research|experiment|independent|study|publication/i.test(statement);
+
+  if (hasStrongEvidence) {
+    const evidenceParts: string[] = [];
+    if (skillMatches.length > 0) {
+      evidenceParts.push(`skills (${skillMatches.join(', ')})`);
+    }
+    if (courseMatches.length > 0) {
+      evidenceParts.push(`coursework (${courseMatches.slice(0, 2).join(', ')})`);
+    }
+    if (repoMatches.length > 0) {
+      evidenceParts.push(`GitHub (${repoMatches[0].name})`);
+    }
+
+    return {
+      requirement,
+      status: 'met',
+      assessment: `Demonstrated through ${evidenceParts.join('; ')}. Resume file ${resumeName} and statement align with this requirement for ${major}.`,
+    };
+  }
+
+  if (hasIntentSignal || req.includes('research') || req.includes('experience')) {
+    return {
+      requirement,
+      status: 'partial',
+      assessment: `No direct credential listed, but the personal statement references ${statement.toLowerCase()} and suggests transferable research habits from project-based work.`,
+    };
+  }
+
+  return {
+    requirement,
+    status: 'missing',
+    assessment: `This requirement is not explicitly supported by listed skills, coursework, or repository evidence; collect specific examples during interview.`,
+  };
+}
+
+function getInitials(name: string) {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return 'NA';
+  }
+
+  const first = parts[0][0]?.toUpperCase() ?? 'N';
+  const second = parts.length > 1 ? parts[parts.length - 1][0]?.toUpperCase() ?? '' : '';
+  return `${first}${second}`;
+}
+
+function getAvatarTone(seed: string) {
+  const tones = [
+    'bg-[#d8d4fb] text-[#3f3a8a]',
+    'bg-[#bdeee3] text-[#155746]',
+    'bg-[#f8d7c7] text-[#6e3a27]',
+    'bg-[#d7e8fb] text-[#254a77]',
+  ];
+
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) % 997;
+  }
+
+  return tones[Math.abs(hash) % tones.length];
+}
+
 export default function ProfessorDashboard() {
   const { user, logout, setupState } = useAuth();
-  const { applications, getApplicationsByPosting, getPostingsByProfessor } = useData();
+  const { applications, getApplicationsByPosting, getPostingsByProfessor, updateApplicationStatus, addPosting } = useData();
   const navigate = useNavigate();
 
   const [showPostDialog, setShowPostDialog] = useState(false);
@@ -149,11 +394,13 @@ export default function ProfessorDashboard() {
   const [applicantSearch, setApplicantSearch] = useState('');
   const [applicantStatusFilter, setApplicantStatusFilter] = useState<'all' | Application['status']>('all');
   const [applicantSort, setApplicantSort] = useState<'score' | 'date' | 'project'>('score');
+  const [selectedApplicantIds, setSelectedApplicantIds] = useState<string[]>([]);
   const [selectedApplicantId, setSelectedApplicantId] = useState<string | null>(null);
   const [openCommandPalette, setOpenCommandPalette] = useState(false);
   const [commandQuery, setCommandQuery] = useState('');
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
+  const initializedDefaultSection = useRef(false);
 
   const professorProfile =
     (setupState?.profile as
@@ -301,7 +548,8 @@ export default function ProfessorDashboard() {
         !query ||
         application.studentName.toLowerCase().includes(query) ||
         application.studentMajor.toLowerCase().includes(query) ||
-        application.studentEmail.toLowerCase().includes(query);
+        application.studentEmail.toLowerCase().includes(query) ||
+        (postingById.get(application.postingId)?.title ?? '').toLowerCase().includes(query);
       const matchesStatus = applicantStatusFilter === 'all' || application.status === applicantStatusFilter;
       return matchesQuery && matchesStatus;
     });
@@ -321,7 +569,7 @@ export default function ProfessorDashboard() {
     return filtered.sort(
       (a, b) => new Date(b.application.submittedAt).getTime() - new Date(a.application.submittedAt).getTime()
     );
-  }, [applicantSearch, applicantSort, applicantStatusFilter, applicantsWithPosting]);
+  }, [applicantSearch, applicantSort, applicantStatusFilter, applicantsWithPosting, postingById]);
 
   const selectedApplicant = useMemo(() => {
     if (!selectedApplicantId) {
@@ -329,6 +577,27 @@ export default function ProfessorDashboard() {
     }
     return applicantsWithPosting.find(({ application }) => application.id === selectedApplicantId) ?? null;
   }, [selectedApplicantId, applicantsWithPosting]);
+
+  const selectedApplicantEvidence = useMemo(() => {
+    if (!selectedApplicant) {
+      return null;
+    }
+    return getStudentEvidenceProfile(selectedApplicant.application);
+  }, [selectedApplicant]);
+
+  const selectedApplicantRequirementAnalysis = useMemo(() => {
+    if (!selectedApplicant || !selectedApplicantEvidence) {
+      return [];
+    }
+
+    const posting = selectedApplicant.posting;
+    const fallbackRequirements = ['Python proficiency', 'ML coursework', 'Prior research experience'];
+    const requirements = parseRequirementList(posting && 'requiredQualifications' in posting ? posting.requiredQualifications : undefined, fallbackRequirements);
+
+    return requirements.slice(0, 6).map((requirement) =>
+      analyzeRequirement(requirement, selectedApplicantEvidence, selectedApplicant.application)
+    );
+  }, [selectedApplicant, selectedApplicantEvidence]);
 
   const conversations = useMemo(
     () =>
@@ -354,9 +623,49 @@ export default function ProfessorDashboard() {
   );
 
   const commandItems = useMemo(
-    () => NAV_ITEMS.filter((item) => item.label.toLowerCase().includes(commandQuery.trim().toLowerCase())),
+    () => [...NAV_ITEMS, { key: 'settings' as SectionKey, label: 'Settings', icon: Settings }]
+      .filter((item) => item.label.toLowerCase().includes(commandQuery.trim().toLowerCase())),
     [commandQuery]
   );
+
+  const todaysQueue = useMemo(() => {
+    return [...applicantsWithPosting]
+      .filter(({ application }) => application.status === 'Pending' || application.status === 'Interview')
+      .sort((a, b) => new Date(b.application.submittedAt).getTime() - new Date(a.application.submittedAt).getTime())
+      .slice(0, 6);
+  }, [applicantsWithPosting]);
+
+  const highMatchUnreviewed = useMemo(
+    () => applicantsWithPosting.filter(({ application, score }) => application.status === 'Pending' && score >= 88).length,
+    [applicantsWithPosting]
+  );
+
+  const expiringPostings = useMemo(
+    () => publishedPostings.filter((posting) => {
+      const deadline = new Date(posting.applicationDeadline).getTime();
+      const now = Date.now();
+      const inSevenDays = now + 7 * 24 * 60 * 60 * 1000;
+      return deadline >= now && deadline <= inSevenDays;
+    }).length,
+    [publishedPostings]
+  );
+
+  const applicantSortLabel =
+    applicantSort === 'score'
+      ? 'Sorted by: match score ↓'
+      : applicantSort === 'date'
+        ? 'Sorted by: application date ↓'
+        : 'Sorted by: research project A-Z';
+
+  const allVisibleApplicantIds = useMemo(
+    () => filteredApplicants.map(({ application }) => application.id),
+    [filteredApplicants]
+  );
+
+  const allVisibleSelected =
+    allVisibleApplicantIds.length > 0 && allVisibleApplicantIds.every((id) => selectedApplicantIds.includes(id));
+
+  const selectedVisibleCount = selectedApplicantIds.filter((id) => allVisibleApplicantIds.includes(id)).length;
 
   useEffect(() => {
     let cancelled = false;
@@ -377,6 +686,51 @@ export default function ProfessorDashboard() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!initializedDefaultSection.current) {
+      if (pendingReviews > 0) {
+        setActiveSection('applicants');
+      }
+      initializedDefaultSection.current = true;
+    }
+  }, [pendingReviews]);
+
+  useEffect(() => {
+    setSelectedApplicantIds((current) => current.filter((id) => allVisibleApplicantIds.includes(id)));
+  }, [allVisibleApplicantIds]);
+
+  const toggleSelectAllVisible = () => {
+    if (allVisibleSelected) {
+      setSelectedApplicantIds((current) => current.filter((id) => !allVisibleApplicantIds.includes(id)));
+      return;
+    }
+
+    setSelectedApplicantIds((current) => {
+      const merged = new Set([...current, ...allVisibleApplicantIds]);
+      return Array.from(merged);
+    });
+  };
+
+  const toggleSelectApplicant = (applicantId: string) => {
+    setSelectedApplicantIds((current) =>
+      current.includes(applicantId)
+        ? current.filter((id) => id !== applicantId)
+        : [...current, applicantId]
+    );
+  };
+
+  const applyBulkStatus = (nextStatus: Application['status']) => {
+    const targetIds = selectedApplicantIds.filter((id) => allVisibleApplicantIds.includes(id));
+    if (targetIds.length === 0) {
+      toast.error('Select at least one applicant first.');
+      return;
+    }
+
+    targetIds.forEach((id) => updateApplicationStatus(id, nextStatus));
+    toast.success(`${targetIds.length} applicants moved to ${nextStatus}.`);
+    setSelectedApplicantIds((current) => current.filter((id) => !targetIds.includes(id)));
+  };
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setAnalyticsLoading(false), 550);
@@ -423,6 +777,25 @@ export default function ProfessorDashboard() {
             <p className={`text-sm ${subduedText}`}>Signed in as {user?.name}</p>
           </div>
           <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={`rounded-xl ${darkMode ? 'border-[#353535] bg-[#171717] text-[#e8e8e8] hover:bg-[#212121]' : 'border-[#dedede] bg-white text-[#1c1c1c] hover:bg-[#f7f7f7]'}`}
+                >
+                  <UserCircle className="mr-2 h-4 w-4" />
+                  Profile
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={() => setActiveSection('settings')}>
+                  Settings
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void handleLogout()}>
+                  Logout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button
               variant="outline"
               className={`rounded-xl ${darkMode ? 'border-[#353535] bg-[#171717] text-[#e8e8e8] hover:bg-[#212121]' : 'border-[#dedede] bg-white text-[#1c1c1c] hover:bg-[#f7f7f7]'}`}
@@ -437,7 +810,7 @@ export default function ProfessorDashboard() {
             <Button
               variant="ghost"
               className={`rounded-xl border px-4 ${darkMode ? 'border-[#353535] bg-[#171717] text-[#f0f0f0] hover:bg-[#212121]' : 'border-[#dedede] bg-white text-[#1c1c1c] hover:bg-[#f7f7f7]'}`}
-              onClick={handleLogout}
+              onClick={() => void handleLogout()}
             >
               <LogOut className="mr-2 h-4 w-4" />
               Logout
@@ -543,63 +916,39 @@ export default function ProfessorDashboard() {
               <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
                 <Card className={cardSurface}>
                   <CardHeader>
-                    <CardTitle>Recent Activity</CardTitle>
-                    <CardDescription>Live updates across opportunities and applicant pipeline.</CardDescription>
+                    <CardTitle>Today's Queue</CardTitle>
+                    <CardDescription>High-priority actions for the next 30 minutes.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {recentActivities.length === 0 ? (
-                      <p className={subduedText}>No recent activity yet.</p>
+                    <div className={`rounded-xl border px-3 py-2 text-sm ${darkMode ? 'border-[#2b2b2b] bg-[#1a1a1a]' : 'border-[#ececec] bg-[#fafafa]'}`}>
+                      <p className="font-medium">AI Nudge</p>
+                      <p className={`mt-1 text-xs ${subduedText}`}>
+                        {highMatchUnreviewed} unreviewed applicants above 88% match • {expiringPostings} postings with deadlines in 7 days.
+                      </p>
+                    </div>
+                    {todaysQueue.length === 0 ? (
+                      <p className={subduedText}>No urgent items right now.</p>
                     ) : (
-                      recentActivities.map((activity) => (
+                      todaysQueue.map(({ application, posting, score }) => (
                         <div
-                          key={activity.id}
+                          key={application.id}
                           className={`rounded-xl border p-3 text-sm ${darkMode ? 'border-[#2b2b2b] bg-[#1a1a1a]' : 'border-[#ececec] bg-[#fafafa]'}`}
                         >
-                          <p className="font-medium">{activity.label}</p>
-                          <p className={`mt-1 text-xs ${subduedText}`}>{activity.time}</p>
+                          <p className="font-medium">{application.studentName} for {posting?.title ?? 'Research role'}</p>
+                          <p className={`mt-1 text-xs ${subduedText}`}>
+                            Status: {application.status} • Score {score}% • Submitted {new Date(application.submittedAt).toLocaleDateString()}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => { setActiveSection('applicants'); setSelectedApplicantId(application.id); }}>
+                              Review
+                            </Button>
+                            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => { setActiveSection('messages'); }}>
+                              Message
+                            </Button>
+                          </div>
                         </div>
                       ))
                     )}
-                  </CardContent>
-                </Card>
-
-                <Card className={cardSurface}>
-                  <CardHeader>
-                    <CardTitle>Quick Actions</CardTitle>
-                    <CardDescription>Common actions for faster workflows.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <Button
-                      className="w-full justify-start rounded-xl bg-red-700 text-white hover:bg-red-800"
-                      onClick={() => setShowPostDialog(true)}
-                    >
-                      <PlusCircle className="mr-2 h-4 w-4" />
-                      Create New Opportunity
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start rounded-xl"
-                      onClick={() => setActiveSection('applicants')}
-                    >
-                      <Users className="mr-2 h-4 w-4" />
-                      Review Applicants
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start rounded-xl"
-                      onClick={() => setActiveSection('messages')}
-                    >
-                      <Mail className="mr-2 h-4 w-4" />
-                      Message Candidates
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start rounded-xl"
-                      onClick={() => setActiveSection('analytics')}
-                    >
-                      <BarChart3 className="mr-2 h-4 w-4" />
-                      View Analytics
-                    </Button>
                   </CardContent>
                 </Card>
               </div>
@@ -654,10 +1003,40 @@ export default function ProfessorDashboard() {
                         key={posting.id}
                         posting={posting}
                         interestedCount={interestCounts[normalizeInterestKey(posting.category)] ?? 0}
-                        onViewApplications={setSelectedPostingId}
+                        onViewApplications={(postingId) => {
+                          const title = postingById.get(postingId)?.title ?? '';
+                          setApplicantSearch(title);
+                          setApplicantStatusFilter('all');
+                          setActiveSection('applicants');
+                        }}
                         onEditPosting={(nextPosting) => {
                           setEditingPosting(nextPosting);
                           setShowPostDialog(true);
+                        }}
+                        onClonePosting={(postingToClone) => {
+                          addPosting({
+                            professorId: postingToClone.professorId,
+                            professorName: postingToClone.professorName,
+                            professorEmail: postingToClone.professorEmail,
+                            professorBioUrl: postingToClone.professorBioUrl,
+                            professorDepartment: postingToClone.professorDepartment,
+                            category: postingToClone.category,
+                            title: `${postingToClone.title} (Copy)`,
+                            overview: postingToClone.overview,
+                            studentRoleDescription: postingToClone.studentRoleDescription,
+                            studentGain: postingToClone.studentGain,
+                            requiredQualifications: postingToClone.requiredQualifications,
+                            preferredQualifications: postingToClone.preferredQualifications,
+                            timeCommitmentExpected: postingToClone.timeCommitmentExpected,
+                            startDate: postingToClone.startDate,
+                            duration: postingToClone.duration,
+                            applicationDeadline: postingToClone.applicationDeadline,
+                            compensation: postingToClone.compensation,
+                            questions: postingToClone.questions,
+                            quickNoteEnabled: postingToClone.quickNoteEnabled,
+                            status: 'pending_approval',
+                          });
+                          toast.success('Opportunity cloned into pending approval.');
                         }}
                         darkMode={darkMode}
                       />
@@ -678,10 +1057,40 @@ export default function ProfessorDashboard() {
                         key={posting.id}
                         posting={posting}
                         interestedCount={interestCounts[normalizeInterestKey(posting.category)] ?? 0}
-                        onViewApplications={setSelectedPostingId}
+                        onViewApplications={(postingId) => {
+                          const title = postingById.get(postingId)?.title ?? '';
+                          setApplicantSearch(title);
+                          setApplicantStatusFilter('all');
+                          setActiveSection('applicants');
+                        }}
                         onEditPosting={(nextPosting) => {
                           setEditingPosting(nextPosting);
                           setShowPostDialog(true);
+                        }}
+                        onClonePosting={(postingToClone) => {
+                          addPosting({
+                            professorId: postingToClone.professorId,
+                            professorName: postingToClone.professorName,
+                            professorEmail: postingToClone.professorEmail,
+                            professorBioUrl: postingToClone.professorBioUrl,
+                            professorDepartment: postingToClone.professorDepartment,
+                            category: postingToClone.category,
+                            title: `${postingToClone.title} (Copy)`,
+                            overview: postingToClone.overview,
+                            studentRoleDescription: postingToClone.studentRoleDescription,
+                            studentGain: postingToClone.studentGain,
+                            requiredQualifications: postingToClone.requiredQualifications,
+                            preferredQualifications: postingToClone.preferredQualifications,
+                            timeCommitmentExpected: postingToClone.timeCommitmentExpected,
+                            startDate: postingToClone.startDate,
+                            duration: postingToClone.duration,
+                            applicationDeadline: postingToClone.applicationDeadline,
+                            compensation: postingToClone.compensation,
+                            questions: postingToClone.questions,
+                            quickNoteEnabled: postingToClone.quickNoteEnabled,
+                            status: 'pending_approval',
+                          });
+                          toast.success('Opportunity cloned into pending approval.');
                         }}
                         darkMode={darkMode}
                       />
@@ -702,10 +1111,40 @@ export default function ProfessorDashboard() {
                         key={posting.id}
                         posting={posting}
                         interestedCount={interestCounts[normalizeInterestKey(posting.category)] ?? 0}
-                        onViewApplications={setSelectedPostingId}
+                        onViewApplications={(postingId) => {
+                          const title = postingById.get(postingId)?.title ?? '';
+                          setApplicantSearch(title);
+                          setApplicantStatusFilter('all');
+                          setActiveSection('applicants');
+                        }}
                         onEditPosting={(nextPosting) => {
                           setEditingPosting(nextPosting);
                           setShowPostDialog(true);
+                        }}
+                        onClonePosting={(postingToClone) => {
+                          addPosting({
+                            professorId: postingToClone.professorId,
+                            professorName: postingToClone.professorName,
+                            professorEmail: postingToClone.professorEmail,
+                            professorBioUrl: postingToClone.professorBioUrl,
+                            professorDepartment: postingToClone.professorDepartment,
+                            category: postingToClone.category,
+                            title: `${postingToClone.title} (Copy)`,
+                            overview: postingToClone.overview,
+                            studentRoleDescription: postingToClone.studentRoleDescription,
+                            studentGain: postingToClone.studentGain,
+                            requiredQualifications: postingToClone.requiredQualifications,
+                            preferredQualifications: postingToClone.preferredQualifications,
+                            timeCommitmentExpected: postingToClone.timeCommitmentExpected,
+                            startDate: postingToClone.startDate,
+                            duration: postingToClone.duration,
+                            applicationDeadline: postingToClone.applicationDeadline,
+                            compensation: postingToClone.compensation,
+                            questions: postingToClone.questions,
+                            quickNoteEnabled: postingToClone.quickNoteEnabled,
+                            status: 'pending_approval',
+                          });
+                          toast.success('Opportunity cloned into pending approval.');
                         }}
                         darkMode={darkMode}
                       />
@@ -759,12 +1198,39 @@ export default function ProfessorDashboard() {
                 </div>
               </div>
 
+              <p className={`mb-2 text-xs ${subduedText}`}>{applicantSortLabel}</p>
+
+              <Card className={`${cardSurface} mb-3`}>
+                <CardContent className="flex flex-wrap items-center justify-between gap-2 p-3">
+                  <div className="text-sm text-[#666666]">
+                    {selectedVisibleCount > 0
+                      ? `${selectedVisibleCount} selected in current view`
+                      : 'Select applicants to perform bulk triage'}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" className="rounded-xl" onClick={toggleSelectAllVisible}>
+                      {allVisibleSelected ? 'Clear Selection' : 'Select All Visible'}
+                    </Button>
+                    <Button size="sm" variant="outline" className="rounded-xl" onClick={() => applyBulkStatus('Shortlisted')}>
+                      Bulk Shortlist
+                    </Button>
+                    <Button size="sm" variant="outline" className="rounded-xl" onClick={() => applyBulkStatus('Interview')}>
+                      Bulk Interview
+                    </Button>
+                    <Button size="sm" variant="destructive" className="rounded-xl" onClick={() => applyBulkStatus('Rejected')}>
+                      Bulk Reject
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
               <Card className={cardSurface}>
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-sm">
                       <thead className={darkMode ? 'bg-[#202020]' : 'bg-[#faf7f5]'}>
                         <tr>
+                          <th className="px-4 py-3 text-left font-medium">Select</th>
                           <th className="px-4 py-3 text-left font-medium">Student Name</th>
                           <th className="px-4 py-3 text-left font-medium">AI Match Score</th>
                           <th className="px-4 py-3 text-left font-medium">Reasoning</th>
@@ -779,14 +1245,34 @@ export default function ProfessorDashboard() {
                       <tbody>
                         {filteredApplicants.length === 0 ? (
                           <tr>
-                            <td colSpan={9} className={`px-4 py-16 text-center ${subduedText}`}>
+                            <td colSpan={10} className={`px-4 py-16 text-center ${subduedText}`}>
                               No applicants match the current filters.
                             </td>
                           </tr>
                         ) : (
-                          filteredApplicants.map(({ application, score }) => (
+                          filteredApplicants.map(({ application, score, posting }) => (
                             <tr key={application.id} className={darkMode ? 'border-t border-[#2a2a2a]' : 'border-t border-[#ececec]'}>
-                              <td className="px-4 py-3 font-medium">{application.studentName}</td>
+                              <td className="px-4 py-3">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedApplicantIds.includes(application.id)}
+                                  onChange={() => toggleSelectApplicant(application.id)}
+                                  aria-label={`Select ${application.studentName}`}
+                                />
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-3">
+                                  <Avatar className="h-11 w-11">
+                                    <AvatarFallback className={`${getAvatarTone(application.studentId || application.studentName)} font-semibold`}>
+                                      {getInitials(application.studentName)}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div>
+                                    <p className="font-semibold text-[#111111] dark:text-[#f2f2f2]">{application.studentName}</p>
+                                    <p className="text-xs text-[#6b6b6b] dark:text-[#b6b6b6]">{application.studentEmail}</p>
+                                  </div>
+                                </div>
+                              </td>
                               <td className="px-4 py-3">
                                 <Badge className={getScoreBadgeClass(score)}>{score}%</Badge>
                               </td>
@@ -797,12 +1283,22 @@ export default function ProfessorDashboard() {
                                   variant="link"
                                   className="mt-1 h-auto p-0 text-xs text-red-700"
                                   onClick={() => {
-                                    const projectTitle = postingById.get(application.postingId)?.title ?? 'Unknown Project';
+                                    const projectTitle = posting?.title ?? postingById.get(application.postingId)?.title ?? 'No project assigned';
+                                    const projectOverview = posting && 'overview' in posting ? posting.overview ?? '' : '';
+                                    const requiredQualifications = posting && 'requiredQualifications' in posting
+                                      ? posting.requiredQualifications ?? ''
+                                      : '';
+                                    const preferredQualifications = posting && 'preferredQualifications' in posting
+                                      ? posting.preferredQualifications ?? ''
+                                      : '';
                                     const params = new URLSearchParams({
                                       score: String(score),
                                       name: application.studentName,
                                       major: application.studentMajor,
                                       project: projectTitle,
+                                      overview: projectOverview,
+                                      requiredQualifications,
+                                      preferredQualifications,
                                       status: application.status,
                                       submittedAt: application.submittedAt,
                                     });
@@ -813,7 +1309,7 @@ export default function ProfessorDashboard() {
                                 </Button>
                               </td>
                               <td className="px-4 py-3">{application.studentMajor}</td>
-                              <td className="px-4 py-3">{postingById.get(application.postingId)?.title ?? 'Unknown Project'}</td>
+                              <td className="px-4 py-3">{posting?.title ?? postingById.get(application.postingId)?.title ?? 'No project assigned'}</td>
                               <td className="px-4 py-3">Python, ML, SQL</td>
                               <td className="px-4 py-3">{new Date(application.submittedAt).toLocaleDateString()}</td>
                               <td className="px-4 py-3">{application.status}</td>
@@ -938,6 +1434,29 @@ export default function ProfessorDashboard() {
                 <CardDescription>Manage your public lab identity and recruiting preferences.</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-2">
+                <div className="md:col-span-2 rounded-xl border border-[#ececec] bg-[#fafafa] p-3">
+                  {(() => {
+                    const requiredFields = [
+                      labForm.professorName,
+                      labForm.department,
+                      labForm.title,
+                      labForm.researchAreas,
+                      labForm.labDescription,
+                      labForm.labWebsite,
+                    ];
+                    const completed = requiredFields.filter((value) => value.trim().length > 0).length;
+                    const percent = Math.round((completed / requiredFields.length) * 100);
+                    return (
+                      <>
+                        <p className="text-sm font-semibold">Profile completeness: {percent}%</p>
+                        <p className="mt-1 text-xs text-[#666666]">
+                          Labs with complete descriptions and links tend to attract more applications and better candidate quality.
+                        </p>
+                      </>
+                    );
+                  })()}
+                </div>
+
                 <div className="space-y-2">
                   <Label>Professor Name</Label>
                   <Input
@@ -1033,10 +1552,6 @@ export default function ProfessorDashboard() {
             </Card>
           ) : null}
 
-          {activeSection === 'impact' ? (
-            <ResearchImpactPipeline darkMode={darkMode} />
-          ) : null}
-
           {activeSection === 'analytics' ? (
             <>
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -1113,6 +1628,10 @@ export default function ProfessorDashboard() {
                     </div>
                   }
                 />
+              </div>
+
+              <div className="mt-1">
+                <ResearchImpactPipeline darkMode={darkMode} />
               </div>
             </>
           ) : null}
@@ -1200,7 +1719,7 @@ export default function ProfessorDashboard() {
                     <CardTitle className="text-base">Skills</CardTitle>
                   </CardHeader>
                   <CardContent className="flex flex-wrap gap-2">
-                    {['Python', 'ML', 'SQL', 'Research Writing', 'Pandas'].map((skill) => (
+                    {(selectedApplicantEvidence?.skills ?? ['Python', 'ML', 'SQL', 'Research Writing', 'Pandas']).map((skill) => (
                       <Badge key={skill} className="border border-red-200 bg-red-50 text-red-700">
                         {skill}
                       </Badge>
@@ -1213,9 +1732,13 @@ export default function ProfessorDashboard() {
                     <CardTitle className="text-base">Coursework</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-1 text-sm">
-                    <p>10-601 Machine Learning</p>
-                    <p>15-210 Parallel and Sequential Data Structures</p>
-                    <p>10-315 Introduction to Computer Vision</p>
+                    {(selectedApplicantEvidence?.coursework ?? [
+                      '10-601 Machine Learning',
+                      '15-210 Parallel and Sequential Data Structures',
+                      '10-315 Introduction to Computer Vision',
+                    ]).map((course) => (
+                      <p key={course}>{course}</p>
+                    ))}
                   </CardContent>
                 </Card>
 
@@ -1236,10 +1759,17 @@ export default function ProfessorDashboard() {
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm">
                     <a href="#" className="text-red-700 underline underline-offset-2">github.com/student-profile</a>
-                    <div className="rounded-xl border border-[#e7e7e7] p-3">
-                      <p className="font-medium">ml-research-portfolio</p>
-                      <p className="text-xs text-[#6f6f6f]">Model benchmarking and experiment tracking toolkit.</p>
-                    </div>
+                    {(selectedApplicantEvidence?.githubRepos ?? [
+                      {
+                        name: 'ml-research-portfolio',
+                        description: 'Model benchmarking and experiment tracking toolkit.',
+                      },
+                    ]).map((repo) => (
+                      <div key={repo.name} className="rounded-xl border border-[#e7e7e7] p-3">
+                        <p className="font-medium">{repo.name}</p>
+                        <p className="text-xs text-[#6f6f6f]">{repo.description}</p>
+                      </div>
+                    ))}
                   </CardContent>
                 </Card>
 
@@ -1248,7 +1778,8 @@ export default function ProfessorDashboard() {
                     <CardTitle className="text-base">Personal Statement</CardTitle>
                   </CardHeader>
                   <CardContent className="text-sm text-[#444444]">
-                    I want to join this lab to apply machine learning to real, high-impact research problems while growing my experimental design and publication skills.
+                    {selectedApplicantEvidence?.personalStatement ??
+                      'I want to join this lab to apply machine learning to real, high-impact research problems while growing my experimental design and publication skills.'}
                   </CardContent>
                 </Card>
 
@@ -1258,7 +1789,51 @@ export default function ProfessorDashboard() {
                     <CardDescription className="text-red-800">This recommendation explains why the candidate is ranked at {selectedApplicant.score}%.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3 text-sm text-red-900">
-                    <p className="font-semibold">Overall Fit Score: {selectedApplicant.score}%</p>
+                    <div>
+                      <p className="font-semibold">Requirements Analysis</p>
+                      <div className="mt-2 rounded-xl border border-red-200/80 bg-white/70 p-3">
+                        <div className="overflow-x-auto rounded-lg border border-red-100 bg-white">
+                          <table className="min-w-full border-collapse text-left text-sm">
+                            <thead>
+                              <tr className="border-b border-red-100 bg-red-50/60 text-xs font-semibold uppercase tracking-[0.08em] text-red-700">
+                                <th className="px-3 py-2">Research Requirements</th>
+                                <th className="px-3 py-2">Candidate Fit</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selectedApplicantRequirementAnalysis.length === 0 ? (
+                                <tr>
+                                  <td className="px-3 py-3 text-red-900" colSpan={2}>
+                                    No requirements found for this posting.
+                                  </td>
+                                </tr>
+                              ) : (
+                                selectedApplicantRequirementAnalysis.map((row) => {
+                                  const display = getStatusDisplay(row.status);
+                                  const StatusIcon = display.Icon;
+
+                                  return (
+                                    <tr key={row.requirement} className="border-b border-red-100 last:border-b-0">
+                                      <td className="px-3 py-3 align-top text-red-900">
+                                        <span className="font-medium">• {row.requirement}</span>
+                                      </td>
+                                      <td className="px-3 py-3 align-top text-red-900">
+                                        <div className="flex items-start gap-2">
+                                          <StatusIcon className={`mt-0.5 h-4 w-4 shrink-0 ${display.iconClass}`} />
+                                          <p className="text-xs leading-relaxed">{row.assessment}</p>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="font-semibold">AI Applicant Reasoning Confidence Score: {selectedApplicant.score}%</p>
                     <div>
                       <p className="font-semibold">Strengths</p>
                       {buildAiInsights(selectedApplicant.score).strengths.map((strength) => (
@@ -1400,12 +1975,14 @@ function PostingCard({
   interestedCount,
   onViewApplications,
   onEditPosting,
+  onClonePosting,
   darkMode,
 }: {
   posting: any;
   interestedCount: number;
   onViewApplications: (id: string) => void;
   onEditPosting: (posting: any) => void;
+  onClonePosting: (posting: any) => void;
   darkMode: boolean;
 }) {
   const { getApplicationsByPosting } = useData();
@@ -1460,6 +2037,14 @@ function PostingCard({
             className="rounded-xl border-[#d8d8d8] bg-white text-[#575757] hover:bg-[#f7f7f7] hover:text-[#111111]"
           >
             Edit Position
+          </Button>
+          <Button
+            onClick={() => onClonePosting(posting)}
+            variant="outline"
+            size="sm"
+            className="rounded-xl border-[#d8d8d8] bg-white text-[#575757] hover:bg-[#f7f7f7] hover:text-[#111111]"
+          >
+            Clone Position
           </Button>
           <Button
             variant="outline"
