@@ -38,6 +38,7 @@ import { Badge } from '../../components/ui/badge';
 import { Avatar, AvatarFallback } from '../../components/ui/avatar';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
+import { Textarea } from '../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../components/ui/sheet';
@@ -60,6 +61,50 @@ type SectionKey =
   | 'settings';
 
 type MessageFolder = 'inbox' | 'sent' | 'archived';
+type MessageTemplateKind = 'interview' | 'request-info' | 'accept' | 'reject';
+type MessageTemplateContent = {
+  title: string;
+  subject: string;
+  body: string;
+};
+
+type CustomTemplateToken = {
+  id: string;
+  label: string;
+  value: string;
+};
+
+const TEMPLATE_TOKENS = ['[Student Name]', '[Opportunity Title]', '[Professor Name]'] as const;
+
+const MESSAGE_TEMPLATE_STORAGE_KEY = 'professor-message-templates-v1';
+const MESSAGE_TEMPLATE_CUSTOM_TOKENS_STORAGE_KEY = 'professor-message-custom-tokens-v1';
+
+const DEFAULT_MESSAGE_TEMPLATES: Record<MessageTemplateKind, MessageTemplateContent> = {
+  interview: {
+    title: 'Interview Invitation Template',
+    subject: 'Interview Invitation - [Opportunity Title]',
+    body:
+      'Hi [Student Name],\n\nThank you for your application to [Opportunity Title]. We would like to invite you to an interview. Please share your availability for next week and your preferred format (virtual or in-person).\n\nBest,\nProfessor [Professor Name]',
+  },
+  'request-info': {
+    title: 'Request Information Template',
+    subject: 'Additional Information Requested - [Opportunity Title]',
+    body:
+      'Hi [Student Name],\n\nThank you for applying to [Opportunity Title]. We are interested in learning more about your experience with relevant coursework/projects. Please reply with:\n- 1-2 examples of related work\n- Your current time availability\n- Any links to code, publications, or project artifacts\n\nBest,\nProfessor [Professor Name]',
+  },
+  accept: {
+    title: 'Acceptance Template',
+    subject: 'Offer to Join [Opportunity Title]',
+    body:
+      'Hi [Student Name],\n\nWe are pleased to share that we would like to move forward with your application for [Opportunity Title]. Your background aligns well with the role requirements, and we would be excited to have you join the lab.\n\nPlease confirm your interest and availability so we can share onboarding details.\n\nBest,\nProfessor [Professor Name]',
+  },
+  reject: {
+    title: 'Rejection Template',
+    subject: 'Application Update - [Opportunity Title]',
+    body:
+      'Hi [Student Name],\n\nThank you for taking the time to apply to [Opportunity Title]. After review, we are moving forward with other candidates whose current profile is a closer fit for this cycle.\n\nWe appreciate your interest and encourage you to apply again in future cycles.\n\nBest,\nProfessor [Professor Name]',
+  },
+};
 
 const NAV_ITEMS: Array<{ key: SectionKey; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -391,6 +436,24 @@ export default function ProfessorDashboard() {
   const [activeSection, setActiveSection] = useState<SectionKey>('dashboard');
   const [interestCounts, setInterestCounts] = useState<Record<string, number>>({});
   const [messageFolder, setMessageFolder] = useState<MessageFolder>('inbox');
+  const [openTemplateDialog, setOpenTemplateDialog] = useState(false);
+  const [templateTitle, setTemplateTitle] = useState('');
+  const [templateSubject, setTemplateSubject] = useState('');
+  const [templateBody, setTemplateBody] = useState('');
+  const [activeComposeField, setActiveComposeField] = useState<'subject' | 'body'>('body');
+  const [openTemplateEditorDialog, setOpenTemplateEditorDialog] = useState(false);
+  const [editingTemplateKind, setEditingTemplateKind] = useState<MessageTemplateKind>('interview');
+  const [editingTemplateSubject, setEditingTemplateSubject] = useState('');
+  const [editingTemplateBody, setEditingTemplateBody] = useState('');
+  const [activeEditorField, setActiveEditorField] = useState<'subject' | 'body'>('body');
+  const [templateOverrides, setTemplateOverrides] = useState<Partial<Record<MessageTemplateKind, MessageTemplateContent>>>({});
+  const [customTemplateTokens, setCustomTemplateTokens] = useState<CustomTemplateToken[]>([]);
+  const [newCustomTokenLabel, setNewCustomTokenLabel] = useState('');
+  const [newCustomTokenValue, setNewCustomTokenValue] = useState('');
+  const composeSubjectRef = useRef<HTMLInputElement | null>(null);
+  const composeBodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorSubjectRef = useRef<HTMLInputElement | null>(null);
+  const editorBodyRef = useRef<HTMLTextAreaElement | null>(null);
   const [applicantSearch, setApplicantSearch] = useState('');
   const [applicantStatusFilter, setApplicantStatusFilter] = useState<'all' | Application['status']>('all');
   const [applicantSort, setApplicantSort] = useState<'score' | 'date' | 'project'>('score');
@@ -622,6 +685,165 @@ export default function ProfessorDashboard() {
     [conversations, messageFolder]
   );
 
+  const openMessageTemplate = (kind: MessageTemplateKind) => {
+    const recipient = visibleConversations[0]?.name ?? '[Student Name]';
+    const opportunity = filteredApplicants[0]?.posting?.title ?? 'the research position';
+    const professorName = user?.name ?? '[Professor Name]';
+    const template = templateOverrides[kind] ?? DEFAULT_MESSAGE_TEMPLATES[kind];
+
+    const replaceTokens = (text: string) =>
+      text
+        .split('[Student Name]').join(recipient)
+        .split('[Opportunity Title]').join(opportunity)
+        .split('[Professor Name]').join(professorName);
+
+    setTemplateTitle(template.title);
+    setTemplateSubject(replaceTokens(template.subject));
+    setTemplateBody(replaceTokens(template.body));
+    setOpenTemplateDialog(true);
+  };
+
+  const appendToken = (current: string, token: string) => {
+    if (!current) {
+      return token;
+    }
+    return /\s$/.test(current) ? `${current}${token}` : `${current} ${token}`;
+  };
+
+  const insertAtCursor = (current: string, token: string, selectionStart: number | null, selectionEnd: number | null) => {
+    if (selectionStart === null || selectionEnd === null) {
+      return appendToken(current, token);
+    }
+    const before = current.slice(0, selectionStart);
+    const after = current.slice(selectionEnd);
+    return `${before}${token}${after}`;
+  };
+
+  const insertTokenIntoCompose = (token: string) => {
+    if (activeComposeField === 'subject') {
+      const input = composeSubjectRef.current;
+      const next = insertAtCursor(templateSubject, token, input?.selectionStart ?? null, input?.selectionEnd ?? null);
+      setTemplateSubject(next);
+      return;
+    }
+
+    const textarea = composeBodyRef.current;
+    const next = insertAtCursor(templateBody, token, textarea?.selectionStart ?? null, textarea?.selectionEnd ?? null);
+    setTemplateBody(next);
+  };
+
+  const insertTokenIntoEditor = (token: string) => {
+    if (activeEditorField === 'subject') {
+      const input = editorSubjectRef.current;
+      const next = insertAtCursor(
+        editingTemplateSubject,
+        token,
+        input?.selectionStart ?? null,
+        input?.selectionEnd ?? null
+      );
+      setEditingTemplateSubject(next);
+      return;
+    }
+
+    const textarea = editorBodyRef.current;
+    const next = insertAtCursor(
+      editingTemplateBody,
+      token,
+      textarea?.selectionStart ?? null,
+      textarea?.selectionEnd ?? null
+    );
+    setEditingTemplateBody(next);
+  };
+
+  const allTemplateTokens = useMemo(() => {
+    const defaults = TEMPLATE_TOKENS.map((value) => ({
+      key: `default-${value}`,
+      label: value,
+      value,
+    }));
+
+    const customs = customTemplateTokens.map((token) => ({
+      key: token.id,
+      label: token.label,
+      value: token.value,
+    }));
+
+    return [...defaults, ...customs];
+  }, [customTemplateTokens]);
+
+  const addCustomToken = () => {
+    const label = newCustomTokenLabel.trim();
+    const value = newCustomTokenValue.trim();
+
+    if (!label || !value) {
+      toast.error('Enter both a label and token value.');
+      return;
+    }
+
+    if (allTemplateTokens.some((token) => token.value === value)) {
+      toast.error('That token already exists.');
+      return;
+    }
+
+    const next = [
+      ...customTemplateTokens,
+      {
+        id: `custom-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        label,
+        value,
+      },
+    ];
+    setCustomTemplateTokens(next);
+    window.localStorage.setItem(MESSAGE_TEMPLATE_CUSTOM_TOKENS_STORAGE_KEY, JSON.stringify(next));
+    setNewCustomTokenLabel('');
+    setNewCustomTokenValue('');
+    toast.success('Custom token added.');
+  };
+
+  const removeCustomToken = (tokenId: string) => {
+    const next = customTemplateTokens.filter((entry) => entry.id !== tokenId);
+    setCustomTemplateTokens(next);
+    window.localStorage.setItem(MESSAGE_TEMPLATE_CUSTOM_TOKENS_STORAGE_KEY, JSON.stringify(next));
+    toast.success('Custom token removed.');
+  };
+
+  const openTemplateEditor = (kind: MessageTemplateKind) => {
+    const template = templateOverrides[kind] ?? DEFAULT_MESSAGE_TEMPLATES[kind];
+    setEditingTemplateKind(kind);
+    setEditingTemplateSubject(template.subject);
+    setEditingTemplateBody(template.body);
+    setOpenTemplateEditorDialog(true);
+  };
+
+  const saveTemplateEdits = () => {
+    const nextTemplate: MessageTemplateContent = {
+      title: DEFAULT_MESSAGE_TEMPLATES[editingTemplateKind].title,
+      subject: editingTemplateSubject,
+      body: editingTemplateBody,
+    };
+
+    const nextOverrides = {
+      ...templateOverrides,
+      [editingTemplateKind]: nextTemplate,
+    };
+
+    setTemplateOverrides(nextOverrides);
+    window.localStorage.setItem(MESSAGE_TEMPLATE_STORAGE_KEY, JSON.stringify(nextOverrides));
+    toast.success('Template saved.');
+    setOpenTemplateEditorDialog(false);
+  };
+
+  const resetTemplateEdits = () => {
+    const nextOverrides = { ...templateOverrides };
+    delete nextOverrides[editingTemplateKind];
+    setTemplateOverrides(nextOverrides);
+    window.localStorage.setItem(MESSAGE_TEMPLATE_STORAGE_KEY, JSON.stringify(nextOverrides));
+    const defaultTemplate = DEFAULT_MESSAGE_TEMPLATES[editingTemplateKind];
+    setEditingTemplateSubject(defaultTemplate.subject);
+    setEditingTemplateBody(defaultTemplate.body);
+    toast.success('Template reset to default.');
+  };
+
   const commandItems = useMemo(
     () => [...NAV_ITEMS, { key: 'settings' as SectionKey, label: 'Settings', icon: Settings }]
       .filter((item) => item.label.toLowerCase().includes(commandQuery.trim().toLowerCase())),
@@ -685,6 +907,62 @@ export default function ProfessorDashboard() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(MESSAGE_TEMPLATE_STORAGE_KEY);
+      if (!raw) {
+        setTemplateOverrides({});
+      } else {
+        const parsed = JSON.parse(raw) as Partial<Record<MessageTemplateKind, MessageTemplateContent>>;
+        setTemplateOverrides(parsed);
+      }
+    } catch {
+      setTemplateOverrides({});
+    }
+
+    try {
+      const rawTokens = window.localStorage.getItem(MESSAGE_TEMPLATE_CUSTOM_TOKENS_STORAGE_KEY);
+      if (!rawTokens) {
+        setCustomTemplateTokens([]);
+      } else {
+        const parsedTokens = JSON.parse(rawTokens) as Array<string | CustomTemplateToken>;
+        const migrated = parsedTokens
+          .map((entry) => {
+            if (typeof entry === 'string') {
+              const value = entry.trim();
+              if (!value) {
+                return null;
+              }
+              return {
+                id: `legacy-${value}`,
+                label: value,
+                value,
+              } as CustomTemplateToken;
+            }
+
+            if (!entry || typeof entry !== 'object') {
+              return null;
+            }
+
+            const label = String((entry as CustomTemplateToken).label ?? '').trim();
+            const value = String((entry as CustomTemplateToken).value ?? '').trim();
+            const id = String((entry as CustomTemplateToken).id ?? '').trim() || `custom-${Date.now()}`;
+
+            if (!label || !value) {
+              return null;
+            }
+
+            return { id, label, value } as CustomTemplateToken;
+          })
+          .filter((entry): entry is CustomTemplateToken => Boolean(entry));
+
+        setCustomTemplateTokens(migrated);
+      }
+    } catch {
+      setCustomTemplateTokens([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -821,7 +1099,7 @@ export default function ProfessorDashboard() {
 
       <main className="mx-auto flex max-w-[1400px] gap-4 px-4 py-6">
         <aside
-          className={`sticky top-4 h-[calc(100vh-3rem)] rounded-2xl border p-3 transition-all duration-300 ${cardSurface} ${sidebarCollapsed ? 'w-[84px]' : 'w-[270px]'}`}
+          className={`sticky top-4 self-start max-h-[calc(100vh-3rem)] overflow-y-auto rounded-2xl border p-3 transition-all duration-300 ${cardSurface} ${sidebarCollapsed ? 'w-[84px]' : 'w-[270px]'}`}
         >
           <div className="mb-3 flex items-center justify-between">
             {!sidebarCollapsed ? (
@@ -1397,31 +1675,35 @@ export default function ProfessorDashboard() {
                   <CardDescription>Use prebuilt outreach templates for candidate workflow updates.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <div className="flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-xl"
+                      onClick={() => openTemplateEditor('interview')}
+                    >
+                      Edit Templates
+                    </Button>
+                  </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <Button className="justify-start rounded-xl bg-red-700 text-white hover:bg-red-800" onClick={() => toast.success('Interview template prepared')}>
+                    <Button className="justify-start rounded-xl bg-red-700 text-white hover:bg-red-800" onClick={() => openMessageTemplate('interview')}>
                       <Calendar className="mr-2 h-4 w-4" />
                       Schedule Interview
                     </Button>
-                    <Button variant="outline" className="justify-start rounded-xl" onClick={() => toast.success('Request info template prepared')}>
+                    <Button variant="outline" className="justify-start rounded-xl" onClick={() => openMessageTemplate('request-info')}>
                       <Mail className="mr-2 h-4 w-4" />
                       Request Information
                     </Button>
-                    <Button variant="outline" className="justify-start rounded-xl" onClick={() => toast.success('Acceptance template prepared')}>
+                    <Button variant="outline" className="justify-start rounded-xl" onClick={() => openMessageTemplate('accept')}>
                       <CheckCircle2 className="mr-2 h-4 w-4" />
                       Accept Candidate
                     </Button>
-                    <Button variant="outline" className="justify-start rounded-xl" onClick={() => toast.success('Rejection template prepared')}>
+                    <Button variant="outline" className="justify-start rounded-xl" onClick={() => openMessageTemplate('reject')}>
                       <Bell className="mr-2 h-4 w-4" />
                       Reject Candidate
                     </Button>
                   </div>
 
-                  <div className={`rounded-xl border p-4 ${darkMode ? 'border-[#2b2b2b] bg-[#1a1a1a]' : 'border-[#ececec] bg-[#fafafa]'}`}>
-                    <p className="text-sm font-medium">Email Template: Interview Invite</p>
-                    <p className={`mt-2 text-sm ${subduedText}`}>
-                      Hi [Student Name], we reviewed your application and would like to invite you to an interview for [Opportunity Title]. Please share your availability for next week.
-                    </p>
-                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -1689,6 +1971,233 @@ export default function ProfessorDashboard() {
       {selectedPostingId ? (
         <ViewApplicationsDialog postingId={selectedPostingId} open={Boolean(selectedPostingId)} onOpenChange={(open) => !open && setSelectedPostingId(null)} />
       ) : null}
+
+      <Dialog open={openTemplateDialog} onOpenChange={setOpenTemplateDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{templateTitle}</DialogTitle>
+            <DialogDescription>
+              Review and edit this message before sending.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Insert Tokens</Label>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {allTemplateTokens.map((token) => (
+                  <Button
+                    key={`compose-token-${token.key}`}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 rounded-lg text-xs"
+                    onClick={() => insertTokenIntoCompose(token.value)}
+                  >
+                    Insert {token.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="template-subject">Subject</Label>
+              <Input
+                id="template-subject"
+                ref={composeSubjectRef}
+                value={templateSubject}
+                onFocus={() => setActiveComposeField('subject')}
+                onClick={() => setActiveComposeField('subject')}
+                onChange={(event) => setTemplateSubject(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="template-body">Message</Label>
+              <Textarea
+                id="template-body"
+                ref={composeBodyRef}
+                value={templateBody}
+                onFocus={() => setActiveComposeField('body')}
+                onClick={() => setActiveComposeField('body')}
+                onChange={(event) => setTemplateBody(event.target.value)}
+                rows={12}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setOpenTemplateDialog(false)}>
+                Close
+              </Button>
+              <Button
+                onClick={async () => {
+                  await navigator.clipboard.writeText(`Subject: ${templateSubject}\n\n${templateBody}`);
+                  toast.success('Template copied to clipboard.');
+                }}
+              >
+                Copy Template
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={openTemplateEditorDialog} onOpenChange={setOpenTemplateEditorDialog}>
+        <DialogContent className="mx-auto w-[min(90vw,860px)] max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-[0_18px_45px_rgba(15,23,42,0.16)]">
+          <DialogHeader className="border-b border-slate-200 pb-4">
+            <DialogTitle className="text-2xl font-semibold tracking-tight">Edit Message Templates</DialogTitle>
+            <DialogDescription className="text-sm text-slate-600">
+              Customize templates and insert tokens where your cursor is active.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="box-border w-full max-w-full rounded-xl bg-transparent p-1 pt-5 shadow-none">
+            <div className="grid w-full box-border items-start gap-4 [grid-template-columns:minmax(240px,300px)_minmax(0,1fr)]">
+            <div>
+              <section className="box-border rounded-xl border border-slate-200 bg-slate-50/80 p-5 text-slate-900">
+              <div className="space-y-2">
+                <Label htmlFor="template-kind" className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Template Type</Label>
+                <Select
+                  value={editingTemplateKind}
+                  onValueChange={(value) => {
+                    const nextKind = value as MessageTemplateKind;
+                    setEditingTemplateKind(nextKind);
+                    const nextTemplate = templateOverrides[nextKind] ?? DEFAULT_MESSAGE_TEMPLATES[nextKind];
+                    setEditingTemplateSubject(nextTemplate.subject);
+                    setEditingTemplateBody(nextTemplate.body);
+                  }}
+                >
+                  <SelectTrigger id="template-kind" className="h-11 rounded-lg border-slate-300 bg-white text-slate-900 shadow-sm">
+                    <SelectValue placeholder="Template Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="interview">Interview Invitation</SelectItem>
+                    <SelectItem value="request-info">Request Information</SelectItem>
+                    <SelectItem value="accept">Accept Candidate</SelectItem>
+                    <SelectItem value="reject">Reject Candidate</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="my-4 h-px bg-slate-200" />
+
+              <div>
+                <Label className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Insert Tokens</Label>
+                <div className="mt-3 space-y-2">
+                  {allTemplateTokens.map((token) => (
+                    <Button
+                      key={`editor-token-${token.key}`}
+                      type="button"
+                      variant="outline"
+                      className="flex h-11 w-full items-center justify-start gap-2 rounded-lg border-slate-300 bg-white text-left text-slate-900 shadow-sm hover:bg-slate-100"
+                      onClick={() => insertTokenIntoEditor(token.value)}
+                    >
+                      {token.value === '[Student Name]' ? <UserCircle className="h-4 w-4 text-slate-500" /> : null}
+                      {token.value === '[Opportunity Title]' ? <Briefcase className="h-4 w-4 text-slate-500" /> : null}
+                      {token.value === '[Professor Name]' ? <Sparkles className="h-4 w-4 text-slate-500" /> : null}
+                      {token.value !== '[Student Name]' && token.value !== '[Opportunity Title]' && token.value !== '[Professor Name]' ? <PlusCircle className="h-4 w-4 text-slate-500" /> : null}
+                      {token.value}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="my-4 h-px bg-slate-200" />
+
+              <div>
+                <Label className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Custom Token</Label>
+                <div className="mt-3 space-y-2">
+                  <Input
+                    id="new-custom-token"
+                    value={newCustomTokenLabel}
+                    onChange={(event) => setNewCustomTokenLabel(event.target.value)}
+                    placeholder="Display label"
+                    className="h-11 rounded-lg border-slate-300 bg-white text-slate-900 placeholder:text-slate-400"
+                  />
+                  <Input
+                    value={newCustomTokenValue}
+                    onChange={(event) => setNewCustomTokenValue(event.target.value)}
+                    placeholder="Token value e.g. [Deadline Date]"
+                    className="h-11 rounded-lg border-slate-300 bg-white text-slate-900 placeholder:text-slate-400"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-11 w-full rounded-lg border-slate-300 bg-white text-slate-900 shadow-sm hover:bg-slate-100"
+                    onClick={addCustomToken}
+                  >
+                    + Add Token
+                  </Button>
+                </div>
+
+                {customTemplateTokens.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {customTemplateTokens.map((token) => (
+                      <span
+                        key={`custom-token-${token.id}`}
+                        className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm"
+                      >
+                        <span className="max-w-[160px] truncate">{token.label}: {token.value}</span>
+                        <button
+                          type="button"
+                          className="text-slate-500 hover:text-red-500"
+                          onClick={() => removeCustomToken(token.id)}
+                          aria-label={`Remove ${token.label}`}
+                        >
+                          x
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              </section>
+            </div>
+
+            <div className="min-w-0 w-full">
+              <section className="box-border flex min-h-[420px] w-full flex-col rounded-xl border border-slate-200 bg-white p-5 text-slate-900">
+              <div className="space-y-2">
+                <Label htmlFor="editor-template-subject" className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Subject</Label>
+                <Input
+                  id="editor-template-subject"
+                  ref={editorSubjectRef}
+                  value={editingTemplateSubject}
+                  onFocus={() => setActiveEditorField('subject')}
+                  onClick={() => setActiveEditorField('subject')}
+                  onChange={(event) => setEditingTemplateSubject(event.target.value)}
+                  className="h-11 rounded-lg border-slate-300 bg-white text-slate-900 shadow-sm"
+                />
+              </div>
+
+              <div className="my-4 h-px bg-slate-200" />
+
+              <div className="space-y-2">
+                <Label htmlFor="editor-template-body" className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Message</Label>
+                <Textarea
+                  id="editor-template-body"
+                  ref={editorBodyRef}
+                  value={editingTemplateBody}
+                  onFocus={() => setActiveEditorField('body')}
+                  onClick={() => setActiveEditorField('body')}
+                  onChange={(event) => setEditingTemplateBody(event.target.value)}
+                  rows={8}
+                  className="h-[210px] resize-none rounded-lg border-slate-300 bg-white text-slate-900 shadow-sm"
+                />
+              </div>
+
+              <div className="mt-3 flex flex-row gap-2">
+                <Button variant="ghost" className="h-10 flex-none rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100" onClick={resetTemplateEdits}>
+                  Reset to Default
+                </Button>
+                <Button variant="ghost" className="h-10 flex-none rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100" onClick={() => setOpenTemplateEditorDialog(false)}>
+                  Cancel
+                </Button>
+                <Button className="h-10 flex-1 rounded-lg bg-slate-900 text-white shadow-sm hover:bg-slate-800" onClick={saveTemplateEdits}>
+                  Save Template
+                </Button>
+              </div>
+              </section>
+            </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Sheet open={Boolean(selectedApplicant)} onOpenChange={(open) => !open && setSelectedApplicantId(null)}>
         <SheetContent side="right" className="sm:max-w-xl">
