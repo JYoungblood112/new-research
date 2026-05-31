@@ -3,7 +3,6 @@ import LoginPage from './pages/LoginPage';
 import SsoPage from './pages/SsoPage';
 import ProfessorDashboard from './pages/professor/ProfessorDashboard';
 import ApplicantReasoningPage from './pages/professor/ApplicantReasoningPage';
-import ProfessorProfilePage from './pages/professor/ProfessorProfilePage';
 import ProfessorSetupPage from './pages/professor/ProfessorSetupPage';
 import StudentDashboard from './pages/student/StudentDashboard';
 import StudentResearchDetailPage from './pages/student/StudentResearchDetailPage';
@@ -88,14 +87,6 @@ export const router = createBrowserRouter([
     element: (
       <ProtectedRoute allowedRole="professor">
         <ProfessorSetupPage />
-      </ProtectedRoute>
-    ),
-  },
-  {
-    path: '/professor/profile',
-    element: (
-      <ProtectedRoute allowedRole="professor" requireSetupComplete>
-        <ProfessorProfilePage />
       </ProtectedRoute>
     ),
   },

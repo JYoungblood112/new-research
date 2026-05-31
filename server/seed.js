@@ -41,6 +41,12 @@ const store = {
       title: 'Associate Professor',
       contactEmail: professorUser.email,
       officeHours: 'Tue 2-4 PM, Gates 8102',
+      bioUrl: '',
+      researchAreas: '',
+      professorWebsite: '',
+      publicationsLink: '',
+      researchInterests: '',
+      photoBase64: '',
     },
   ],
 };

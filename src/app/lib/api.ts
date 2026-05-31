@@ -28,6 +28,10 @@ export type ProfessorSetupProfile = {
   contactEmail?: string;
   officeHours?: string;
   bioUrl?: string;
+  researchAreas?: string;
+  professorWebsite?: string;
+  publicationsLink?: string;
+  researchInterests?: string;
   photoBase64?: string;
 };
 
@@ -116,6 +120,10 @@ export async function updateProfessorSetup(payload: {
   contactEmail?: string;
   officeHours?: string;
   bioUrl?: string;
+  researchAreas?: string;
+  professorWebsite?: string;
+  publicationsLink?: string;
+  researchInterests?: string;
   photoBase64?: string;
 }): Promise<{ setup: SetupState }> {
   return request('/api/setup/professor', {

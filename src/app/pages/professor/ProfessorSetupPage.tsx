@@ -22,15 +22,28 @@ export default function ProfessorSetupPage() {
 
   const profile =
     (setupState?.profile as
-      | { department?: string; title?: string; contactEmail?: string; officeHours?: string; bioUrl?: string; photoBase64?: string }
+      | {
+          department?: string;
+          title?: string;
+          contactEmail?: string;
+          bioUrl?: string;
+          researchAreas?: string;
+          professorWebsite?: string;
+          publicationsLink?: string;
+          researchInterests?: string;
+          photoBase64?: string;
+        }
       | undefined) ?? {};
 
   const [displayName, setDisplayName] = useState(user?.name ?? '');
   const [department, setDepartment] = useState(profile.department ?? '');
   const [title, setTitle] = useState(profile.title ?? '');
   const [contactEmail, setContactEmail] = useState(profile.contactEmail ?? user?.email ?? '');
-  const [office, setOffice] = useState(profile.officeHours ?? '');
   const [bioUrl, setBioUrl] = useState(profile.bioUrl ?? '');
+  const [researchAreas, setResearchAreas] = useState(profile.researchAreas ?? '');
+  const [professorWebsite, setProfessorWebsite] = useState(profile.professorWebsite ?? '');
+  const [publicationsLink, setPublicationsLink] = useState(profile.publicationsLink ?? '');
+  const [researchInterests, setResearchInterests] = useState(profile.researchInterests ?? '');
   const [photoBase64, setPhotoBase64] = useState(profile.photoBase64 ?? '');
   const [isSaving, setIsSaving] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
@@ -38,15 +51,17 @@ export default function ProfessorSetupPage() {
   const trimmedDepartment = department.trim();
   const trimmedTitle = title.trim();
   const trimmedContactEmail = contactEmail.trim();
-  const trimmedOffice = office.trim();
   const trimmedBioUrl = bioUrl.trim();
+  const trimmedProfessorWebsite = professorWebsite.trim();
+  const trimmedPublicationsLink = publicationsLink.trim();
   const missingDisplayName = showValidationErrors && !trimmedDisplayName;
   const missingDepartment = showValidationErrors && !trimmedDepartment;
   const missingTitle = showValidationErrors && !trimmedTitle;
   const missingContactEmail = showValidationErrors && !trimmedContactEmail;
-  const missingOffice = showValidationErrors && !trimmedOffice;
   const hasInvalidContactEmail = Boolean(trimmedContactEmail) && !isValidEmail(trimmedContactEmail);
   const hasInvalidBioUrl = Boolean(trimmedBioUrl) && !isValidUrl(trimmedBioUrl);
+  const hasInvalidProfessorWebsite = Boolean(trimmedProfessorWebsite) && !isValidUrl(trimmedProfessorWebsite);
+  const hasInvalidPublicationsLink = Boolean(trimmedPublicationsLink) && !isValidUrl(trimmedPublicationsLink);
   const initials = (() => {
     const parts = displayName
       .trim()
@@ -74,7 +89,7 @@ export default function ProfessorSetupPage() {
   const handleCompleteSetup = async () => {
     setShowValidationErrors(true);
 
-    if (!trimmedDisplayName || !trimmedDepartment || !trimmedTitle || !trimmedContactEmail || !trimmedOffice) {
+    if (!trimmedDisplayName || !trimmedDepartment || !trimmedTitle || !trimmedContactEmail) {
       toast.error('Please complete all fields before continuing.');
       return;
     }
@@ -85,6 +100,17 @@ export default function ProfessorSetupPage() {
     }
 
     if (hasInvalidBioUrl) {
+      toast.error('Bio link must start with http:// or https://');
+      return;
+    }
+
+    if (hasInvalidProfessorWebsite) {
+      toast.error("Professor's website must start with http:// or https://");
+      return;
+    }
+
+    if (hasInvalidPublicationsLink) {
+      toast.error('Publications link must start with http:// or https://');
       return;
     }
 
@@ -95,8 +121,11 @@ export default function ProfessorSetupPage() {
         department: trimmedDepartment,
         title: trimmedTitle,
         contactEmail: trimmedContactEmail,
-        officeHours: trimmedOffice,
         bioUrl: trimmedBioUrl || undefined,
+        researchAreas: researchAreas.trim() || undefined,
+        professorWebsite: trimmedProfessorWebsite || undefined,
+        publicationsLink: trimmedPublicationsLink || undefined,
+        researchInterests: researchInterests.trim() || undefined,
         photoBase64: photoBase64 || undefined,
       });
       setShowValidationErrors(false);
@@ -162,9 +191,6 @@ export default function ProfessorSetupPage() {
                   </div>
                 </div>
 
-                <div className="rounded-full border border-[#e5e5e5] bg-[#fafafa] px-4 py-2 text-xs font-medium text-red-700">
-                  Bio link optional
-                </div>
               </div>
 
               <input
@@ -259,22 +285,6 @@ export default function ProfessorSetupPage() {
                     </p>
                   )}
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#575757]">Office <span className="text-red-700">*</span></Label>
-                  <Input
-                    value={office}
-                    onChange={(e) => setOffice(e.target.value)}
-                    disabled={isSaving}
-                    placeholder="GHC 6501, Tue 2:00-4:00 PM"
-                    aria-invalid={missingOffice}
-                    className={`h-12 rounded-2xl bg-white px-4 text-[#111111] shadow-none ${
-                      missingOffice
-                        ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
-                        : 'border-[#d9d9d9]'
-                    }`}
-                  />
-                  {missingOffice && <p className="mt-2 text-xs text-destructive">This field is required</p>}
-                </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label className="text-sm font-semibold text-[#575757]">Link to Bio</Label>
                   <Input
@@ -294,6 +304,66 @@ export default function ProfessorSetupPage() {
                       Bio link must start with http:// or https://
                     </p>
                   )}
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#575757]">Research Areas</Label>
+                  <Input
+                    value={researchAreas}
+                    onChange={(e) => setResearchAreas(e.target.value)}
+                    disabled={isSaving}
+                    placeholder="Machine Learning, NLP, Robotics"
+                    className="h-12 rounded-2xl border-[#d9d9d9] bg-white px-4 text-[#111111] shadow-none"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#575757]">Professor's Website</Label>
+                  <Input
+                    value={professorWebsite}
+                    onChange={(e) => setProfessorWebsite(e.target.value)}
+                    disabled={isSaving}
+                    placeholder="https://www.andrew.cmu.edu/user/praman/"
+                    aria-invalid={hasInvalidProfessorWebsite}
+                    className={`h-12 rounded-2xl bg-white px-4 text-[#111111] shadow-none ${
+                      hasInvalidProfessorWebsite
+                        ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
+                        : 'border-[#d9d9d9]'
+                    }`}
+                  />
+                  {hasInvalidProfessorWebsite && (
+                    <p className="mt-2 text-xs text-destructive" role="alert" aria-live="polite">
+                      Professor's website must start with http:// or https://
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#575757]">Publications Link</Label>
+                  <Input
+                    value={publicationsLink}
+                    onChange={(e) => setPublicationsLink(e.target.value)}
+                    disabled={isSaving}
+                    placeholder="https://scholar.google.com/citations?user=abc123"
+                    aria-invalid={hasInvalidPublicationsLink}
+                    className={`h-12 rounded-2xl bg-white px-4 text-[#111111] shadow-none ${
+                      hasInvalidPublicationsLink
+                        ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
+                        : 'border-[#d9d9d9]'
+                    }`}
+                  />
+                  {hasInvalidPublicationsLink && (
+                    <p className="mt-2 text-xs text-destructive" role="alert" aria-live="polite">
+                      Publications link must start with http:// or https://
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label className="text-sm font-semibold text-[#575757]">Research Interests</Label>
+                  <Input
+                    value={researchInterests}
+                    onChange={(e) => setResearchInterests(e.target.value)}
+                    disabled={isSaving}
+                    placeholder="Responsible AI, Human-Centered ML, Scalable Inference"
+                    className="h-12 rounded-2xl border-[#d9d9d9] bg-white px-4 text-[#111111] shadow-none"
+                  />
                 </div>
               </div>
 

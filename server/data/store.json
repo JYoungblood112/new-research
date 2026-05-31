@@ -17,7 +17,7 @@
     {
       "id": "u_5nhocvh33",
       "email": "professor.demo@andrew.cmu.edu",
-      "name": "CMU Professor Demo,m",
+      "name": "432",
       "role": "professor",
       "createdAt": "2026-05-28T08:12:59.001Z"
     },
@@ -78,9 +78,9 @@
     {
       "id": "pp_wc5fyaauo",
       "userId": "u_5nhocvh33",
-      "department": "kl",
-      "title": "lhkj",
-      "contactEmail": "professor.demo@andrew.cmu.edu",
+      "department": "34",
+      "title": "rrrr",
+      "contactEmail": "r@emdial.edu",
       "officeHours": "kl"
     }
   ]

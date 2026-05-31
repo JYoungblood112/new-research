@@ -42,6 +42,10 @@ interface AuthContextType {
     contactEmail?: string;
     officeHours?: string;
     bioUrl?: string;
+    researchAreas?: string;
+    professorWebsite?: string;
+    publicationsLink?: string;
+    researchInterests?: string;
     photoBase64?: string;
   }) => Promise<void>;
 }
@@ -113,6 +117,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     contactEmail?: string;
     officeHours?: string;
     bioUrl?: string;
+    researchAreas?: string;
+    professorWebsite?: string;
+    publicationsLink?: string;
+    researchInterests?: string;
     photoBase64?: string;
   }): Promise<void> {
     const data = await updateProfessorSetup(profile);

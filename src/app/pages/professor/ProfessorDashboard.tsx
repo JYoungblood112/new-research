@@ -112,7 +112,7 @@ const NAV_ITEMS: Array<{ key: SectionKey; label: string; icon: React.ComponentTy
   { key: 'opportunities', label: 'Research Opportunities', icon: Briefcase },
   { key: 'messages', label: 'Messages', icon: MessageSquare },
   { key: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { key: 'lab-profile', label: 'Lab Profile', icon: UserCircle },
+  { key: 'lab-profile', label: 'Profile', icon: UserCircle },
 ];
 
 const TREND_DATA = [42, 46, 40, 53, 61, 58, 67];
@@ -424,8 +424,16 @@ function getAvatarTone(seed: string) {
   return tones[Math.abs(hash) % tones.length];
 }
 
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function isValidUrl(value: string) {
+  return /^https?:\/\//i.test(value);
+}
+
 export default function ProfessorDashboard() {
-  const { user, logout, setupState } = useAuth();
+  const { user, logout, setupState, updateProfessorProfile } = useAuth();
   const { applications, getApplicationsByPosting, getPostingsByProfessor, updateApplicationStatus, addPosting } = useData();
   const navigate = useNavigate();
 
@@ -440,6 +448,9 @@ export default function ProfessorDashboard() {
   const [templateTitle, setTemplateTitle] = useState('');
   const [templateSubject, setTemplateSubject] = useState('');
   const [templateBody, setTemplateBody] = useState('');
+  const [templateRecipients, setTemplateRecipients] = useState<string[]>([]);
+  const [isSendingQueue, setIsSendingQueue] = useState(false);
+  const [sendQueueProgress, setSendQueueProgress] = useState<{ sent: number; total: number; recipient: string } | null>(null);
   const [activeComposeField, setActiveComposeField] = useState<'subject' | 'body'>('body');
   const [openTemplateEditorDialog, setOpenTemplateEditorDialog] = useState(false);
   const [editingTemplateKind, setEditingTemplateKind] = useState<MessageTemplateKind>('interview');
@@ -459,10 +470,13 @@ export default function ProfessorDashboard() {
   const [applicantSort, setApplicantSort] = useState<'score' | 'date' | 'project'>('score');
   const [selectedApplicantIds, setSelectedApplicantIds] = useState<string[]>([]);
   const [selectedApplicantId, setSelectedApplicantId] = useState<string | null>(null);
+  const [selectedConversationIds, setSelectedConversationIds] = useState<string[]>([]);
   const [openCommandPalette, setOpenCommandPalette] = useState(false);
   const [commandQuery, setCommandQuery] = useState('');
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [showProfileValidationErrors, setShowProfileValidationErrors] = useState(false);
   const initializedDefaultSection = useRef(false);
 
   const professorProfile =
@@ -470,24 +484,144 @@ export default function ProfessorDashboard() {
       | {
           department?: string;
           title?: string;
-          labDescription?: string;
+          contactEmail?: string;
           bioUrl?: string;
+          researchAreas?: string;
+          professorWebsite?: string;
+          publicationsLink?: string;
+          researchInterests?: string;
         }
       | undefined) ?? {};
 
-  const [labForm, setLabForm] = useState({
-    professorName: user?.name ?? '',
+  const createProfileFormState = () => ({
+    name: user?.name ?? '',
     department: professorProfile.department ?? '',
     title: professorProfile.title ?? '',
-    researchAreas: 'Machine Learning, NLP, Robotics',
-    labDescription:
-      professorProfile.labDescription ??
-      'Our lab explores practical AI systems that bridge methodological rigor with real-world impact.',
-    labWebsite: professorProfile.bioUrl ?? '',
-    recruitingStatus: 'Actively Recruiting',
-    preferredSkills: 'Python, PyTorch, Data Analysis, Experiment Design',
-    researchInterests: 'Responsible AI, Human-Centered ML, Systems for Scalable Inference',
+    contactEmail: professorProfile.contactEmail ?? user?.email ?? '',
+    bioUrl: professorProfile.bioUrl ?? '',
+    researchAreas: professorProfile.researchAreas ?? '',
+    professorWebsite: professorProfile.professorWebsite ?? '',
+    publicationsLink: professorProfile.publicationsLink ?? '',
+    researchInterests: professorProfile.researchInterests ?? '',
   });
+
+  const [labForm, setLabForm] = useState(createProfileFormState);
+
+  const trimmedProfileName = labForm.name.trim();
+  const trimmedProfileDepartment = labForm.department.trim();
+  const trimmedProfileTitle = labForm.title.trim();
+  const trimmedProfileContactEmail = labForm.contactEmail.trim();
+  const trimmedProfileBioUrl = labForm.bioUrl.trim();
+  const trimmedProfileProfessorWebsite = labForm.professorWebsite.trim();
+  const trimmedProfilePublicationsLink = labForm.publicationsLink.trim();
+  const missingProfileName = showProfileValidationErrors && !trimmedProfileName;
+  const missingProfileDepartment = showProfileValidationErrors && !trimmedProfileDepartment;
+  const missingProfileTitle = showProfileValidationErrors && !trimmedProfileTitle;
+  const missingProfileContactEmail = showProfileValidationErrors && !trimmedProfileContactEmail;
+  const hasInvalidProfileContactEmail = Boolean(trimmedProfileContactEmail) && !isValidEmail(trimmedProfileContactEmail);
+  const hasInvalidProfileBioUrl = Boolean(trimmedProfileBioUrl) && !isValidUrl(trimmedProfileBioUrl);
+  const hasInvalidProfileProfessorWebsite = Boolean(trimmedProfileProfessorWebsite) && !isValidUrl(trimmedProfileProfessorWebsite);
+  const hasInvalidProfilePublicationsLink = Boolean(trimmedProfilePublicationsLink) && !isValidUrl(trimmedProfilePublicationsLink);
+
+  const handleCancelDashboardProfile = () => {
+    setLabForm(createProfileFormState());
+    setShowProfileValidationErrors(false);
+    toast.success('Profile edits cleared');
+  };
+
+  const hasUnsavedDashboardProfileChanges = () => {
+    const saved = createProfileFormState();
+    return (
+      labForm.name !== saved.name ||
+      labForm.department !== saved.department ||
+      labForm.title !== saved.title ||
+      labForm.contactEmail !== saved.contactEmail ||
+      labForm.bioUrl !== saved.bioUrl ||
+      labForm.researchAreas !== saved.researchAreas ||
+      labForm.professorWebsite !== saved.professorWebsite ||
+      labForm.publicationsLink !== saved.publicationsLink ||
+      labForm.researchInterests !== saved.researchInterests
+    );
+  };
+
+  const handleSaveDashboardProfile = async ({ showSuccessToast = true }: { showSuccessToast?: boolean } = {}) => {
+    setShowProfileValidationErrors(true);
+
+    const trimmedName = labForm.name.trim();
+    const trimmedDepartment = labForm.department.trim();
+    const trimmedTitle = labForm.title.trim();
+    const trimmedContactEmail = labForm.contactEmail.trim();
+    const trimmedBioUrl = labForm.bioUrl.trim();
+    const trimmedProfessorWebsite = labForm.professorWebsite.trim();
+    const trimmedPublicationsLink = labForm.publicationsLink.trim();
+
+    if (!trimmedName || !trimmedDepartment || !trimmedTitle || !trimmedContactEmail) {
+      toast.error('Please complete all required fields before saving.');
+      return false;
+    }
+
+    if (!isValidEmail(trimmedContactEmail)) {
+      toast.error('Please enter a valid contact email.');
+      return false;
+    }
+
+    if (trimmedBioUrl && !isValidUrl(trimmedBioUrl)) {
+      toast.error('Bio link must start with http:// or https://');
+      return false;
+    }
+
+    if (trimmedProfessorWebsite && !isValidUrl(trimmedProfessorWebsite)) {
+      toast.error("Professor's website must start with http:// or https://");
+      return false;
+    }
+
+    if (trimmedPublicationsLink && !isValidUrl(trimmedPublicationsLink)) {
+      toast.error('Publications link must start with http:// or https://');
+      return false;
+    }
+
+    setIsSavingProfile(true);
+    try {
+      await updateProfessorProfile({
+        name: trimmedName,
+        department: trimmedDepartment,
+        title: trimmedTitle,
+        contactEmail: trimmedContactEmail,
+        bioUrl: trimmedBioUrl || undefined,
+        researchAreas: labForm.researchAreas.trim() || undefined,
+        professorWebsite: trimmedProfessorWebsite || undefined,
+        publicationsLink: trimmedPublicationsLink || undefined,
+        researchInterests: labForm.researchInterests.trim() || undefined,
+      });
+      setShowProfileValidationErrors(false);
+      if (showSuccessToast) {
+        toast.success('Profile changes saved');
+      }
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save profile changes');
+      return false;
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleSectionChange = async (nextSection: SectionKey) => {
+    if (nextSection === activeSection || isSavingProfile) {
+      return false;
+    }
+
+    if (activeSection === 'lab-profile' && hasUnsavedDashboardProfileChanges()) {
+      const saved = await handleSaveDashboardProfile({ showSuccessToast: false });
+      if (!saved) {
+        return false;
+      }
+      toast.success('Profile changes saved');
+    }
+
+    setActiveSection(nextSection);
+    return true;
+  };
 
   const myPostings = getPostingsByProfessor(user!.id);
   const myPostingIds = useMemo(() => new Set(myPostings.map((posting) => posting.id)), [myPostings]);
@@ -685,8 +819,33 @@ export default function ProfessorDashboard() {
     [conversations, messageFolder]
   );
 
+  const allVisibleConversationIds = useMemo(
+    () => visibleConversations.map((conversation) => conversation.id),
+    [visibleConversations]
+  );
+
+  const allVisibleConversationsSelected =
+    allVisibleConversationIds.length > 0 &&
+    allVisibleConversationIds.every((id) => selectedConversationIds.includes(id));
+
+  const selectedVisibleConversationCount = selectedConversationIds.filter((id) =>
+    allVisibleConversationIds.includes(id)
+  ).length;
+
   const openMessageTemplate = (kind: MessageTemplateKind) => {
-    const recipient = visibleConversations[0]?.name ?? '[Student Name]';
+    const visibleConversationMap = new Map(visibleConversations.map((conversation) => [conversation.id, conversation]));
+    const selectedRecipients = selectedConversationIds
+      .map((conversationId) => visibleConversationMap.get(conversationId))
+      .filter((conversation): conversation is (typeof visibleConversations)[number] => Boolean(conversation));
+    const recipients = selectedRecipients.length > 0 ? selectedRecipients : visibleConversations.slice(0, 1);
+
+    if (recipients.length === 0) {
+      toast.error('Select at least one conversation to create a message.');
+      return;
+    }
+
+    const recipientNames = recipients.map((recipient) => recipient.name);
+    const recipient = recipients.length === 1 ? recipientNames[0] : '[Student Name]';
     const opportunity = filteredApplicants[0]?.posting?.title ?? 'the research position';
     const professorName = user?.name ?? '[Professor Name]';
     const template = templateOverrides[kind] ?? DEFAULT_MESSAGE_TEMPLATES[kind];
@@ -697,10 +856,75 @@ export default function ProfessorDashboard() {
         .split('[Opportunity Title]').join(opportunity)
         .split('[Professor Name]').join(professorName);
 
-    setTemplateTitle(template.title);
+    setTemplateRecipients(recipientNames);
+    setSendQueueProgress(null);
+    setIsSendingQueue(false);
+    setTemplateTitle(recipients.length > 1 ? `${template.title} (Bulk)` : template.title);
     setTemplateSubject(replaceTokens(template.subject));
     setTemplateBody(replaceTokens(template.body));
     setOpenTemplateDialog(true);
+  };
+
+  const processMessageQueueSend = async () => {
+    const recipients = templateRecipients.filter(Boolean);
+    if (recipients.length === 0) {
+      toast.error('No recipients selected.');
+      return;
+    }
+
+    setIsSendingQueue(true);
+    setSendQueueProgress({ sent: 0, total: recipients.length, recipient: recipients[0] });
+
+    try {
+      for (let index = 0; index < recipients.length; index += 1) {
+        const recipient = recipients[index];
+
+        // Resolve recipient-specific tokens so each queued message is personalized.
+        const individualizedSubject = templateSubject.split('[Student Name]').join(recipient);
+        const individualizedBody = templateBody.split('[Student Name]').join(recipient);
+
+        // Simulated send payload for now; this is where backend email send would be invoked.
+        void individualizedSubject;
+        void individualizedBody;
+
+        // Simulate sequential queue sends in recipient selection order.
+        await new Promise<void>((resolve) => {
+          window.setTimeout(() => resolve(), 320);
+        });
+
+        setSendQueueProgress({ sent: index + 1, total: recipients.length, recipient });
+      }
+
+      toast.success(`Sent ${recipients.length}/${recipients.length} emails.`);
+      setSelectedConversationIds([]);
+      setTemplateRecipients([]);
+      setOpenTemplateDialog(false);
+      setSendQueueProgress(null);
+    } finally {
+      setIsSendingQueue(false);
+    }
+  };
+
+  const toggleSelectConversation = (conversationId: string) => {
+    setSelectedConversationIds((current) =>
+      current.includes(conversationId)
+        ? current.filter((id) => id !== conversationId)
+        : [...current, conversationId]
+    );
+  };
+
+  const toggleSelectAllVisibleConversations = () => {
+    if (allVisibleConversationsSelected) {
+      setSelectedConversationIds((current) =>
+        current.filter((id) => !allVisibleConversationIds.includes(id))
+      );
+      return;
+    }
+
+    setSelectedConversationIds((current) => {
+      const merged = new Set([...current, ...allVisibleConversationIds]);
+      return Array.from(merged);
+    });
   };
 
   const appendToken = (current: string, token: string) => {
@@ -978,6 +1202,12 @@ export default function ProfessorDashboard() {
     setSelectedApplicantIds((current) => current.filter((id) => allVisibleApplicantIds.includes(id)));
   }, [allVisibleApplicantIds]);
 
+  useEffect(() => {
+    setSelectedConversationIds((current) =>
+      current.filter((id) => allVisibleConversationIds.includes(id))
+    );
+  }, [allVisibleConversationIds]);
+
   const toggleSelectAllVisible = () => {
     if (allVisibleSelected) {
       setSelectedApplicantIds((current) => current.filter((id) => !allVisibleApplicantIds.includes(id)));
@@ -1066,7 +1296,7 @@ export default function ProfessorDashboard() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem onClick={() => setActiveSection('settings')}>
+                <DropdownMenuItem onClick={() => void handleSectionChange('settings')}>
                   Settings
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => void handleLogout()}>
@@ -1131,7 +1361,7 @@ export default function ProfessorDashboard() {
                 <button
                   key={item.key}
                   type="button"
-                  onClick={() => setActiveSection(item.key)}
+                  onClick={() => void handleSectionChange(item.key)}
                   className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors ${
                     isActive
                       ? 'border-red-200 bg-red-50 text-red-800'
@@ -1217,10 +1447,15 @@ export default function ProfessorDashboard() {
                             Status: {application.status} • Score {score}% • Submitted {new Date(application.submittedAt).toLocaleDateString()}
                           </p>
                           <div className="mt-2 flex flex-wrap gap-2">
-                            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => { setActiveSection('applicants'); setSelectedApplicantId(application.id); }}>
+                            <Button size="sm" variant="outline" className="rounded-xl" onClick={async () => {
+                              const switched = await handleSectionChange('applicants');
+                              if (switched) {
+                                setSelectedApplicantId(application.id);
+                              }
+                            }}>
                               Review
                             </Button>
-                            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => { setActiveSection('messages'); }}>
+                            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => { void handleSectionChange('messages'); }}>
                               Message
                             </Button>
                           </div>
@@ -1285,7 +1520,7 @@ export default function ProfessorDashboard() {
                           const title = postingById.get(postingId)?.title ?? '';
                           setApplicantSearch(title);
                           setApplicantStatusFilter('all');
-                          setActiveSection('applicants');
+                          void handleSectionChange('applicants');
                         }}
                         onEditPosting={(nextPosting) => {
                           setEditingPosting(nextPosting);
@@ -1339,7 +1574,7 @@ export default function ProfessorDashboard() {
                           const title = postingById.get(postingId)?.title ?? '';
                           setApplicantSearch(title);
                           setApplicantStatusFilter('all');
-                          setActiveSection('applicants');
+                          void handleSectionChange('applicants');
                         }}
                         onEditPosting={(nextPosting) => {
                           setEditingPosting(nextPosting);
@@ -1393,7 +1628,7 @@ export default function ProfessorDashboard() {
                           const title = postingById.get(postingId)?.title ?? '';
                           setApplicantSearch(title);
                           setApplicantStatusFilter('all');
-                          setActiveSection('applicants');
+                          void handleSectionChange('applicants');
                         }}
                         onEditPosting={(nextPosting) => {
                           setEditingPosting(nextPosting);
@@ -1649,6 +1884,28 @@ export default function ProfessorDashboard() {
                     </Button>
                   </div>
 
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#ececec] px-3 py-2 text-sm dark:border-[#313131]">
+                    <p className="text-[#666666] dark:text-[#b5b5b5]">
+                      {selectedVisibleConversationCount > 0
+                        ? `${selectedVisibleConversationCount} recipients selected`
+                        : 'Select recipients for bulk messages'}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" className="rounded-xl" onClick={toggleSelectAllVisibleConversations}>
+                        {allVisibleConversationsSelected ? 'Clear Selection' : 'Select All Visible'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-xl"
+                        onClick={() => setSelectedConversationIds([])}
+                        disabled={selectedConversationIds.length === 0}
+                      >
+                        Clear All
+                      </Button>
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     {visibleConversations.length === 0 ? (
                       <div className={`rounded-xl border border-dashed p-8 text-center text-sm ${subduedText}`}>
@@ -1660,8 +1917,19 @@ export default function ProfessorDashboard() {
                           key={conversation.id}
                           className={`rounded-xl border p-3 transition-colors ${darkMode ? 'border-[#2b2b2b] hover:bg-[#1f1f1f]' : 'border-[#ececec] hover:bg-[#fafafa]'}`}
                         >
-                          <p className="text-sm font-medium">{conversation.name}</p>
-                          <p className={`text-xs ${subduedText}`}>{conversation.subject}</p>
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedConversationIds.includes(conversation.id)}
+                              onChange={() => toggleSelectConversation(conversation.id)}
+                              aria-label={`Select ${conversation.name}`}
+                              className="mt-1"
+                            />
+                            <div>
+                              <p className="text-sm font-medium">{conversation.name}</p>
+                              <p className={`text-xs ${subduedText}`}>{conversation.subject}</p>
+                            </div>
+                          </div>
                         </div>
                       ))
                     )}
@@ -1712,122 +1980,160 @@ export default function ProfessorDashboard() {
           {activeSection === 'lab-profile' ? (
             <Card className={cardSurface}>
               <CardHeader>
-                <CardTitle>Lab Profile</CardTitle>
-                <CardDescription>Manage your public lab identity and recruiting preferences.</CardDescription>
+                <CardTitle>Profile</CardTitle>
+                <CardDescription>Manage your public lab identity and profile details.</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-2">
-                <div className="md:col-span-2 rounded-xl border border-[#ececec] bg-[#fafafa] p-3">
-                  {(() => {
-                    const requiredFields = [
-                      labForm.professorName,
-                      labForm.department,
-                      labForm.title,
-                      labForm.researchAreas,
-                      labForm.labDescription,
-                      labForm.labWebsite,
-                    ];
-                    const completed = requiredFields.filter((value) => value.trim().length > 0).length;
-                    const percent = Math.round((completed / requiredFields.length) * 100);
-                    return (
-                      <>
-                        <p className="text-sm font-semibold">Profile completeness: {percent}%</p>
-                        <p className="mt-1 text-xs text-[#666666]">
-                          Labs with complete descriptions and links tend to attract more applications and better candidate quality.
-                        </p>
-                      </>
-                    );
-                  })()}
-                </div>
-
                 <div className="space-y-2">
-                  <Label>Professor Name</Label>
+                  <Label>Name <span className="text-red-700">*</span></Label>
                   <Input
-                    value={labForm.professorName}
-                    onChange={(event) => setLabForm((current) => ({ ...current, professorName: event.target.value }))}
-                    className="rounded-xl"
+                    value={labForm.name}
+                    onChange={(event) => setLabForm((current) => ({ ...current, name: event.target.value }))}
+                    placeholder="Sarah Chen"
+                    aria-invalid={missingProfileName}
+                    className={`h-12 rounded-2xl bg-white px-4 text-[#111111] shadow-none ${
+                      missingProfileName
+                        ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
+                        : 'border-[#d9d9d9]'
+                    }`}
                   />
+                  {missingProfileName && <p className="mt-2 text-xs text-destructive">Name is required</p>}
                 </div>
                 <div className="space-y-2">
-                  <Label>Department</Label>
+                  <Label>Department <span className="text-red-700">*</span></Label>
                   <Input
                     value={labForm.department}
                     onChange={(event) => setLabForm((current) => ({ ...current, department: event.target.value }))}
-                    className="rounded-xl"
+                    placeholder="Computer Science"
+                    aria-invalid={missingProfileDepartment}
+                    className={`h-12 rounded-2xl bg-white px-4 text-[#111111] shadow-none ${
+                      missingProfileDepartment
+                        ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
+                        : 'border-[#d9d9d9]'
+                    }`}
                   />
+                  {missingProfileDepartment && <p className="mt-2 text-xs text-destructive">Department is required</p>}
                 </div>
                 <div className="space-y-2">
-                  <Label>Title</Label>
+                  <Label>Title <span className="text-red-700">*</span></Label>
                   <Input
                     value={labForm.title}
                     onChange={(event) => setLabForm((current) => ({ ...current, title: event.target.value }))}
-                    className="rounded-xl"
+                    placeholder="Assistant Professor"
+                    aria-invalid={missingProfileTitle}
+                    className={`h-12 rounded-2xl bg-white px-4 text-[#111111] shadow-none ${
+                      missingProfileTitle
+                        ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
+                        : 'border-[#d9d9d9]'
+                    }`}
                   />
+                  {missingProfileTitle && <p className="mt-2 text-xs text-destructive">Title is required</p>}
+                </div>
+                <div className="space-y-2">
+                  <Label>Contact Email <span className="text-red-700">*</span></Label>
+                  <Input
+                    value={labForm.contactEmail}
+                    onChange={(event) => setLabForm((current) => ({ ...current, contactEmail: event.target.value }))}
+                    placeholder="schen@andrew.cmu.edu"
+                    aria-invalid={missingProfileContactEmail || hasInvalidProfileContactEmail}
+                    className={`h-12 rounded-2xl bg-white px-4 text-[#111111] shadow-none ${
+                      missingProfileContactEmail || hasInvalidProfileContactEmail
+                        ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
+                        : 'border-[#d9d9d9]'
+                    }`}
+                  />
+                  {missingProfileContactEmail && <p className="mt-2 text-xs text-destructive">Contact email is required</p>}
+                  {hasInvalidProfileContactEmail && (
+                    <p className="mt-2 text-xs text-destructive" role="alert" aria-live="polite">
+                      Email is invalid
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Link to Bio</Label>
+                  <Input
+                    value={labForm.bioUrl}
+                    onChange={(event) => setLabForm((current) => ({ ...current, bioUrl: event.target.value }))}
+                    placeholder="https://www.cs.cmu.edu/people/sarah-chen"
+                    aria-invalid={hasInvalidProfileBioUrl}
+                    className={`h-12 rounded-2xl bg-white px-4 text-[#111111] shadow-none ${
+                      hasInvalidProfileBioUrl
+                        ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
+                        : 'border-[#d9d9d9]'
+                    }`}
+                  />
+                  {hasInvalidProfileBioUrl && (
+                    <p className="mt-2 text-xs text-destructive" role="alert" aria-live="polite">
+                      Bio link must start with http:// or https://
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Research Areas</Label>
                   <Input
                     value={labForm.researchAreas}
                     onChange={(event) => setLabForm((current) => ({ ...current, researchAreas: event.target.value }))}
-                    className="rounded-xl"
-                  />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Lab Description</Label>
-                  <Input
-                    value={labForm.labDescription}
-                    onChange={(event) => setLabForm((current) => ({ ...current, labDescription: event.target.value }))}
-                    className="rounded-xl"
+                    placeholder="Machine Learning, NLP, Robotics"
+                    className="h-12 rounded-2xl border-[#d9d9d9] bg-white px-4 text-[#111111] shadow-none"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Lab Website</Label>
+                  <Label>Professor's Website</Label>
                   <Input
-                    value={labForm.labWebsite}
-                    onChange={(event) => setLabForm((current) => ({ ...current, labWebsite: event.target.value }))}
-                    className="rounded-xl"
+                    value={labForm.professorWebsite}
+                    onChange={(event) => setLabForm((current) => ({ ...current, professorWebsite: event.target.value }))}
+                    placeholder="https://www.andrew.cmu.edu/user/praman/"
+                    aria-invalid={hasInvalidProfileProfessorWebsite}
+                    className={`h-12 rounded-2xl bg-white px-4 text-[#111111] shadow-none ${
+                      hasInvalidProfileProfessorWebsite
+                        ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
+                        : 'border-[#d9d9d9]'
+                    }`}
                   />
+                  {hasInvalidProfileProfessorWebsite && (
+                    <p className="mt-2 text-xs text-destructive" role="alert" aria-live="polite">
+                      Professor's website must start with http:// or https://
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
-                  <Label>Current Recruiting Status</Label>
-                  <Select
-                    value={labForm.recruitingStatus}
-                    onValueChange={(value) => setLabForm((current) => ({ ...current, recruitingStatus: value }))}
-                  >
-                    <SelectTrigger className="rounded-xl">
-                      <SelectValue placeholder="Recruiting status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Actively Recruiting">Actively Recruiting</SelectItem>
-                      <SelectItem value="Limited Openings">Limited Openings</SelectItem>
-                      <SelectItem value="Not Recruiting">Not Recruiting</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Preferred Student Skills</Label>
+                  <Label>Publications Link</Label>
                   <Input
-                    value={labForm.preferredSkills}
-                    onChange={(event) => setLabForm((current) => ({ ...current, preferredSkills: event.target.value }))}
-                    className="rounded-xl"
+                    value={labForm.publicationsLink}
+                    onChange={(event) => setLabForm((current) => ({ ...current, publicationsLink: event.target.value }))}
+                    placeholder="https://scholar.google.com/citations?user=abc123"
+                    aria-invalid={hasInvalidProfilePublicationsLink}
+                    className={`h-12 rounded-2xl bg-white px-4 text-[#111111] shadow-none ${
+                      hasInvalidProfilePublicationsLink
+                        ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
+                        : 'border-[#d9d9d9]'
+                    }`}
                   />
+                  {hasInvalidProfilePublicationsLink && (
+                    <p className="mt-2 text-xs text-destructive" role="alert" aria-live="polite">
+                      Publications link must start with http:// or https://
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label>Research Interests</Label>
                   <Input
                     value={labForm.researchInterests}
                     onChange={(event) => setLabForm((current) => ({ ...current, researchInterests: event.target.value }))}
-                    className="rounded-xl"
+                    placeholder="Responsible AI, Human-Centered ML, Scalable Inference"
+                    className="h-12 rounded-2xl border-[#d9d9d9] bg-white px-4 text-[#111111] shadow-none"
                   />
                 </div>
                 <div className="md:col-span-2 flex justify-between">
-                  <Button variant="outline" className="rounded-xl" onClick={() => navigate('/professor/profile')}>
-                    Open Full Profile Editor
+                  <Button variant="outline" className="rounded-xl" onClick={handleCancelDashboardProfile} disabled={isSavingProfile}>
+                    Cancel
                   </Button>
                   <Button
                     className="rounded-xl bg-red-700 text-white hover:bg-red-800"
-                    onClick={() => toast.success('Lab profile changes saved')}
+                    onClick={() => void handleSaveDashboardProfile()}
+                    disabled={isSavingProfile}
                   >
-                    Save Changes
+                    {isSavingProfile ? 'Saving...' : 'Save Changes'}
                   </Button>
                 </div>
               </CardContent>
@@ -1972,7 +2278,18 @@ export default function ProfessorDashboard() {
         <ViewApplicationsDialog postingId={selectedPostingId} open={Boolean(selectedPostingId)} onOpenChange={(open) => !open && setSelectedPostingId(null)} />
       ) : null}
 
-      <Dialog open={openTemplateDialog} onOpenChange={setOpenTemplateDialog}>
+      <Dialog
+        open={openTemplateDialog}
+        onOpenChange={(open) => {
+          if (isSendingQueue) {
+            return;
+          }
+          setOpenTemplateDialog(open);
+          if (!open) {
+            setSendQueueProgress(null);
+          }
+        }}
+      >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>{templateTitle}</DialogTitle>
@@ -2021,17 +2338,34 @@ export default function ProfessorDashboard() {
                 rows={12}
               />
             </div>
+            {sendQueueProgress ? (
+              <p className="text-sm font-medium text-[#666666] dark:text-[#b5b5b5]">
+                {sendQueueProgress.sent > 0
+                  ? `Email (${sendQueueProgress.sent}/${sendQueueProgress.total}) sent to ${sendQueueProgress.recipient}`
+                  : `Preparing queue (${sendQueueProgress.total} emails)...`}
+              </p>
+            ) : null}
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setOpenTemplateDialog(false)}>
+              <Button variant="outline" onClick={() => setOpenTemplateDialog(false)} disabled={isSendingQueue}>
                 Close
               </Button>
               <Button
+                disabled={isSendingQueue}
                 onClick={async () => {
                   await navigator.clipboard.writeText(`Subject: ${templateSubject}\n\n${templateBody}`);
                   toast.success('Template copied to clipboard.');
                 }}
               >
                 Copy Template
+              </Button>
+              <Button
+                className="bg-red-700 text-white hover:bg-red-800"
+                onClick={() => {
+                  void processMessageQueueSend();
+                }}
+                disabled={isSendingQueue}
+              >
+                {isSendingQueue ? 'Sending...' : 'Send'}
               </Button>
             </div>
           </div>
@@ -2392,10 +2726,12 @@ export default function ProfessorDashboard() {
                       key={item.key}
                       type="button"
                       className="flex w-full items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-sm hover:border-[#ececec] hover:bg-[#fafafa]"
-                      onClick={() => {
-                        setActiveSection(item.key);
-                        setOpenCommandPalette(false);
-                        setCommandQuery('');
+                      onClick={async () => {
+                        const switched = await handleSectionChange(item.key);
+                        if (switched) {
+                          setOpenCommandPalette(false);
+                          setCommandQuery('');
+                        }
                       }}
                     >
                       <Icon className="h-4 w-4" />

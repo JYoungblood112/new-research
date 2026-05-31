@@ -58,17 +58,14 @@ function getSetupState(store, user) {
     !!user.name?.trim() &&
     !!profile.department?.trim() &&
     !!profile.title?.trim() &&
-    !!profile.contactEmail?.trim() &&
-    !!profile.officeHours?.trim();
+    !!profile.contactEmail?.trim();
 
   return {
     completed,
     profile,
     steps: {
       basic: !!user?.name?.trim() && !!profile?.department?.trim() && !!profile?.title?.trim(),
-      contact:
-        !!profile?.contactEmail?.trim() &&
-        !!profile?.officeHours?.trim(),
+      contact: !!profile?.contactEmail?.trim(),
     },
   };
 }
@@ -256,6 +253,10 @@ app.post('/api/auth/stub-sso', (req, res) => {
         contactEmail: user.email,
         officeHours: '',
         bioUrl: '',
+        researchAreas: '',
+        professorWebsite: '',
+        publicationsLink: '',
+        researchInterests: '',
         photoBase64: '',
       });
     }
@@ -352,6 +353,21 @@ app.put('/api/setup/professor', authRequired, (req, res) => {
         ? next.office
         : profile.officeHours;
   profile.bioUrl = typeof next.bioUrl === 'string' ? next.bioUrl : profile.bioUrl;
+  profile.researchAreas = typeof next.researchAreas === 'string' ? next.researchAreas : profile.researchAreas;
+  profile.professorWebsite =
+    typeof next.professorWebsite === 'string'
+      ? next.professorWebsite
+      : typeof next.labWebsite === 'string'
+        ? next.labWebsite
+        : profile.professorWebsite;
+  profile.publicationsLink =
+    typeof next.publicationsLink === 'string'
+      ? next.publicationsLink
+      : typeof next.recruitingStatus === 'string'
+        ? next.recruitingStatus
+        : profile.publicationsLink;
+  profile.researchInterests =
+    typeof next.researchInterests === 'string' ? next.researchInterests : profile.researchInterests;
   profile.photoBase64 = typeof next.photoBase64 === 'string' ? next.photoBase64 : profile.photoBase64;
 
   writeStore(store);
