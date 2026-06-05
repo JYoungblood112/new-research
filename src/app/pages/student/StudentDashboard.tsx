@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { useNavigate } from 'react-router';
 import BrowseResearch from '../../components/student/BrowseResearch';
+import AIRecommendations from '../../components/student/AIRecommendations';
 import MyApplications from '../../components/student/MyApplications';
 import StudentProfile from '../../components/student/StudentProfile';
 import { Header as AppHeader } from '../../../components/ui/header-1';
@@ -53,6 +54,14 @@ export default function StudentDashboard() {
             onClick: (event) => {
               event.preventDefault();
               void requestTabChange('browse');
+            },
+          },
+          {
+            label: 'AI Recommendations',
+            href: '#',
+            onClick: (event) => {
+              event.preventDefault();
+              void requestTabChange('recommendations');
             },
           },
           {
@@ -127,6 +136,12 @@ export default function StudentDashboard() {
               Browse Research
             </TabsTrigger>
             <TabsTrigger
+              value="recommendations"
+              className="rounded-xl border border-transparent bg-transparent px-4 py-2 text-[#666666] data-[state=active]:border-red-200 data-[state=active]:bg-red-50 data-[state=active]:text-red-800 data-[state=active]:shadow-none"
+            >
+              AI Recommendations
+            </TabsTrigger>
+            <TabsTrigger
               value="applications"
               className="rounded-xl border border-transparent bg-transparent px-4 py-2 text-[#666666] data-[state=active]:border-red-200 data-[state=active]:bg-red-50 data-[state=active]:text-red-800 data-[state=active]:shadow-none"
             >
@@ -142,6 +157,10 @@ export default function StudentDashboard() {
 
           <TabsContent value="browse">
             <BrowseResearch />
+          </TabsContent>
+
+          <TabsContent value="recommendations">
+            <AIRecommendations />
           </TabsContent>
 
           <TabsContent value="applications">

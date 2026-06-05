@@ -60,59 +60,35 @@ function normalizeRecommendationItem(item: Record<string, any>): RecommendationI
   };
 }
 
-function buildRecommendationProfile(profile: Record<string, any>) {
-  return {
-    major: profile?.major ?? '',
-    skills: Array.isArray(profile?.skills) ? profile.skills : [],
-    interests: Array.isArray(profile?.interests) ? profile.interests : [],
-    summary: profile?.summary ?? '',
-    university: profile?.university ?? '',
-    degree: profile?.degree ?? '',
-    github: profile?.github || profile?.githubUrl || '',
-    linkedin: profile?.linkedin || profile?.linkedInUrl || '',
-    resumeText: profile?.resumeText || '',
-  };
-}
-
-function buildRecommendationPostings(postings: ResearchPosting[]) {
-  return postings
-    .filter((posting) => posting.status === 'published')
-    .map((posting) => ({
-      id: posting.id,
-      title: posting.title,
-      category: posting.category,
-      overview: posting.overview,
-      studentRoleDescription: posting.studentRoleDescription,
-      requiredQualifications: posting.requiredQualifications,
-      preferredQualifications: posting.preferredQualifications,
-    }));
-}
-
-function buildLocalFallbackRecommendations(postings: Array<{ id: string }>): RecommendationItem[] {
-  return postings.slice(0, 8).map((posting, index) => ({
-    postingId: posting.id,
-    confidence: Math.max(55, 90 - index * 6),
-    reason: 'Fallback ranking was used because the recommendation service did not respond in time.',
-    score_breakdown: null,
-    qualifications: [],
-    fit_reasoning: [],
-    gaps: [],
-    recommendation: null,
-  }));
-}
-
 export default function AIRecommendations() {
   const navigate = useNavigate();
   const { user, setupState } = useAuth();
-  const { postings, getApplicationsByStudent } = useData();
+  const { postings, applications, getApplicationsByStudent } = useData();
   const [selectedPosting, setSelectedPosting] = useState<string | null>(null);
-  const [recommendations, setRecommendations] = useState<RecommendationItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const lastRequestKeyRef = useRef('');
+  const [scoredPostings, setScoredPostings] = useState<Map<string, RecommendationItem>>(new Map());
+  const [appliedPostingIds, setAppliedPostingIds] = useState<Set<string>>(new Set());
+  const [allPostingIds, setAllPostingIds] = useState<string[]>([]);
+  const [isHydrating, setIsHydrating] = useState(true);
+  const activePollsRef = useRef<
+    Map<
+      string,
+      {
+        intervalId: number;
+        timeoutId: number;
+      }
+    >
+  >(new Map());
+  const activeSessionRef = useRef<string>('');
 
   const studentProfile = setupState?.profile as Record<string, any> | undefined;
-  const appliedPostingIds = new Set(getApplicationsByStudent(user?.id ?? '').map((application) => application.postingId));
+  const appliedPostingIdsFromData = useMemo(
+    () => new Set(getApplicationsByStudent(user?.id ?? '').map((application) => application.postingId)),
+    [applications, getApplicationsByStudent, user?.id]
+  );
+
+  useEffect(() => {
+    setAppliedPostingIds(appliedPostingIdsFromData);
+  }, [appliedPostingIdsFromData]);
 
   // For UI: show top signals
   const topSignals = [
@@ -122,110 +98,229 @@ export default function AIRecommendations() {
   ].filter(Boolean).slice(0, 5);
   const hasProfileBasics = Boolean(studentProfile?.major || studentProfile?.skills?.length || studentProfile?.interests?.length || studentProfile?.resume?.name);
 
-  const requestProfile = useMemo(() => buildRecommendationProfile(studentProfile ?? {}), [
-    studentProfile?.major,
-    studentProfile?.summary,
-    studentProfile?.university,
-    studentProfile?.degree,
-    Array.isArray(studentProfile?.skills) ? studentProfile.skills.join('|') : '',
-    Array.isArray(studentProfile?.interests) ? studentProfile.interests.join('|') : '',
-  ]);
-
-  const requestPostings = useMemo(() => buildRecommendationPostings(postings), [
-    postings.map((posting) => `${posting.id}:${posting.status}`).join('|'),
-  ]);
-
-  const requestKey = useMemo(
+  const profileKey = useMemo(
     () =>
       JSON.stringify({
-        profile: requestProfile,
-        postingIds: requestPostings.map((posting) => posting.id),
+        major: studentProfile?.major ?? '',
+        skills: Array.isArray(studentProfile?.skills) ? studentProfile.skills : [],
+        interests: Array.isArray(studentProfile?.interests) ? studentProfile.interests : [],
+        summary: studentProfile?.summary ?? '',
+        university: studentProfile?.university ?? '',
+        degree: studentProfile?.degree ?? '',
+        github: studentProfile?.github || studentProfile?.githubUrl || '',
+        linkedin: studentProfile?.linkedin || studentProfile?.linkedInUrl || '',
+        resumeText: studentProfile?.resumeText || '',
       }),
-    [requestProfile, requestPostings]
+    [
+      studentProfile?.major,
+      studentProfile?.summary,
+      studentProfile?.university,
+      studentProfile?.degree,
+      Array.isArray(studentProfile?.skills) ? studentProfile.skills.join('|') : '',
+      Array.isArray(studentProfile?.interests) ? studentProfile.interests.join('|') : '',
+      studentProfile?.github,
+      studentProfile?.githubUrl,
+      studentProfile?.linkedin,
+      studentProfile?.linkedInUrl,
+      studentProfile?.resumeText,
+    ]
   );
 
-  useEffect(() => {
-    if (!requestPostings.length) return;
+  const top5 = useMemo(() => {
+    return Array.from(scoredPostings.values())
+      .filter((item) => !appliedPostingIds.has(item.postingId))
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 5);
+  }, [scoredPostings, appliedPostingIds]);
 
-    if (lastRequestKeyRef.current === requestKey) {
+  const stopPolling = (postingId: string) => {
+    const active = activePollsRef.current.get(postingId);
+    if (!active) {
       return;
     }
-    lastRequestKeyRef.current = requestKey;
 
-    setLoading(true);
-    setError(null);
-    const localFallback = buildLocalFallbackRecommendations(requestPostings);
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 120000);
+    window.clearInterval(active.intervalId);
+    window.clearTimeout(active.timeoutId);
+    activePollsRef.current.delete(postingId);
+  };
 
-    fetch('/api/ai/recommendations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ profile: requestProfile, postings: requestPostings }),
-      signal: controller.signal,
-    })
-      .then(async (res) => {
-        const rawBody = await res.text();
-        const contentType = res.headers.get('content-type') || '';
-        const isJson = contentType.includes('application/json');
+  const pollForScore = (postingId: string) => {
+    if (activePollsRef.current.has(postingId)) {
+      return;
+    }
 
-        let payload: Record<string, any> = {};
-        if (rawBody.trim() && isJson) {
-          try {
-            payload = JSON.parse(rawBody);
-          } catch {
-            payload = {};
-          }
+    const intervalId = window.setInterval(async () => {
+      try {
+        const res = await fetch(`/api/ai/recommendations/get-score?postingId=${encodeURIComponent(postingId)}`, {
+          credentials: 'include',
+        });
+        const data = await res.json();
+
+        if (data.status === 'ready' && data.result) {
+          stopPolling(postingId);
+          setScoredPostings((prev) => {
+            const next = new Map(prev);
+            next.set(postingId, normalizeRecommendationItem(data.result));
+            return next;
+          });
         }
+      } catch {
+        // Keep polling until the timeout or success.
+      }
+    }, 5000);
 
-        if (!res.ok) {
-          const message =
-            (typeof payload.error === 'string' && payload.error) ||
-            (rawBody.trim() ? `Request failed with ${res.status}` : `Request failed with ${res.status} (empty response)`);
-          throw new Error(message);
-        }
+    const timeoutId = window.setTimeout(() => stopPolling(postingId), 1000 * 60 * 3);
+    activePollsRef.current.set(postingId, { intervalId, timeoutId });
+  };
 
-        return payload;
-      })
-      .then((data) => {
-        const apiRecommendations = Array.isArray(data?.recommendations) ? data.recommendations : [];
-        setRecommendations(apiRecommendations.map((item) => normalizeRecommendationItem(item)));
-      })
-      .catch((err) => {
-        if (err?.name === 'AbortError') {
-          setRecommendations(localFallback);
-          setError(null);
-          return;
-        }
-
-        setRecommendations(localFallback);
-        setError(null);
-      })
-      .finally(() => {
-        window.clearTimeout(timeoutId);
-        setLoading(false);
+  const fetchAndScorePosting = async (posting: ResearchPosting) => {
+    try {
+      const res = await fetch(`/api/ai/recommendations/score-one?postingId=${encodeURIComponent(posting.id)}`, {
+        credentials: 'include',
       });
+      const data = await res.json();
+
+      if (data.status === 'ready' && data.result) {
+        setScoredPostings((prev) => {
+          const next = new Map(prev);
+          next.set(posting.id, normalizeRecommendationItem(data.result));
+          return next;
+        });
+        return;
+      }
+
+      if (data.status === 'scoring') {
+        pollForScore(posting.id);
+      }
+    } catch {
+      // Keep the queue moving; the next polling pass can retry.
+    }
+  };
+
+  const loadPostingsFromServer = async () => {
+    try {
+      const res = await fetch('/api/postings', { credentials: 'include' });
+      const payload = await res.json();
+      const serverPostings = Array.isArray(payload) ? payload : Array.isArray(payload?.postings) ? payload.postings : [];
+      const merged = new Map<string, ResearchPosting>();
+
+      for (const posting of serverPostings as ResearchPosting[]) {
+        if (posting?.id) {
+          merged.set(posting.id, posting);
+        }
+      }
+
+      for (const posting of postings) {
+        if (posting?.id) {
+          merged.set(posting.id, posting);
+        }
+      }
+
+      return Array.from(merged.values()).filter((posting) => posting.status === 'published');
+    } catch {
+      return postings.filter((posting) => posting.status === 'published');
+    }
+  };
+
+  useEffect(() => {
+    if (!user?.id) {
+      setScoredPostings(new Map());
+      setAppliedPostingIds(new Set());
+      setAllPostingIds([]);
+      setIsHydrating(false);
+      activeSessionRef.current = '';
+      return;
+    }
+
+    if (activeSessionRef.current === `${user.id}:${profileKey}`) {
+      return;
+    }
+
+    activeSessionRef.current = `${user.id}:${profileKey}`;
+    setIsHydrating(true);
+    setScoredPostings(new Map());
+    setAllPostingIds([]);
+    setAppliedPostingIds(new Set(getApplicationsByStudent(user.id).map((application) => application.postingId)));
+
+    let cancelled = false;
+
+    void (async () => {
+      const availablePostings = await loadPostingsFromServer();
+      if (cancelled) {
+        return;
+      }
+
+      setAllPostingIds(availablePostings.map((posting) => posting.id));
+
+      for (const posting of availablePostings) {
+        if (appliedPostingIdsFromData.has(posting.id)) {
+          continue;
+        }
+
+        void fetchAndScorePosting(posting);
+      }
+
+      setIsHydrating(false);
+    })();
 
     return () => {
-      window.clearTimeout(timeoutId);
-      controller.abort();
+      cancelled = true;
     };
-  }, [requestKey]);
+  }, [user?.id, profileKey]);
 
-  // Map Ollama recommendations to postings
-  const recsWithPosting = recommendations
-    .map((rec) => {
-      const posting = postings.find((p) => p.id === rec.postingId);
-      if (!posting) return null;
-      return {
-        posting,
-        recommendation: rec,
-        alreadyApplied: appliedPostingIds.has(rec.postingId),
-      };
-    })
-    .filter(Boolean)
-    .sort((a, b) => (b!.recommendation.confidence - a!.recommendation.confidence));
+  useEffect(() => {
+    const intervalId = window.setInterval(async () => {
+      const availablePostings = await loadPostingsFromServer();
+      const nextKnownIds = new Set(allPostingIds);
+      const newPostings = availablePostings.filter((posting) => !nextKnownIds.has(posting.id));
+
+      if (newPostings.length === 0) {
+        return;
+      }
+
+      setAllPostingIds((prev) => [...prev, ...newPostings.map((posting) => posting.id)]);
+
+      for (const posting of newPostings) {
+        if (appliedPostingIds.has(posting.id)) {
+          continue;
+        }
+
+        void fetchAndScorePosting(posting);
+      }
+    }, 60000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [allPostingIds, appliedPostingIds, top5]);
+
+  useEffect(() => {
+    return () => {
+      for (const postingId of activePollsRef.current.keys()) {
+        stopPolling(postingId);
+      }
+    };
+  }, []);
+
+  const visiblePostings = top5.map((rec) => {
+    const posting = postings.find((entry) => entry.id === rec.postingId);
+    if (!posting) {
+      return null;
+    }
+
+    return {
+      posting,
+      recommendation: rec,
+    };
+  }).filter(Boolean) as Array<{ posting: ResearchPosting; recommendation: RecommendationItem }>;
+
+  const handleApplied = (postingId: string) => {
+    setAppliedPostingIds((prev) => {
+      const next = new Set(prev);
+      next.add(postingId);
+      return next;
+    });
+  };
 
   return (
           <div className="space-y-6">
@@ -283,23 +378,7 @@ export default function AIRecommendations() {
               </CardContent>
             </Card>
 
-            {loading && (
-              <Card className="border-[#d8cfc9] bg-white shadow-none">
-                <CardContent className="py-12 text-center">
-                  <FileText className="mx-auto mb-3 h-10 w-10 text-gray-400" />
-                  <p className="text-gray-600">Loading recommendations...</p>
-                </CardContent>
-              </Card>
-            )}
-            {error && (
-              <Card className="border-[#d8cfc9] bg-white shadow-none">
-                <CardContent className="py-12 text-center">
-                  <FileText className="mx-auto mb-3 h-10 w-10 text-gray-400" />
-                  <p className="text-red-600">{error}</p>
-                </CardContent>
-              </Card>
-            )}
-            {!loading && !error && recsWithPosting.length === 0 && (
+            {!isHydrating && allPostingIds.length === 0 && (
               <Card className="border-[#d8cfc9] bg-white shadow-none">
                 <CardContent className="py-12 text-center">
                   <FileText className="mx-auto mb-3 h-10 w-10 text-gray-400" />
@@ -308,29 +387,24 @@ export default function AIRecommendations() {
               </Card>
             )}
             <div className="space-y-4">
-              {recsWithPosting.map((rec, index) => {
+              {visiblePostings.map((rec, index) => {
                 const topPick = index === 0;
                 return (
                   <Card
-                    key={rec!.posting.id}
+                    key={rec.posting.id}
                     className={`border-[#d8cfc9] bg-white shadow-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_24px_rgba(0,0,0,0.06)] ${topPick ? 'ring-1 ring-red-700/10' : ''}`}
                   >
                     <CardHeader className="space-y-3 pb-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="space-y-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <CardTitle className="text-2xl tracking-[-0.01em] text-foreground">{rec!.posting.title}</CardTitle>
+                            <CardTitle className="text-2xl tracking-[-0.01em] text-foreground">{rec.posting.title}</CardTitle>
                             {topPick ? (
                               <Badge className="rounded-full bg-red-700 text-white hover:bg-red-700">Top pick</Badge>
                             ) : null}
-                            {rec!.alreadyApplied ? (
-                              <Badge variant="outline" className="rounded-full border-amber-300 bg-amber-50 text-amber-900">
-                                Already applied
-                              </Badge>
-                            ) : null}
                           </div>
                           <CardDescription className="text-sm text-muted-foreground">
-                            {rec!.posting.professorName} • {rec!.posting.professorDepartment}
+                            {rec.posting.professorName} • {rec.posting.professorDepartment}
                           </CardDescription>
                         </div>
                         <div className="text-right">
@@ -339,10 +413,10 @@ export default function AIRecommendations() {
                             <span className="text-sm font-semibold uppercase tracking-[0.12em] text-red-700">Confidence</span>
                           </div>
                           <p className="mt-1 text-4xl font-semibold tracking-[-0.04em] text-foreground">
-                            {rec!.recommendation.confidence !== undefined
-                              ? `${(rec!.recommendation.confidence <= 1
-                                ? rec!.recommendation.confidence * 100
-                                : rec!.recommendation.confidence).toFixed(1)}%`
+                            {rec.recommendation.confidence !== undefined
+                              ? `${(rec.recommendation.confidence <= 1
+                                ? rec.recommendation.confidence * 100
+                                : rec.recommendation.confidence).toFixed(1)}%`
                               : 'N/A'}
                           </p>
                         </div>
@@ -350,19 +424,19 @@ export default function AIRecommendations() {
 
                       <div className="flex flex-wrap gap-2">
                         <Badge className="rounded-full border border-red-700/20 bg-red-700/[0.06] text-red-800 hover:bg-red-700/[0.06]">
-                          {rec!.posting.category}
+                          {rec.posting.category}
                         </Badge>
                         <Badge variant="secondary" className="rounded-full">
-                          Apply by {new Date(rec!.posting.applicationDeadline).toLocaleDateString()}
+                          Apply by {new Date(rec.posting.applicationDeadline).toLocaleDateString()}
                         </Badge>
                         <Badge variant="secondary" className="rounded-full">
-                          {rec!.posting.compensation}
+                          {rec.posting.compensation}
                         </Badge>
                       </div>
                     </CardHeader>
 
                     <CardContent className="space-y-4">
-                      <p className="text-sm leading-6 text-foreground/80">{rec!.posting.overview}</p>
+                      <p className="text-sm leading-6 text-foreground/80">{rec.posting.overview}</p>
                       <div className="grid gap-4 lg:grid-cols-2">
                         <div className="rounded-2xl border border-[#efe7e2] bg-[#fcfbfa] p-4">
                           <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#4f4a46]">
@@ -372,7 +446,7 @@ export default function AIRecommendations() {
                           <ul className="space-y-2 text-sm text-foreground/80">
                             <li className="rounded-xl border border-transparent bg-white px-3 py-2 shadow-[0_1px_0_rgba(0,0,0,0.03)]">
                               <p className="font-semibold text-foreground">Reason</p>
-                              <p className="mt-1 leading-6 text-foreground/75">{rec!.recommendation.reason}</p>
+                              <p className="mt-1 leading-6 text-foreground/75">{rec.recommendation.reason}</p>
                             </li>
                           </ul>
                         </div>
@@ -383,28 +457,38 @@ export default function AIRecommendations() {
                           className="rounded-md border-[#d0ceca] bg-white text-[#4f4a46] hover:bg-[#f8f6f4]"
                           onClick={() => {
                             const params = new URLSearchParams({
-                              confidence: String(rec!.recommendation.confidence ?? ''),
-                              reason: rec!.recommendation.reason ?? '',
+                              confidence: String(rec.recommendation.confidence ?? ''),
+                              reason: rec.recommendation.reason ?? '',
                             });
-                            navigate(`/student/recommendations/${rec!.posting.id}/reasoning?${params.toString()}`, {
-                              state: { recommendation: rec!.recommendation },
+                            navigate(`/student/recommendations/${rec.posting.id}/reasoning?${params.toString()}`, {
+                              state: { recommendation: rec.recommendation },
                             });
                           }}
                         >
                           View score reasoning
                         </Button>
                         <Button
-                          onClick={() => setSelectedPosting(rec!.posting.id)}
+                          onClick={() => setSelectedPosting(rec.posting.id)}
                           className="rounded-md bg-[#c92e1f] px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#b3271b] active:translate-y-0.5 active:bg-[#a92318] focus-visible:ring-2 focus-visible:ring-red-700/25"
-                          disabled={rec!.alreadyApplied}
                         >
-                          {rec!.alreadyApplied ? 'Already Applied' : (<><span>Apply</span> <ArrowRight className="ml-2 h-4 w-4" /></>)}
+                          <><span>Apply</span> <ArrowRight className="ml-2 h-4 w-4" /></>
                         </Button>
                       </div>
                     </CardContent>
                   </Card>
                 );
               })}
+              {isHydrating || top5.length < 5
+                ? Array.from({ length: Math.max(0, 5 - top5.length) }).map((_, i) => (
+                    <div key={`skeleton-${i}`} className="rounded-xl border p-4 animate-pulse">
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="h-4 w-1/3 rounded bg-muted" />
+                        <div className="h-6 w-16 rounded bg-muted" />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Analyzing match...</p>
+                    </div>
+                  ))
+                : null}
             </div>
 
             {selectedPosting ? (
@@ -412,6 +496,7 @@ export default function AIRecommendations() {
                 postingId={selectedPosting}
                 open={Boolean(selectedPosting)}
                 onOpenChange={(open) => !open && setSelectedPosting(null)}
+                onSubmitted={handleApplied}
               />
             ) : null}
           </div>

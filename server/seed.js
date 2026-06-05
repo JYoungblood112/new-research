@@ -18,6 +18,7 @@ const studentUser = {
 
 const store = {
   users: [professorUser, studentUser],
+  postings: [],
   studentProfiles: [
     {
       id: randomId('sp'),

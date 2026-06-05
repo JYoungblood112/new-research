@@ -8,7 +8,7 @@ function ensureStore() {
     fs.mkdirSync(path.dirname(STORE_PATH), { recursive: true });
     fs.writeFileSync(
       STORE_PATH,
-      JSON.stringify({ users: [], studentProfiles: [], professorProfiles: [] }, null, 2),
+      JSON.stringify({ users: [], studentProfiles: [], professorProfiles: [], postings: [] }, null, 2),
       'utf-8'
     );
   }

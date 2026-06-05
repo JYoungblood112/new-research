@@ -3,6 +3,10 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { readStore, writeStore, randomId } from './store.js';
+import { getOllamaRecommendations, parseResumeWithOllama, scoreOnePosting } from './ollama.js';
+import { fetchGitHubData } from './utils/fetchGitHubData.js';
+import { fetchLinkedInData } from './utils/fetchLinkedInData.js';
+import { profileRouter } from './profile.js';
 import { validateCmuEmail } from './sso.js';
 import { deleteSession, getSessionUserId, pruneExpiredSessions, refreshSession, setSession } from './sessionStore.js';
 
@@ -10,6 +14,9 @@ const app = express();
 const port = Number(process.env.PORT ?? 4000);
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 8;
+const recommendationCache = new Map();
+const externalDataCache = new Map();
+const pendingRecommendationJobs = new Set();
 
 app.use(
   cors({
@@ -17,8 +24,10 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+// Resume uploads are sent as base64 JSON payloads, so use a larger limit than Express default.
+app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
+app.use('/api/profile', profileRouter);
 
 function getPublicUser(user) {
   return {
@@ -93,8 +102,137 @@ function authRequired(req, res, next) {
     maxAge: SESSION_MAX_AGE_MS,
   });
 
+  const store = readStore();
+  const user = store.users.find((entry) => entry.id === sessionUserId) ?? null;
+  if (!user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  req.user = user;
   req.sessionUserId = sessionUserId;
   return next();
+}
+
+function getStudentProfile(store, studentId) {
+  return store.studentProfiles.find((profile) => profile.userId === studentId) ?? null;
+}
+
+function getPostingById(store, postingId) {
+  return (Array.isArray(store.postings) ? store.postings : []).find((posting) => String(posting?.id) === String(postingId)) ?? null;
+}
+
+function getRecommendationProfileFingerprint(profile) {
+  return JSON.stringify({
+    major: profile?.major ?? '',
+    skills: Array.isArray(profile?.skills) ? profile.skills : [],
+    interests: Array.isArray(profile?.interests) ? profile.interests : [],
+    summary: profile?.summary ?? '',
+    university: profile?.university ?? '',
+    degree: profile?.degree ?? '',
+    github: profile?.github ?? profile?.githubUrl ?? '',
+    linkedin: profile?.linkedin ?? profile?.linkedInUrl ?? '',
+    resumeText: profile?.resumeText ?? '',
+  });
+}
+
+function getCacheKey(studentId, postingId, profile) {
+  return JSON.stringify({
+    studentId,
+    postingId,
+    profile: getRecommendationProfileFingerprint(profile),
+  });
+}
+
+function getCached(cacheKey) {
+  return recommendationCache.get(cacheKey) ?? null;
+}
+
+function setCached(cacheKey, value) {
+  recommendationCache.set(cacheKey, value);
+}
+
+function getExternalCached(cacheKey) {
+  return externalDataCache.get(cacheKey) ?? null;
+}
+
+function setExternalCached(cacheKey, value) {
+  externalDataCache.set(cacheKey, value);
+}
+
+function normalizePostingPayload(posting) {
+  if (!posting || typeof posting !== 'object') {
+    return null;
+  }
+
+  const id = String(posting.id ?? '').trim();
+  if (!id) {
+    return null;
+  }
+
+  return {
+    ...posting,
+    id,
+  };
+}
+
+async function resolveExternalStudentData(student) {
+  const studentId = String(student?.id ?? '');
+  const githubUrl = String(student?.github ?? student?.githubUrl ?? '').trim();
+  const linkedinUrl = String(student?.linkedin ?? student?.linkedInUrl ?? '').trim();
+
+  const githubCacheKey = `github:${studentId}`;
+  const linkedinCacheKey = `linkedin:${studentId}`;
+
+  const cachedGithub = getExternalCached(githubCacheKey);
+  const cachedLinkedIn = getExternalCached(linkedinCacheKey);
+
+  const githubData = cachedGithub ?? (githubUrl ? await fetchGitHubData(githubUrl) : null);
+  const linkedinData = cachedLinkedIn ?? (linkedinUrl ? await fetchLinkedInData(linkedinUrl) : null);
+
+  if (githubData && !cachedGithub) {
+    setExternalCached(githubCacheKey, githubData);
+  }
+
+  if (linkedinData && !cachedLinkedIn) {
+    setExternalCached(linkedinCacheKey, linkedinData);
+  }
+
+  return { githubData, linkedinData };
+}
+
+async function scorePostingInBackground({ cacheKey, posting, profile, studentId }) {
+  if (pendingRecommendationJobs.has(cacheKey)) {
+    return;
+  }
+
+  pendingRecommendationJobs.add(cacheKey);
+
+  setImmediate(async () => {
+    try {
+      const { githubData, linkedinData } = await resolveExternalStudentData({
+        ...profile,
+        id: studentId,
+      });
+
+      const scoringResult = await scoreOnePosting({
+        posting,
+        index: 0,
+        resumeSignal: profile?.resumeText ?? profile?.summary ?? '',
+        githubData,
+        linkedinData,
+      });
+
+      if (scoringResult) {
+        setCached(cacheKey, scoringResult);
+        console.log('[bg score complete]', posting.id, 'confidence:', scoringResult.confidence);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown background scoring error.';
+      console.error('[bg score error]', posting?.id, message);
+    } finally {
+      pendingRecommendationJobs.delete(cacheKey);
+    }
+  });
 }
 
 function getResumePrompt(mode) {
@@ -125,6 +263,10 @@ function normalizeSkills(skills) {
     .filter((skill) => typeof skill === 'string')
     .map((skill) => skill.trim())
     .filter(Boolean);
+}
+
+function getRequestId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 async function callAnthropicResumeParser({ resumeBase64, fileName, mode }) {
@@ -314,12 +456,28 @@ app.put('/api/setup/student', authRequired, (req, res) => {
     user.email = next.email.trim();
   }
   profile.name = typeof next.name === 'string' ? next.name : profile.name;
+  profile.phone = typeof next.phone === 'string' ? next.phone : profile.phone;
+  profile.location = typeof next.location === 'string' ? next.location : profile.location;
+  profile.linkedin = typeof next.linkedin === 'string' ? next.linkedin : profile.linkedin;
+  profile.github = typeof next.github === 'string' ? next.github : profile.github;
   profile.photoBase64 = typeof next.photoBase64 === 'string' ? next.photoBase64 : profile.photoBase64;
   profile.major = typeof next.major === 'string' ? next.major : profile.major;
+  profile.university = typeof next.university === 'string' ? next.university : profile.university;
+  profile.degree = typeof next.degree === 'string' ? next.degree : profile.degree;
+  profile.gpa = typeof next.gpa === 'string' ? next.gpa : profile.gpa;
+  profile.graduationDate = typeof next.graduationDate === 'string' ? next.graduationDate : profile.graduationDate;
+  profile.graduationType = typeof next.graduationType === 'string' ? next.graduationType : profile.graduationType;
+  profile.jobTitle = typeof next.jobTitle === 'string' ? next.jobTitle : profile.jobTitle;
+  profile.employer = typeof next.employer === 'string' ? next.employer : profile.employer;
+  profile.yearsOfExperience = typeof next.yearsOfExperience === 'string' ? next.yearsOfExperience : profile.yearsOfExperience;
+  profile.workAuthorization = typeof next.workAuthorization === 'string' ? next.workAuthorization : profile.workAuthorization;
+  profile.summary = typeof next.summary === 'string' ? next.summary : profile.summary;
   profile.graduationYear = typeof next.graduationYear === 'string' ? next.graduationYear : profile.graduationYear;
   profile.linkedInUrl = typeof next.linkedInUrl === 'string' ? next.linkedInUrl : profile.linkedInUrl;
   profile.githubUrl = typeof next.githubUrl === 'string' ? next.githubUrl : profile.githubUrl;
-  profile.resume = next.resume ?? profile.resume;
+  if (Object.prototype.hasOwnProperty.call(next, 'resume')) {
+    profile.resume = next.resume;
+  }
   profile.skills = Array.isArray(next.skills) ? next.skills : profile.skills;
   profile.interests = Array.isArray(next.interests) ? next.interests : profile.interests;
 
@@ -374,6 +532,23 @@ app.put('/api/setup/professor', authRequired, (req, res) => {
   return res.json({ setup: getSetupState(store, user) });
 });
 
+app.get('/api/postings', authRequired, (req, res) => {
+  const store = readStore();
+  return res.json({ postings: Array.isArray(store.postings) ? store.postings : [] });
+});
+
+app.post('/api/postings/sync', authRequired, (req, res) => {
+  const { postings } = req.body ?? {};
+  if (!Array.isArray(postings)) {
+    return res.status(400).json({ error: 'postings must be an array.' });
+  }
+
+  const store = readStore();
+  store.postings = postings.map(normalizePostingPayload).filter(Boolean);
+  writeStore(store);
+  return res.json({ ok: true, count: store.postings.length });
+});
+
 app.get('/api/insights/student-interest-counts', authRequired, (req, res) => {
   const store = readStore();
   const user = store.users.find((u) => u.id === req.sessionUserId);
@@ -414,18 +589,163 @@ app.post('/api/ai/parse-resume', authRequired, async (req, res) => {
   }
 
   try {
-    const result = await callAnthropicResumeParser({
-      resumeBase64: resumeBase64.replace(/^data:application\/pdf;base64,/, ''),
+    const result = await parseResumeWithOllama({
+      resumeBase64,
       fileName: typeof fileName === 'string' ? fileName : 'resume.pdf',
       mode: mode === 'skills' ? 'skills' : 'autofill',
     });
 
-    return res.json({ result });
+    return res.json({ result, source: 'ollama' });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Resume parsing failed.';
-    const status = message.includes('ANTHROPIC_API_KEY') ? 503 : 500;
-    return res.status(status).json({ error: message });
+    // eslint-disable-next-line no-console
+    console.error('Resume parsing failed:', error);
+    return res.json({
+      result: mode === 'skills' ? [] : {},
+      source: 'fallback',
+      warning: message,
+    });
   }
+});
+
+app.get('/api/ai/recommendations/score-one', authRequired, async (req, res) => {
+  const { postingId } = req.query ?? {};
+  const student = req.user;
+  const studentId = String(student?.id ?? student?._id?.toString?.() ?? '').trim();
+
+  if (!student || student.role !== 'student') {
+    return res.status(403).json({ error: 'Student role required.' });
+  }
+
+  if (!postingId || typeof postingId !== 'string') {
+    return res.status(400).json({ error: 'postingId is required.' });
+  }
+
+  const store = readStore();
+  const profile = getStudentProfile(store, studentId);
+  if (!profile) {
+    return res.status(404).json({ error: 'Student profile not found.' });
+  }
+
+  const posting = getPostingById(store, postingId);
+  if (!posting) {
+    return res.status(404).json({ error: 'Posting not found.' });
+  }
+
+  const cacheKey = getCacheKey(studentId, postingId, profile);
+  const cached = getCached(cacheKey);
+  if (cached) {
+    return res.json({ status: 'ready', postingId, result: cached });
+  }
+
+  scorePostingInBackground({ cacheKey, posting, profile, studentId });
+
+  return res.json({ status: 'scoring', postingId });
+});
+
+app.get('/api/ai/recommendations/get-score', authRequired, (req, res) => {
+  const { postingId } = req.query ?? {};
+  const student = req.user;
+  const studentId = String(student?.id ?? student?._id?.toString?.() ?? '').trim();
+
+  if (!student || student.role !== 'student') {
+    return res.status(403).json({ error: 'Student role required.' });
+  }
+
+  if (!postingId || typeof postingId !== 'string') {
+    return res.status(400).json({ error: 'postingId is required.' });
+  }
+
+  const store = readStore();
+  const profile = getStudentProfile(store, studentId);
+  if (!profile) {
+    return res.status(404).json({ error: 'Student profile not found.' });
+  }
+
+  const cacheKey = getCacheKey(studentId, postingId, profile);
+  const cached = getCached(cacheKey);
+  if (cached) {
+    return res.json({ status: 'ready', result: cached });
+  }
+
+  return res.json({ status: 'pending' });
+});
+
+// AI Recommendations endpoint (Ollama)
+app.post('/api/ai/recommendations', authRequired, async (req, res) => {
+  const requestId = getRequestId();
+  try {
+    const { profile, postings } = req.body ?? {};
+    const contentLength = req.headers['content-length'] ?? 'unknown';
+    // eslint-disable-next-line no-console
+    console.log(`[ai/recommendations:${requestId}] content-length=${contentLength}`);
+
+    if (!profile || !Array.isArray(postings)) {
+      return res.status(400).json({
+        error: 'profile and postings are required',
+        requestId,
+      });
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[ai/recommendations:${requestId}] postings=${postings.length} skills=${Array.isArray(profile?.skills) ? profile.skills.length : 0} interests=${Array.isArray(profile?.interests) ? profile.interests.length : 0}`
+    );
+
+    const githubUrl = (profile?.github || profile?.githubUrl || '').toString().trim() || null;
+    const linkedinUrl = (profile?.linkedin || profile?.linkedInUrl || '').toString().trim() || null;
+    const resumeText = (profile?.resumeText || '').toString();
+
+    const student = {
+      ...profile,
+      github: githubUrl,
+      githubUrl: githubUrl,
+      linkedin: linkedinUrl,
+      linkedInUrl: linkedinUrl,
+      resumeText,
+    };
+
+    const recommendations = await getOllamaRecommendations({
+      student,
+      postings,
+      resumeText,
+    });
+    return res.json({ recommendations, requestId });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(`[ai/recommendations:${requestId}] error:`, error);
+    const message = error instanceof Error ? error.message : 'Recommendation request failed.';
+    return res.status(500).json({
+      error: message,
+      requestId,
+    });
+  }
+});
+
+app.use((err, req, res, next) => {
+  if (!err) {
+    return next();
+  }
+
+  const requestId = getRequestId();
+  // eslint-disable-next-line no-console
+  console.error(`[api-error:${requestId}] ${req.method} ${req.originalUrl}`, err);
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  const status =
+    typeof err.status === 'number'
+      ? err.status
+      : typeof err.statusCode === 'number'
+        ? err.statusCode
+        : 500;
+
+  return res.status(status).json({
+    error: err.message || 'Internal server error',
+    requestId,
+  });
 });
 
 app.listen(port, () => {

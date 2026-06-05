@@ -11,7 +11,21 @@ export type StudentSetupProfile = {
   id?: string;
   userId?: string;
   name?: string;
+  phone?: string;
+  location?: string;
+  linkedin?: string;
+  github?: string;
   major?: string;
+  university?: string;
+  degree?: string;
+  gpa?: string;
+  graduationDate?: string;
+  graduationType?: string;
+  jobTitle?: string;
+  employer?: string;
+  yearsOfExperience?: string;
+  workAuthorization?: string;
+  summary?: string;
   graduationYear?: string;
   linkedInUrl?: string;
   githubUrl?: string;
@@ -99,7 +113,21 @@ export async function updateStudentSetup(payload: {
   name?: string;
   email?: string;
   photoBase64?: string;
+  phone?: string;
+  location?: string;
+  linkedin?: string;
+  github?: string;
   major?: string;
+  university?: string;
+  degree?: string;
+  gpa?: string;
+  graduationDate?: string;
+  graduationType?: string;
+  jobTitle?: string;
+  employer?: string;
+  yearsOfExperience?: string;
+  workAuthorization?: string;
+  summary?: string;
   graduationYear?: string;
   linkedInUrl?: string;
   githubUrl?: string;
@@ -136,7 +164,7 @@ export async function parseResumeWithAi(payload: {
   resumeBase64: string;
   fileName?: string;
   mode: 'autofill' | 'skills';
-}): Promise<{ result: ResumeAutofillResult | string[] }> {
+}): Promise<{ result: ResumeAutofillResult | string[]; source?: 'ollama' | 'fallback'; warning?: string }> {
   return request('/api/ai/parse-resume', {
     method: 'POST',
     body: JSON.stringify(payload),

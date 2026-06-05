@@ -695,6 +695,32 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [postings]);
 
   useEffect(() => {
+    const controller = new AbortController();
+
+    const syncPostings = async () => {
+      try {
+        await fetch('/api/postings/sync', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ postings }),
+          signal: controller.signal,
+        });
+      } catch {
+        // Keep the UI responsive if the sync endpoint is temporarily unavailable.
+      }
+    };
+
+    void syncPostings();
+
+    return () => {
+      controller.abort();
+    };
+  }, [postings]);
+
+  useEffect(() => {
     localStorage.setItem('applications', JSON.stringify(applications));
   }, [applications]);
 

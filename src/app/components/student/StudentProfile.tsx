@@ -1,12 +1,15 @@
 import { Camera, CheckCircle, FileText, Loader2, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { useForm } from 'react-hook-form';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseResumeWithAi } from '../../lib/api';
 import { RESEARCH_SUBJECT_GROUPS } from '../../lib/researchTaxonomy';
+import ResumeUpload, { type ResumeFields } from '../../../components/profile/ResumeUpload';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Textarea } from '../ui/textarea';
 import { toast } from 'sonner';
 
 function isValidEmail(value: string) {
@@ -54,6 +57,27 @@ type ResumeFileState = {
   base64: string;
 };
 
+type ResumeFormValues = {
+  name: string;
+  email: string;
+  phone: string;
+  location: string;
+  linkedin: string;
+  github: string;
+  university: string;
+  degree: string;
+  major: string;
+  gpa: string;
+  graduationDate: string;
+  graduationType: string;
+  jobTitle: string;
+  employer: string;
+  yearsOfExperience: string;
+  workAuthorization: string;
+  skills: string;
+  summary: string;
+};
+
 interface StudentProfileProps {
   mode?: 'edit' | 'setup';
   onSetupComplete?: () => void;
@@ -74,7 +98,21 @@ export default function StudentProfile({
     | {
         name?: string;
         photoBase64?: string;
+        phone?: string;
+        location?: string;
+        linkedin?: string;
+        github?: string;
         major?: string;
+        university?: string;
+        degree?: string;
+        gpa?: string;
+        graduationDate?: string;
+        graduationType?: string;
+        jobTitle?: string;
+        employer?: string;
+        yearsOfExperience?: string;
+        workAuthorization?: string;
+        summary?: string;
         graduationYear?: string;
         linkedInUrl?: string;
         githubUrl?: string;
@@ -83,6 +121,35 @@ export default function StudentProfile({
         resume?: { name: string; uploadDate: string } | null;
       }
     | undefined;
+
+  const {
+    register,
+    setValue,
+    getValues,
+    watch,
+    reset,
+  } = useForm<ResumeFormValues>({
+    defaultValues: {
+      name: user?.name || studentProfile?.name || '',
+      email: user?.email || '',
+      phone: studentProfile?.phone || '',
+      location: studentProfile?.location || '',
+      linkedin: studentProfile?.linkedin || studentProfile?.linkedInUrl || '',
+      github: studentProfile?.github || studentProfile?.githubUrl || '',
+      university: studentProfile?.university || '',
+      degree: studentProfile?.degree || '',
+      major: studentProfile?.major || '',
+      gpa: studentProfile?.gpa || '',
+      graduationDate: studentProfile?.graduationDate || '',
+      graduationType: studentProfile?.graduationType || '',
+      jobTitle: studentProfile?.jobTitle || '',
+      employer: studentProfile?.employer || '',
+      yearsOfExperience: studentProfile?.yearsOfExperience || '',
+      workAuthorization: studentProfile?.workAuthorization || '',
+      skills: (studentProfile?.skills || []).join(', '),
+      summary: studentProfile?.summary || '',
+    },
+  });
 
   const [displayName, setDisplayName] = useState(user?.name || studentProfile?.name || '');
   const [displayEmail, setDisplayEmail] = useState(user?.email || '');
@@ -143,6 +210,7 @@ export default function StudentProfile({
   const labelClassName = 'text-sm font-semibold text-[#575757]';
   const tagInputRef = useRef<HTMLDivElement | null>(null);
   const isAiBusy = aiAction !== null;
+  const graduationTypeValue = watch('graduationType');
   const normalizedSkillSet = new Set(skills.map((skill) => skill.toLowerCase()));
   const normalizedInterestSet = new Set(interests.map((interest) => interest.toLowerCase()));
   const normalizedDraftInterestSet = new Set(draftInterests.map((interest) => interest.toLowerCase()));
@@ -166,6 +234,76 @@ export default function StudentProfile({
       window.clearTimeout(timeoutId);
     };
   }, [skillInput]);
+
+  useEffect(() => {
+    setDisplayName(user?.name || studentProfile?.name || '');
+    setDisplayEmail(user?.email || '');
+    setPhotoBase64(studentProfile?.photoBase64 ?? null);
+    setMajor(studentProfile?.major || '');
+    setYear(studentProfile?.graduationYear || '');
+    setLinkedInUrl(studentProfile?.linkedInUrl || '');
+    setGithubUrl(studentProfile?.githubUrl || '');
+    setInterests(studentProfile?.interests || []);
+    setDraftInterests(studentProfile?.interests || []);
+    setSkills(studentProfile?.skills || []);
+  }, [
+    user?.name,
+    user?.email,
+    studentProfile?.name,
+    studentProfile?.photoBase64,
+    studentProfile?.major,
+    studentProfile?.graduationYear,
+    studentProfile?.linkedInUrl,
+    studentProfile?.githubUrl,
+    studentProfile?.interests,
+    studentProfile?.skills,
+  ]);
+
+  useEffect(() => {
+    reset({
+      name: user?.name || studentProfile?.name || '',
+      email: user?.email || '',
+      phone: studentProfile?.phone || '',
+      location: studentProfile?.location || '',
+      linkedin: studentProfile?.linkedin || studentProfile?.linkedInUrl || '',
+      github: studentProfile?.github || studentProfile?.githubUrl || '',
+      university: studentProfile?.university || '',
+      degree: studentProfile?.degree || '',
+      major: studentProfile?.major || '',
+      gpa: studentProfile?.gpa || '',
+      graduationDate: studentProfile?.graduationDate || '',
+      graduationType: studentProfile?.graduationType || '',
+      jobTitle: studentProfile?.jobTitle || '',
+      employer: studentProfile?.employer || '',
+      yearsOfExperience: studentProfile?.yearsOfExperience || '',
+      workAuthorization: studentProfile?.workAuthorization || '',
+      skills: (studentProfile?.skills || []).join(', '),
+      summary: studentProfile?.summary || '',
+    });
+  }, [
+    reset,
+    user?.name,
+    user?.email,
+    studentProfile?.name,
+    studentProfile?.phone,
+    studentProfile?.location,
+    studentProfile?.linkedin,
+    studentProfile?.github,
+    studentProfile?.major,
+    studentProfile?.university,
+    studentProfile?.degree,
+    studentProfile?.gpa,
+    studentProfile?.graduationDate,
+    studentProfile?.graduationType,
+    studentProfile?.jobTitle,
+    studentProfile?.employer,
+    studentProfile?.yearsOfExperience,
+    studentProfile?.workAuthorization,
+    studentProfile?.linkedInUrl,
+    studentProfile?.githubUrl,
+    studentProfile?.skills,
+    studentProfile?.summary,
+  ]);
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -294,26 +432,88 @@ export default function StudentProfile({
           mode: 'autofill',
         });
 
+        const parsedByOllama = response.source !== 'fallback';
+
         if (!Array.isArray(response.result)) {
           const parsed = response.result;
-          if (!major.trim() && parsed.major) setMajor(parsed.major);
-          if (!year && parsed.academicYear && YEARS.includes(parsed.academicYear)) setYear(parsed.academicYear);
+          if (parsed.fullName) setDisplayName(parsed.fullName);
+          if (parsed.email) setDisplayEmail(parsed.email);
+          if (parsed.major) setMajor(parsed.major);
+          if (parsed.academicYear && YEARS.includes(parsed.academicYear)) setYear(parsed.academicYear);
           mergeSkills(parsed.skills);
-          toast.success('Resume uploaded — fields filled automatically.');
+
+          // Persist parsed fields immediately so profile state updates without waiting for manual Save.
+          const mergedSkills = [
+            ...new Set([...(skills || []), ...((parsed.skills || []).map((s) => s.trim()).filter(Boolean))]),
+          ];
+          await updateStudentProfile({
+            name: parsed.fullName || trimmedDisplayName || undefined,
+            email: parsed.email || trimmedDisplayEmail || undefined,
+            major: parsed.major || trimmedMajor || undefined,
+            graduationYear:
+              parsed.academicYear && YEARS.includes(parsed.academicYear)
+                ? parsed.academicYear
+                : year || undefined,
+            skills: mergedSkills,
+          });
+
+          if (parsedByOllama) {
+            toast.success('Resume uploaded — fields filled automatically (parsed by Ollama).');
+          } else {
+            toast.success('Resume uploaded — parsing fallback used.');
+          }
         } else {
-          toast.success('Resume uploaded successfully.');
+          if (parsedByOllama) {
+            toast.success('Resume uploaded successfully (parsed by Ollama).');
+          } else {
+            toast.success('Resume uploaded successfully (fallback used).');
+          }
         }
       } catch {
         // Parsing failing shouldn't block the upload
-        toast.success('Resume uploaded. (AI parsing unavailable)');
+        toast.success('Resume uploaded successfully.');
       } finally {
         setAiAction(null);
       }
     }
   };
 
+  const handleAutofill = (fields: ResumeFields) => {
+    console.log('handleAutofill called with:', fields);
+    if (fields.full_name) setValue('name', fields.full_name, { shouldDirty: true, shouldTouch: true });
+    if (fields.email) setValue('email', fields.email, { shouldDirty: true, shouldTouch: true });
+    if (fields.phone) setValue('phone', fields.phone, { shouldDirty: true, shouldTouch: true });
+    if (fields.location) setValue('location', fields.location, { shouldDirty: true, shouldTouch: true });
+    if (fields.linkedin) setValue('linkedin', fields.linkedin, { shouldDirty: true, shouldTouch: true });
+    if (fields.github_or_portfolio) setValue('github', fields.github_or_portfolio, { shouldDirty: true, shouldTouch: true });
+    if (fields.university) setValue('university', fields.university, { shouldDirty: true, shouldTouch: true });
+    if (fields.degree) setValue('degree', fields.degree, { shouldDirty: true, shouldTouch: true });
+    if (fields.major) setValue('major', fields.major, { shouldDirty: true, shouldTouch: true });
+    if (fields.gpa) setValue('gpa', fields.gpa, { shouldDirty: true, shouldTouch: true });
+    if (fields.graduation_date) setValue('graduationDate', fields.graduation_date, { shouldDirty: true, shouldTouch: true });
+    if (fields.graduation_type) setValue('graduationType', fields.graduation_type, { shouldDirty: true, shouldTouch: true });
+    if (fields.most_recent_job_title) setValue('jobTitle', fields.most_recent_job_title, { shouldDirty: true, shouldTouch: true });
+    if (fields.most_recent_employer) setValue('employer', fields.most_recent_employer, { shouldDirty: true, shouldTouch: true });
+    if (fields.years_of_experience) setValue('yearsOfExperience', fields.years_of_experience, { shouldDirty: true, shouldTouch: true });
+    if (fields.work_authorization) setValue('workAuthorization', fields.work_authorization, { shouldDirty: true, shouldTouch: true });
+    if (fields.skills) setValue('skills', fields.skills, { shouldDirty: true, shouldTouch: true });
+    if (fields.professional_summary) setValue('summary', fields.professional_summary, { shouldDirty: true, shouldTouch: true });
+  };
+
+  const handleRemoveResume = async () => {
+    try {
+      await updateStudentProfile({ resume: null });
+      setResumeFile(null);
+      setResumeFormatError(false);
+      toast.success('Resume removed.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to remove resume');
+    }
+  };
+
   const handleSaveProfile = async () => {
     setShowValidationErrors(true);
+    const resumeValues = getValues();
 
     const missingRequiredFields: string[] = [];
     if (!trimmedDisplayName) missingRequiredFields.push('Full Name');
@@ -334,16 +534,35 @@ export default function StudentProfile({
     }
 
     try {
+      const parsedSkills = resumeValues.skills
+        .split(',')
+        .map((skill) => skill.trim())
+        .filter(Boolean);
+
       await updateStudentProfile({
-        name: trimmedDisplayName || user?.name,
-        email: trimmedDisplayEmail || undefined,
+        name: resumeValues.name.trim() || trimmedDisplayName || user?.name,
+        email: resumeValues.email.trim() || trimmedDisplayEmail || undefined,
         photoBase64: photoBase64 ?? undefined,
-        major: trimmedMajor || undefined,
+        phone: resumeValues.phone.trim() || undefined,
+        location: resumeValues.location.trim() || undefined,
+        linkedin: resumeValues.linkedin.trim() || undefined,
+        github: resumeValues.github.trim() || undefined,
+        major: resumeValues.major.trim() || trimmedMajor || undefined,
+        university: resumeValues.university.trim() || undefined,
+        degree: resumeValues.degree.trim() || undefined,
+        gpa: resumeValues.gpa.trim() || undefined,
         graduationYear: year || undefined,
+        graduationDate: resumeValues.graduationDate.trim() || undefined,
+        graduationType: resumeValues.graduationType.trim() || undefined,
+        jobTitle: resumeValues.jobTitle.trim() || undefined,
+        employer: resumeValues.employer.trim() || undefined,
+        yearsOfExperience: resumeValues.yearsOfExperience.trim() || undefined,
+        workAuthorization: resumeValues.workAuthorization.trim() || undefined,
         linkedInUrl: linkedInUrl.trim() || undefined,
         githubUrl: githubUrl.trim() || undefined,
         interests: includeInterestsSection ? interests : undefined,
-        skills,
+        skills: parsedSkills.length > 0 ? parsedSkills : skills,
+        summary: resumeValues.summary.trim() || undefined,
       });
       setResumeFormatError(false);
       setShowValidationErrors(false);
@@ -384,6 +603,26 @@ export default function StudentProfile({
     setDebouncedSkillInput('');
     setResumeFormatError(false);
     setPhotoFormatError(false);
+    reset({
+      name: user?.name || studentProfile?.name || '',
+      email: user?.email || '',
+      phone: studentProfile?.phone || '',
+      location: studentProfile?.location || '',
+      linkedin: studentProfile?.linkedin || studentProfile?.linkedInUrl || '',
+      github: studentProfile?.github || studentProfile?.githubUrl || '',
+      university: studentProfile?.university || '',
+      degree: studentProfile?.degree || '',
+      major: studentProfile?.major || '',
+      gpa: studentProfile?.gpa || '',
+      graduationDate: studentProfile?.graduationDate || '',
+      graduationType: studentProfile?.graduationType || '',
+      jobTitle: studentProfile?.jobTitle || '',
+      employer: studentProfile?.employer || '',
+      yearsOfExperience: studentProfile?.yearsOfExperience || '',
+      workAuthorization: studentProfile?.workAuthorization || '',
+      skills: (studentProfile?.skills || []).join(', '),
+      summary: studentProfile?.summary || '',
+    });
   };
 
   const handleSetupSubmit = async () => {
@@ -520,7 +759,112 @@ export default function StudentProfile({
             </div>
           </div>
 
-          <div className="mt-7 grid gap-6 md:grid-cols-2">
+          <div className="mt-7 space-y-6">
+            <div className="rounded-[24px] border border-[#ece3dc] bg-[#fcfbfa] p-5 shadow-[0_8px_20px_rgba(0,0,0,0.03)]">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-700">Resume Autofill</p>
+                  <h3 className="text-xl font-semibold text-[#111111]">Upload a resume to populate your profile</h3>
+                  <p className="text-sm text-[#6f6f6f]">
+                    Fields from the parsed resume will fill into the profile form below so you can review them before saving.
+                  </p>
+                </div>
+
+                <ResumeUpload onAutofill={handleAutofill} />
+
+                <div className="grid gap-5 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>Full Name</Label>
+                    <Input {...register('name')} className={inputClassName} placeholder="Full name from resume" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>Email</Label>
+                    <Input {...register('email')} className={inputClassName} placeholder="Email from resume" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>Phone</Label>
+                    <Input {...register('phone')} className={inputClassName} placeholder="(123) 456-7890" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>Location</Label>
+                    <Input {...register('location')} className={inputClassName} placeholder="City, State" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>LinkedIn</Label>
+                    <Input {...register('linkedin')} className={inputClassName} placeholder="https://linkedin.com/in/..." />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>GitHub / Portfolio</Label>
+                    <Input {...register('github')} className={inputClassName} placeholder="https://github.com/..." />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>University</Label>
+                    <Input {...register('university')} className={inputClassName} placeholder="Carnegie Mellon University" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>Degree</Label>
+                    <Input {...register('degree')} className={inputClassName} placeholder="B.S., M.S., PhD" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>Major</Label>
+                    <Input {...register('major')} className={inputClassName} placeholder="Computer Science" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>GPA</Label>
+                    <Input {...register('gpa')} className={inputClassName} placeholder="3.8" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>Graduation Date</Label>
+                    <Input {...register('graduationDate')} className={inputClassName} placeholder="May 2027" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>Graduation Type</Label>
+                    <Select
+                      value={graduationTypeValue}
+                      onValueChange={(value) => setValue('graduationType', value, { shouldDirty: true, shouldTouch: true })}
+                    >
+                      <SelectTrigger className={inputClassName}>
+                        <SelectValue placeholder="Expected or Actual" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Expected">Expected</SelectItem>
+                        <SelectItem value="Actual">Actual</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>Most Recent Job Title</Label>
+                    <Input {...register('jobTitle')} className={inputClassName} placeholder="Software Engineering Intern" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>Most Recent Employer</Label>
+                    <Input {...register('employer')} className={inputClassName} placeholder="Company Name" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>Years of Experience</Label>
+                    <Input {...register('yearsOfExperience')} className={inputClassName} placeholder="2" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={labelClassName}>Work Authorization</Label>
+                    <Input {...register('workAuthorization')} className={inputClassName} placeholder="US citizen, CPT, OPT" />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label className={labelClassName}>Skills</Label>
+                    <Input {...register('skills')} className={inputClassName} placeholder="Python, React, SQL" />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label className={labelClassName}>Professional Summary</Label>
+                    <Textarea
+                      {...register('summary')}
+                      className="min-h-32 rounded-2xl border-[#d9d9d9] bg-white px-4 py-3 text-[#111111] shadow-none"
+                      placeholder="Short professional summary from your resume"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
                 <Label className={labelClassName}>Full Name <span className="text-red-700">*</span></Label>
                 <Input
@@ -872,16 +1216,29 @@ export default function StudentProfile({
                       </div>
                     </div>
 
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="rounded-2xl border-[#d8d8d8] bg-white text-red-700 hover:bg-red-50 hover:text-red-700"
-                      onClick={() => document.getElementById('resume-upload')?.click()}
-                      disabled={isAiBusy}
-                    >
-                      <Upload className="size-4" />
-                      Replace Resume
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-2xl border-[#d8d8d8] bg-white text-red-700 hover:bg-red-50 hover:text-red-700"
+                        onClick={() => document.getElementById('resume-upload')?.click()}
+                        disabled={isAiBusy}
+                      >
+                        <Upload className="size-4" />
+                        Replace Resume
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="rounded-full border-[#d8d8d8] bg-white text-[#7b7b7b] hover:bg-red-50 hover:text-red-700"
+                        onClick={handleRemoveResume}
+                        disabled={isAiBusy}
+                        aria-label="Remove resume"
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <label
@@ -907,6 +1264,8 @@ export default function StudentProfile({
               </div>
           </div>
         </div>
+      </div>
+
       </div>
 
       <div className="border-t border-[#ececec] bg-[#fcfcfc] px-6 py-4">

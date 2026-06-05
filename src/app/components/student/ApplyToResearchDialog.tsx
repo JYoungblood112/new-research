@@ -13,6 +13,7 @@ interface ApplyToResearchDialogProps {
   postingId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSubmitted?: (postingId: string) => void;
 }
 
 const countWords = (text: string): number => {
@@ -23,6 +24,7 @@ export default function ApplyToResearchDialog({
   postingId,
   open,
   onOpenChange,
+  onSubmitted,
 }: ApplyToResearchDialogProps) {
   const { user, setupState } = useAuth();
   const { postings, addApplication, getApplicationsByStudent } = useData();
@@ -82,6 +84,8 @@ export default function ApplyToResearchDialog({
       quickNote: quickNoteEnabled ? note.trim() : '',
       status: 'Pending',
     });
+
+    onSubmitted?.(posting!.id);
 
     toast.success('Application submitted successfully!');
     onOpenChange(false);

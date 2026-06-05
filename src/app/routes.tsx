@@ -5,6 +5,7 @@ import ProfessorDashboard from './pages/professor/ProfessorDashboard';
 import ApplicantReasoningPage from './pages/professor/ApplicantReasoningPage';
 import ProfessorSetupPage from './pages/professor/ProfessorSetupPage';
 import StudentDashboard from './pages/student/StudentDashboard';
+import StudentRecommendationReasoningPage from './pages/student/StudentRecommendationReasoningPage';
 import StudentResearchDetailPage from './pages/student/StudentResearchDetailPage';
 import StudentSetupPage from './pages/student/StudentSetupPage';
 import { useAuth } from './contexts/AuthContext';
@@ -115,6 +116,14 @@ export const router = createBrowserRouter([
     element: (
       <ProtectedRoute allowedRole="student" requireSetupComplete>
         <StudentResearchDetailPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/student/recommendations/:postingId/reasoning',
+    element: (
+      <ProtectedRoute allowedRole="student" requireSetupComplete>
+        <StudentRecommendationReasoningPage />
       </ProtectedRoute>
     ),
   },
