@@ -81,6 +81,8 @@ type ResumeFormValues = {
 interface StudentProfileProps {
   mode?: 'edit' | 'setup';
   onSetupComplete?: () => void;
+  onSetupSubmitStart?: () => void;
+  onSetupSubmitFailure?: () => void;
   includeInterestsSection?: boolean;
   setupSubmitLabel?: string;
   onRegisterLeaveGuard?: (handler: () => Promise<boolean>) => void;
@@ -89,6 +91,8 @@ interface StudentProfileProps {
 export default function StudentProfile({
   mode = 'edit',
   onSetupComplete,
+  onSetupSubmitStart,
+  onSetupSubmitFailure,
   includeInterestsSection = true,
   setupSubmitLabel,
   onRegisterLeaveGuard,
@@ -511,7 +515,7 @@ export default function StudentProfile({
     }
   };
 
-  const handleSaveProfile = async () => {
+  const handleSaveProfile = async (onBeforeSave?: () => void) => {
     setShowValidationErrors(true);
     const resumeValues = getValues();
 
@@ -534,6 +538,7 @@ export default function StudentProfile({
     }
 
     try {
+      onBeforeSave?.();
       const parsedSkills = resumeValues.skills
         .split(',')
         .map((skill) => skill.trim())
@@ -626,7 +631,14 @@ export default function StudentProfile({
   };
 
   const handleSetupSubmit = async () => {
-    const saved = await handleSaveProfile();
+    let markedNextStep = false;
+    const saved = await handleSaveProfile(() => {
+      markedNextStep = true;
+      onSetupSubmitStart?.();
+    });
+    if (!saved && markedNextStep) {
+      onSetupSubmitFailure?.();
+    }
     if (saved) {
       onSetupComplete?.();
     }

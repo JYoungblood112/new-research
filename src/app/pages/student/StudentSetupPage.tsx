@@ -1,17 +1,42 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import StudentProfile from '../../components/student/StudentProfile';
 import StudentResearchInterestsStep from '../../components/student/StudentResearchInterestsStep';
 
+type SetupStep = 'profile' | 'interests';
+
+function parseSetupStep(step: string | null): SetupStep | null {
+  return step === 'profile' || step === 'interests' ? step : null;
+}
+
+function getStoredStep(key: string | null): SetupStep | null {
+  if (!key || typeof window === 'undefined') {
+    return null;
+  }
+  return parseSetupStep(window.sessionStorage.getItem(key));
+}
+
 export default function StudentSetupPage() {
   const { user, setupState } = useAuth();
   const navigate = useNavigate();
-  const [step, setStep] = useState<'profile' | 'interests'>('profile');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const stepParam = parseSetupStep(searchParams.get('step'));
+  const stepStorageKey = user ? `student_setup_step_${user.id}` : null;
+  const storedStep = getStoredStep(stepStorageKey);
+  const profileReadyForInterests = Boolean(
+    setupState?.steps.basic && setupState?.steps.resume && !setupState.completed
+  );
+  const defaultStep = stepParam ?? storedStep ?? (profileReadyForInterests ? 'interests' : 'profile');
+  const [step, setStep] = useState<SetupStep>(defaultStep);
 
   const onboardingKey = user ? `student_onboarding_${user.id}` : null;
   const onboardingDone = onboardingKey ? localStorage.getItem(onboardingKey) === 'true' : false;
+
+  useEffect(() => {
+    setStep(defaultStep);
+  }, [defaultStep]);
 
   useEffect(() => {
     if (setupState?.completed && onboardingDone) {
@@ -19,9 +44,26 @@ export default function StudentSetupPage() {
     }
   }, [navigate, onboardingDone, setupState?.completed]);
 
+  const goToStep = (nextStep: SetupStep) => {
+    if (stepStorageKey) {
+      window.sessionStorage.setItem(stepStorageKey, nextStep);
+    }
+    setStep(nextStep);
+    setSearchParams({ step: nextStep }, { replace: true });
+  };
+
+  const rememberStep = (nextStep: SetupStep) => {
+    if (stepStorageKey) {
+      window.sessionStorage.setItem(stepStorageKey, nextStep);
+    }
+  };
+
   const handleContinue = () => {
     if (!onboardingKey) {
       return;
+    }
+    if (stepStorageKey) {
+      window.sessionStorage.removeItem(stepStorageKey);
     }
     localStorage.setItem(onboardingKey, 'true');
     navigate('/student/dashboard', { replace: true });
@@ -50,15 +92,17 @@ export default function StudentSetupPage() {
             mode="setup"
             includeInterestsSection={false}
             setupSubmitLabel="Next: Research Interests"
+            onSetupSubmitStart={() => rememberStep('interests')}
+            onSetupSubmitFailure={() => rememberStep('profile')}
             onSetupComplete={() => {
-              setStep('interests');
+              goToStep('interests');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
           />
         ) : (
           <StudentResearchInterestsStep
             onBack={() => {
-              setStep('profile');
+              goToStep('profile');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onContinue={handleContinue}

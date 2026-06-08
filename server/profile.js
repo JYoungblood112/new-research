@@ -2,7 +2,9 @@ import express from 'express';
 import multer from 'multer';
 import pdfParse from 'pdf-parse';
 
-const OLLAMA_MODEL = 'llama3.2:1b';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2:1b';
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434/api/generate';
+const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 30000);
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -99,6 +101,10 @@ function normalizeParsedResume(parsed, resumeText) {
   };
 }
 
+function buildFallbackResumeFields(resumeText) {
+  return normalizeParsedResume({}, resumeText);
+}
+
 async function parseResumeBuffer(file) {
   if (!file) {
     throw new Error('resume file is required');
@@ -131,15 +137,16 @@ Extract these fields exactly as named (use null if not found):
 Resume text:
 ${resumeText.slice(0, 3000)}`;
 
+  const fallbackFields = buildFallbackResumeFields(resumeText);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
 
   let ollamaRes;
   try {
     console.log('File mimetype:', file?.mimetype);
     console.log('File size (bytes):', file?.buffer?.length);
     console.log('Resume text preview:', resumeText.slice(0, 300));
-    ollamaRes = await fetch('http://localhost:11434/api/generate', {
+    ollamaRes = await fetch(OLLAMA_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
@@ -151,20 +158,32 @@ ${resumeText.slice(0, 3000)}`;
     });
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Ollama timed out after 30 seconds. Try a smaller model like llama3.2:1b.');
+      console.warn(`Ollama timed out after ${OLLAMA_TIMEOUT_MS}ms; using local resume parsing fallback.`);
+      return fallbackFields;
     }
-    throw error;
+    console.warn('Ollama resume parsing unavailable; using local fallback:', error instanceof Error ? error.message : error);
+    return fallbackFields;
   } finally {
     clearTimeout(timeout);
   }
 
-  const ollamaJson = await ollamaRes.json();
+  if (!ollamaRes.ok) {
+    console.warn(`Ollama resume parsing failed with ${ollamaRes.status}; using local fallback.`);
+    return fallbackFields;
+  }
+
+  let ollamaJson;
+  try {
+    ollamaJson = await ollamaRes.json();
+  } catch (error) {
+    console.warn('Failed to read Ollama resume response; using local fallback:', error instanceof Error ? error.message : error);
+    return fallbackFields;
+  }
+
   const raw = ollamaJson.response;
   if (!raw) {
     console.error('Ollama response field is undefined. Full object:', JSON.stringify(ollamaJson, null, 2));
-    const error = new Error('Ollama returned no response field.');
-    error.raw = ollamaJson;
-    throw error;
+    return fallbackFields;
   }
 
   const stripped = raw
@@ -175,17 +194,16 @@ ${resumeText.slice(0, 3000)}`;
   const match = stripped.match(/\{[\s\S]*\}/);
 
   if (!match) {
-    const error = new Error('No JSON found in Ollama output');
-    error.raw = raw;
-    throw error;
+    console.warn('No JSON found in Ollama output; using local resume parsing fallback.');
+    return fallbackFields;
   }
 
   try {
     const parsed = JSON.parse(match[0]);
     return normalizeParsedResume(parsed, resumeText);
   } catch (error) {
-    error.raw = raw;
-    throw error;
+    console.warn('Failed to parse Ollama resume JSON; using local fallback:', error instanceof Error ? error.message : error);
+    return fallbackFields;
   }
 }
 
