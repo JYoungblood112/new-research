@@ -8,7 +8,18 @@ import StudentDashboard from './pages/student/StudentDashboard';
 import StudentRecommendationReasoningPage from './pages/student/StudentRecommendationReasoningPage';
 import StudentResearchDetailPage from './pages/student/StudentResearchDetailPage';
 import StudentSetupPage from './pages/student/StudentSetupPage';
+import RecruiterDashboard from './pages/recruiter/RecruiterDashboard';
+import CandidateProfilePage from './pages/recruiter/CandidateProfilePage';
+import DeanDashboard from './pages/dean/DeanDashboard';
 import { useAuth } from './contexts/AuthContext';
+import type { UserRole } from './lib/api';
+
+function dashboardPathForRole(role: UserRole) {
+  if (role === 'professor') return '/professor/dashboard';
+  if (role === 'student') return '/student/dashboard';
+  if (role === 'recruiter') return '/recruiter/dashboard';
+  return '/dean/dashboard';
+}
 
 function ProtectedRoute({
   children,
@@ -16,7 +27,7 @@ function ProtectedRoute({
   requireSetupComplete = false,
 }: {
   children: React.ReactNode;
-  allowedRole?: 'professor' | 'student';
+  allowedRole?: UserRole;
   requireSetupComplete?: boolean;
 }) {
   const { user, setupState, loadingSession } = useAuth();
@@ -40,7 +51,7 @@ function ProtectedRoute({
   }
 
   if (allowedRole && user.role !== allowedRole) {
-    return <Navigate to={user.role === 'professor' ? '/professor/dashboard' : '/student/dashboard'} replace />;
+    return <Navigate to={dashboardPathForRole(user.role)} replace />;
   }
 
   if (
@@ -94,6 +105,30 @@ export const router = createBrowserRouter([
   {
     path: '/sso',
     element: <SsoPage />,
+  },
+  {
+    path: '/recruiter/dashboard',
+    element: (
+      <ProtectedRoute allowedRole="recruiter">
+        <RecruiterDashboard />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/recruiter/candidates/:candidateId',
+    element: (
+      <ProtectedRoute allowedRole="recruiter">
+        <CandidateProfilePage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/dean/dashboard',
+    element: (
+      <ProtectedRoute allowedRole="dean">
+        <DeanDashboard />
+      </ProtectedRoute>
+    ),
   },
   {
     path: '/student/dashboard',

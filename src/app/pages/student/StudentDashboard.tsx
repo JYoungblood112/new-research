@@ -7,6 +7,7 @@ import BrowseResearch from '../../components/student/BrowseResearch';
 import AIRecommendations from '../../components/student/AIRecommendations';
 import MyApplications from '../../components/student/MyApplications';
 import StudentProfile from '../../components/student/StudentProfile';
+import ProgressReports from '../../components/student/ProgressReports';
 import { Header as AppHeader } from '../../../components/ui/header-1';
 
 export default function StudentDashboard() {
@@ -70,6 +71,14 @@ export default function StudentDashboard() {
             onClick: (event) => {
               event.preventDefault();
               void requestTabChange('applications');
+            },
+          },
+          {
+            label: 'Progress Reports',
+            href: '#',
+            onClick: (event) => {
+              event.preventDefault();
+              void requestTabChange('progress');
             },
           },
           {
@@ -148,6 +157,12 @@ export default function StudentDashboard() {
               My Applications
             </TabsTrigger>
             <TabsTrigger
+              value="progress"
+              className="rounded-xl border border-transparent bg-transparent px-4 py-2 text-[#666666] data-[state=active]:border-red-200 data-[state=active]:bg-red-50 data-[state=active]:text-red-800 data-[state=active]:shadow-none"
+            >
+              Progress Reports
+            </TabsTrigger>
+            <TabsTrigger
               value="profile"
               className="rounded-xl border border-transparent bg-transparent px-4 py-2 text-[#666666] data-[state=active]:border-red-200 data-[state=active]:bg-red-50 data-[state=active]:text-red-800 data-[state=active]:shadow-none"
             >
@@ -165,6 +180,10 @@ export default function StudentDashboard() {
 
           <TabsContent value="applications">
             <MyApplications />
+          </TabsContent>
+
+          <TabsContent value="progress">
+            <ProgressReports />
           </TabsContent>
 
           <TabsContent value="profile">

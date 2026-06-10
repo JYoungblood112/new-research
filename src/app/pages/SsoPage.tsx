@@ -8,7 +8,10 @@ import { toast } from 'sonner';
 export default function SsoPage() {
   const [searchParams] = useSearchParams();
   const roleParam = searchParams.get('role');
-  const role = roleParam === 'student' || roleParam === 'professor' ? roleParam : null;
+  const role =
+    roleParam === 'student' || roleParam === 'professor' || roleParam === 'recruiter' || roleParam === 'dean'
+      ? roleParam
+      : null;
   const navigate = useNavigate();
   const { login } = useAuth();
 
@@ -19,12 +22,18 @@ export default function SsoPage() {
     if (role === 'professor') {
       return 'CMU SSO: Professor Login';
     }
+    if (role === 'recruiter') {
+      return 'CMU SSO: Recruiter Login';
+    }
+    if (role === 'dean') {
+      return 'CMU SSO: Dean Login';
+    }
     return 'CMU SSO';
   }, [role]);
 
   useEffect(() => {
     if (!role) {
-      toast.error('Role is missing. Please select Student or Professor again.');
+      toast.error('Role is missing. Please select a role again.');
       navigate('/');
       return;
     }
@@ -39,6 +48,14 @@ export default function SsoPage() {
           professor: {
             email: 'professor.demo@andrew.cmu.edu',
             name: 'CMU Professor Demo',
+          },
+          recruiter: {
+            email: 'recruiter.demo@andrew.cmu.edu',
+            name: 'CMU Recruiter Demo',
+          },
+          dean: {
+            email: 'dean.demo@andrew.cmu.edu',
+            name: 'CMU Dean Demo',
           },
         } as const;
 
@@ -56,6 +73,16 @@ export default function SsoPage() {
             setup.completed && studentOnboardingDone ? '/student/dashboard' : '/student/setup',
             { replace: true }
           );
+          return;
+        }
+
+        if (user.role === 'recruiter') {
+          navigate('/recruiter/dashboard', { replace: true });
+          return;
+        }
+
+        if (user.role === 'dean') {
+          navigate('/dean/dashboard', { replace: true });
           return;
         }
 

@@ -1,4 +1,4 @@
-export type UserRole = 'student' | 'professor';
+export type UserRole = 'student' | 'professor' | 'recruiter' | 'dean';
 
 export type User = {
   id: string;
@@ -173,4 +173,72 @@ export async function parseResumeWithAi(payload: {
 
 export async function getStudentInterestCounts(): Promise<{ counts: Record<string, number>; totalStudents: number }> {
   return request('/api/insights/student-interest-counts');
+}
+
+export type RecruiterCandidateMatch = {
+  candidateId: string;
+  candidateName: string;
+  matchScore: number;
+  explanation: string;
+  reasons: string[];
+};
+
+export async function rankRecruiterCandidates(payload: {
+  role: {
+    jobTitle: string;
+    requiredSkills: string;
+    preferredSkills: string;
+    researchAreas: string;
+    experienceLevel: string;
+  };
+  candidates: unknown[];
+}): Promise<{ matches: RecruiterCandidateMatch[]; source: 'ollama' | 'fallback'; warning?: string }> {
+  return request('/api/recruiter/ai/match-candidates', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function generateRecruiterCandidateSummary(payload: {
+  candidate: unknown;
+}): Promise<{ summary: string; source: 'ollama' | 'fallback'; warning?: string }> {
+  return request('/api/recruiter/ai/candidate-summary', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function generateRecruiterOutreach(payload: {
+  candidate: unknown;
+  position: string;
+}): Promise<{ message: string; source: 'ollama' | 'fallback'; warning?: string }> {
+  return request('/api/recruiter/ai/outreach', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export type DeanInsight = {
+  title: string;
+  category: string;
+  summary: string;
+  action: string;
+};
+
+export async function generateDeanResearchReport(payload: {
+  metrics: unknown;
+}): Promise<{ report: string; source: 'ollama' | 'fallback'; warning?: string }> {
+  return request('/api/dean/ai/research-report', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function generateDeanInsights(payload: {
+  metrics: unknown;
+}): Promise<{ insights: DeanInsight[]; source: 'ollama' | 'fallback'; warning?: string }> {
+  return request('/api/dean/ai/insights', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }

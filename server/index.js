@@ -3,7 +3,16 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { readStore, writeStore, randomId } from './store.js';
-import { getOllamaRecommendations, parseResumeWithOllama, scoreOnePosting } from './ollama.js';
+import {
+  getOllamaRecommendations,
+  getDeanDepartmentResearchReport,
+  getDeanInsights,
+  getRecruiterCandidateMatches,
+  getRecruiterCandidateSummary,
+  getRecruiterOutreachMessage,
+  parseResumeWithOllama,
+  scoreOnePosting,
+} from './ollama.js';
 import { fetchGitHubData } from './utils/fetchGitHubData.js';
 import { fetchLinkedInData } from './utils/fetchLinkedInData.js';
 import { profileRouter } from './profile.js';
@@ -39,6 +48,16 @@ function getPublicUser(user) {
 }
 
 function getSetupState(store, user) {
+  if (user.role === 'recruiter' || user.role === 'dean') {
+    return {
+      completed: true,
+      profile: null,
+      steps: {
+        basic: true,
+      },
+    };
+  }
+
   if (user.role === 'student') {
     const profile = store.studentProfiles.find((p) => p.userId === user.id) ?? null;
     const completed =
@@ -133,6 +152,20 @@ function getRecommendationProfileFingerprint(profile) {
     linkedin: profile?.linkedin ?? profile?.linkedInUrl ?? profile?.linkedinUrl ?? profile?.linkedInURL ?? profile?.linkedin_url ?? '',
     resumeText: profile?.resumeText ?? '',
   });
+}
+
+function recruiterRequired(req, res, next) {
+  if (!req.user || req.user.role !== 'recruiter') {
+    return res.status(403).json({ error: 'Recruiter role required.' });
+  }
+  return next();
+}
+
+function deanRequired(req, res, next) {
+  if (!req.user || req.user.role !== 'dean') {
+    return res.status(403).json({ error: 'Dean role required.' });
+  }
+  return next();
 }
 
 function getRecommendationPostingFingerprint(posting) {
@@ -423,7 +456,7 @@ app.post('/api/auth/stub-sso', (req, res) => {
     return res.status(400).json({ error: 'Use an andrew.cmu.edu email address.' });
   }
 
-  if (!['student', 'professor'].includes(role)) {
+  if (!['student', 'professor', 'recruiter', 'dean'].includes(role)) {
     return res.status(400).json({ error: 'Invalid role.' });
   }
 
@@ -806,6 +839,152 @@ app.post('/api/ai/recommendations', authRequired, async (req, res) => {
     });
   }
 });
+
+app.post('/api/recruiter/ai/match-candidates', authRequired, recruiterRequired, async (req, res) => {
+  const { role, candidates } = req.body ?? {};
+
+  if (!role || typeof role !== 'object') {
+    return res.status(400).json({ error: 'role is required.' });
+  }
+
+  if (!Array.isArray(candidates)) {
+    return res.status(400).json({ error: 'candidates must be an array.' });
+  }
+
+  try {
+    const matches = await getRecruiterCandidateMatches({ role, candidates });
+    return res.json({ matches, source: 'ollama' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Candidate matching failed.';
+    console.error('[recruiter/match-candidates] error:', error);
+    const fallback = candidates
+      .map((candidate) => ({
+        candidateId: String(candidate?.id ?? ''),
+        candidateName: String(candidate?.name ?? 'Candidate'),
+        matchScore: clampScore(candidate?.matchPercentage ?? candidate?.researchScore ?? 70),
+        explanation: 'Fallback ranking used available verified research profile fields while Ollama was unavailable.',
+        reasons: [
+          `Research areas: ${Array.isArray(candidate?.researchAreas) ? candidate.researchAreas.slice(0, 3).join(', ') : 'available profile evidence'}`,
+          `Skills: ${Array.isArray(candidate?.skills) ? candidate.skills.slice(0, 4).join(', ') : 'available skill evidence'}`,
+          `${candidate?.verifiedContributions ?? 0} verified contributions`,
+        ],
+      }))
+      .filter((match) => match.candidateId)
+      .sort((a, b) => b.matchScore - a.matchScore);
+
+    return res.json({ matches: fallback, source: 'fallback', warning: message });
+  }
+});
+
+app.post('/api/recruiter/ai/candidate-summary', authRequired, recruiterRequired, async (req, res) => {
+  const { candidate } = req.body ?? {};
+
+  if (!candidate || typeof candidate !== 'object') {
+    return res.status(400).json({ error: 'candidate is required.' });
+  }
+
+  try {
+    const summary = await getRecruiterCandidateSummary({ candidate });
+    return res.json({ summary, source: 'ollama' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Candidate summary failed.';
+    console.error('[recruiter/candidate-summary] error:', error);
+    return res.json({
+      summary: `${candidate?.name ?? 'This candidate'} has verified research contributions, faculty-backed evidence, and project work that recruiters can evaluate beyond a traditional resume.`,
+      source: 'fallback',
+      warning: message,
+    });
+  }
+});
+
+app.post('/api/recruiter/ai/outreach', authRequired, recruiterRequired, async (req, res) => {
+  const { candidate, position } = req.body ?? {};
+
+  if (!candidate || typeof candidate !== 'object') {
+    return res.status(400).json({ error: 'candidate is required.' });
+  }
+
+  if (typeof position !== 'string' || !position.trim()) {
+    return res.status(400).json({ error: 'position is required.' });
+  }
+
+  try {
+    const message = await getRecruiterOutreachMessage({ candidate, position: position.trim() });
+    return res.json({ message, source: 'ollama' });
+  } catch (error) {
+    const warning = error instanceof Error ? error.message : 'Outreach generation failed.';
+    console.error('[recruiter/outreach] error:', error);
+    return res.json({
+      message: `Hi ${candidate?.name ?? 'there'}, I saw your verified research work and faculty-backed contributions on the research platform. Your experience looks relevant for ${position.trim()}, and I would like to connect about the opportunity.`,
+      source: 'fallback',
+      warning,
+    });
+  }
+});
+
+app.post('/api/dean/ai/research-report', authRequired, deanRequired, async (req, res) => {
+  const { metrics } = req.body ?? {};
+
+  if (!metrics || typeof metrics !== 'object') {
+    return res.status(400).json({ error: 'metrics are required.' });
+  }
+
+  try {
+    const report = await getDeanDepartmentResearchReport({ metrics });
+    return res.json({ report, source: 'ollama' });
+  } catch (error) {
+    const warning = error instanceof Error ? error.message : 'Department research report failed.';
+    console.error('[dean/research-report] error:', error);
+    return res.json({
+      report:
+        'The department supported a strong portfolio of student research, faculty mentorship, publications, presentations, grant funding, and verified progress-report activity. Review the research output, funding, and supply-demand panels for the strongest metric-backed opportunities.',
+      source: 'fallback',
+      warning,
+    });
+  }
+});
+
+app.post('/api/dean/ai/insights', authRequired, deanRequired, async (req, res) => {
+  const { metrics } = req.body ?? {};
+
+  if (!metrics || typeof metrics !== 'object') {
+    return res.status(400).json({ error: 'metrics are required.' });
+  }
+
+  try {
+    const insights = await getDeanInsights({ metrics });
+    return res.json({ insights, source: 'ollama' });
+  } catch (error) {
+    const warning = error instanceof Error ? error.message : 'Dean insights failed.';
+    console.error('[dean/insights] error:', error);
+    return res.json({
+      insights: [
+        {
+          title: 'Balance high-demand research areas',
+          category: 'Resource',
+          summary: 'Platform metrics show student demand is not evenly matched with available research capacity.',
+          action: 'Prioritize faculty support and position creation in oversubscribed areas.',
+        },
+        {
+          title: 'Expand verified portfolio activity',
+          category: 'Growth',
+          summary: 'Progress reports and verified contributions are becoming a useful signal for student outcomes.',
+          action: 'Encourage faculty to verify milestone reports consistently across labs.',
+        },
+      ],
+      source: 'fallback',
+      warning,
+    });
+  }
+});
+
+function clampScore(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 70;
+  }
+  return Math.min(100, Math.max(0, Math.trunc(numeric)));
+}
 
 app.use((err, req, res, next) => {
   if (!err) {

@@ -982,6 +982,194 @@ export async function getOllamaRecommendations({ student, postings, resumeText }
   return scored.sort((a, b) => b.confidence - a.confidence);
 }
 
+function normalizeRecruiterMatches(parsed, candidates) {
+  const byId = new Map(candidates.map((candidate) => [String(candidate?.id ?? ''), candidate]));
+  const rawMatches = Array.isArray(parsed?.matches) ? parsed.matches : [];
+
+  const normalized = rawMatches
+    .map((match) => {
+      const candidateId = String(match?.candidateId ?? match?.id ?? '').trim();
+      const candidate = byId.get(candidateId);
+      if (!candidate) {
+        return null;
+      }
+
+      return {
+        candidateId,
+        candidateName: String(match?.candidateName ?? candidate.name ?? 'Candidate'),
+        matchScore: clampInt(match?.matchScore ?? match?.score, 0, 100),
+        explanation: String(match?.explanation ?? 'Candidate has verified research evidence aligned to this role.').trim(),
+        reasons: sanitizeStringList(match?.reasons, []).slice(0, 5),
+      };
+    })
+    .filter(Boolean);
+
+  if (normalized.length > 0) {
+    return normalized.sort((a, b) => b.matchScore - a.matchScore);
+  }
+
+  return candidates
+    .map((candidate) => ({
+      candidateId: String(candidate.id),
+      candidateName: String(candidate.name ?? 'Candidate'),
+      matchScore: clampInt(candidate.matchPercentage ?? candidate.researchScore ?? 70, 0, 100),
+      explanation: `${candidate.name} has verified research evidence, faculty endorsements, and project work relevant to this role.`,
+      reasons: [
+        `Research areas: ${Array.isArray(candidate.researchAreas) ? candidate.researchAreas.slice(0, 3).join(', ') : 'verified research area'}`,
+        `Skills: ${Array.isArray(candidate.skills) ? candidate.skills.slice(0, 4).join(', ') : 'verified technical skills'}`,
+        `${candidate.verifiedContributions ?? 0} verified contributions reviewed by faculty`,
+      ],
+    }))
+    .sort((a, b) => b.matchScore - a.matchScore);
+}
+
+export async function getRecruiterCandidateMatches({ role, candidates }) {
+  const safeCandidates = Array.isArray(candidates) ? candidates.slice(0, 12) : [];
+  if (safeCandidates.length === 0) {
+    return [];
+  }
+
+  const prompt = `You are an expert technical recruiter for research talent. Return RAW JSON only.
+
+Rank these students for the recruiting role using only the provided evidence: candidate profile, research history, skills, publications, presentations, verified contributions, and faculty endorsements.
+
+ROLE:
+${JSON.stringify(role, null, 2)}
+
+CANDIDATES:
+${JSON.stringify(safeCandidates, null, 2)}
+
+Rules:
+- Do not invent projects, publications, skills, schools, or endorsements.
+- Favor verified research contributions and faculty endorsements over listed skills alone.
+- Compare required skills, preferred skills, research areas, and experience level.
+- Return each score from 0 to 100.
+
+Return exactly:
+{
+  "matches": [
+    {
+      "candidateId": "candidate id",
+      "candidateName": "candidate name",
+      "matchScore": 0,
+      "explanation": "one concise evidence-backed explanation",
+      "reasons": ["3 to 5 evidence-backed reasons"]
+    }
+  ]
+}`;
+
+  const responseText = await callOllama(prompt);
+  const parsed = parseJsonObjectFromOllama(responseText);
+  return normalizeRecruiterMatches(parsed, safeCandidates);
+}
+
+export async function getRecruiterCandidateSummary({ candidate }) {
+  const prompt = `You are summarizing a student researcher for a recruiter. Return RAW JSON only.
+
+Use only the evidence in this candidate profile. Mention verified contributions, skills, projects, publications, presentations, endorsements, evidence links, and GitHub activity when present.
+
+CANDIDATE:
+${JSON.stringify(candidate, null, 2)}
+
+Return exactly:
+{
+  "summary": "4 to 6 sentence recruiter-facing summary"
+}`;
+
+  const responseText = await callOllama(prompt);
+  const parsed = parseJsonObjectFromOllama(responseText);
+  return typeof parsed?.summary === 'string' && parsed.summary.trim()
+    ? parsed.summary.trim()
+    : `${candidate?.name ?? 'This candidate'} has verified research contributions and evidence-backed project work.`;
+}
+
+export async function getRecruiterOutreachMessage({ candidate, position }) {
+  const prompt = `You write concise, professional recruiter outreach. Return RAW JSON only.
+
+Write a message to the candidate about this position. Use specific evidence from their research profile. Do not invent company details.
+
+POSITION:
+${position}
+
+CANDIDATE:
+${JSON.stringify(candidate, null, 2)}
+
+Return exactly:
+{
+  "message": "professional outreach message under 160 words"
+}`;
+
+  const responseText = await callOllama(prompt);
+  const parsed = parseJsonObjectFromOllama(responseText);
+  return typeof parsed?.message === 'string' && parsed.message.trim()
+    ? parsed.message.trim()
+    : `Hi ${candidate?.name ?? 'there'}, your verified research experience looks relevant for ${position}. I would like to connect about a role that aligns with your project work, skills, and faculty-endorsed contributions.`;
+}
+
+export async function getDeanDepartmentResearchReport({ metrics }) {
+  const prompt = `You are writing an executive research outcomes report for a university dean. Return RAW JSON only.
+
+Use only the provided metrics. Summarize research production, faculty mentorship, student outcomes, funding impact, access, progress-report activity, and competitive standing.
+
+METRICS:
+${JSON.stringify(metrics, null, 2)}
+
+Rules:
+- Do not invent numbers.
+- Write in a concise, professional executive style.
+- Include 4 to 6 concrete metric-backed sentences.
+
+Return exactly:
+{
+  "report": "executive summary"
+}`;
+
+  const responseText = await callOllama(prompt);
+  const parsed = parseJsonObjectFromOllama(responseText);
+  return typeof parsed?.report === 'string' && parsed.report.trim()
+    ? parsed.report.trim()
+    : 'The department shows strong research production, faculty mentorship, student outcomes, and funding activity based on the provided platform metrics.';
+}
+
+export async function getDeanInsights({ metrics }) {
+  const prompt = `You are an institutional research strategy advisor for a dean. Return RAW JSON only.
+
+Use only the provided metrics to generate actionable insights. Cover strengths, areas needing improvement, emerging trends, resource recommendations, faculty mentorship highlights, and research growth opportunities.
+
+METRICS:
+${JSON.stringify(metrics, null, 2)}
+
+Rules:
+- Do not invent facts or numbers.
+- Keep recommendations actionable and specific.
+- Return 5 to 7 insight objects.
+
+Return exactly:
+{
+  "insights": [
+    {
+      "title": "short title",
+      "category": "Strength | Improvement | Trend | Resource | Mentorship | Growth",
+      "summary": "metric-backed insight",
+      "action": "recommended action"
+    }
+  ]
+}`;
+
+  const responseText = await callOllama(prompt);
+  const parsed = parseJsonObjectFromOllama(responseText);
+  const insights = Array.isArray(parsed?.insights) ? parsed.insights : [];
+  return insights
+    .map((insight) => ({
+      title: String(insight?.title ?? 'Research insight').trim(),
+      category: String(insight?.category ?? 'Growth').trim(),
+      summary: String(insight?.summary ?? 'Platform metrics indicate a research growth opportunity.').trim(),
+      action: String(insight?.action ?? 'Review department capacity and align resources to demand.').trim(),
+    }))
+    .filter((insight) => insight.title && insight.summary)
+    .slice(0, 7);
+}
+
 export async function parseResumeWithOllama({ resumeBase64, mode, fileName: _fileName }) {
   if (typeof resumeBase64 !== 'string' || !resumeBase64.trim()) {
     throw new Error('resumeBase64 is required.');

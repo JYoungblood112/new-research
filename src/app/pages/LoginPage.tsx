@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { UserRole } from '../contexts/AuthContext';
-import { GraduationCap, BookOpen, ArrowRight } from 'lucide-react';
+import { GraduationCap, BookOpen, ArrowRight, BriefcaseBusiness, Building2 } from 'lucide-react';
 
 export default function LoginPage() {
   const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
@@ -74,7 +74,7 @@ export default function LoginPage() {
         </div>
 
         <div className="relative z-10 border-t border-white/20 pt-6">
-          <p className="text-red-100 text-sm">© 2026 Carnegie Mellon University</p>
+          <p className="text-red-100 text-sm">(c) 2026 Carnegie Mellon University</p>
           <p className="text-red-200 text-xs mt-1">Empowering the next generation of researchers</p>
         </div>
       </div>
@@ -99,6 +99,42 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-4">
+                <button
+                  onClick={() => handleRoleSelection('dean')}
+                  className="w-full p-6 border-2 border-gray-200 rounded-xl hover:border-red-500 hover:bg-red-50 transition-all group"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center group-hover:bg-red-200 transition-colors">
+                        <Building2 className="w-6 h-6 text-red-600" />
+                      </div>
+                      <div className="text-left">
+                        <h3 className="text-lg font-semibold text-gray-900">Dean</h3>
+                        <p className="text-sm text-gray-500">Measure institutional research outcomes</p>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-5 h-5 text-gray-400 group-hover:text-red-600 transition-colors" />
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleRoleSelection('recruiter')}
+                  className="w-full p-6 border-2 border-gray-200 rounded-xl hover:border-red-500 hover:bg-red-50 transition-all group"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center group-hover:bg-slate-200 transition-colors">
+                        <BriefcaseBusiness className="w-6 h-6 text-slate-700" />
+                      </div>
+                      <div className="text-left">
+                        <h3 className="text-lg font-semibold text-gray-900">Recruiter</h3>
+                        <p className="text-sm text-gray-500">Find verified student research talent</p>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-5 h-5 text-gray-400 group-hover:text-red-600 transition-colors" />
+                  </div>
+                </button>
+
                 <button
                   onClick={() => handleRoleSelection('professor')}
                   className="w-full p-6 border-2 border-gray-200 rounded-xl hover:border-red-500 hover:bg-red-50 transition-all group"

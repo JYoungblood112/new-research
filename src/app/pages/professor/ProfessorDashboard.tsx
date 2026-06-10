@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import {
   AlertCircle,
   BarChart3,
@@ -1888,11 +1888,8 @@ export default function ProfessorDashboard() {
                               </td>
                               <td className="max-w-[300px] px-4 py-3 text-xs text-[#666666] dark:text-[#b5b5b5]">
                                 <p>{buildAiInsights(score).summary}</p>
-                                <Button
-                                  type="button"
-                                  variant="link"
-                                  className="mt-1 h-auto p-0 text-xs text-red-700"
-                                  onClick={() => {
+                                {(() => {
+                                  const href = (() => {
                                     const projectTitle = posting?.title ?? postingById.get(application.postingId)?.title ?? 'No project assigned';
                                     const projectOverview = posting && 'overview' in posting ? posting.overview ?? '' : '';
                                     const requiredQualifications = posting && 'requiredQualifications' in posting
@@ -1912,11 +1909,15 @@ export default function ProfessorDashboard() {
                                       status: application.status,
                                       submittedAt: application.submittedAt,
                                     });
-                                    navigate(`/professor/applicant-insights/${application.id}?${params.toString()}`);
-                                  }}
-                                >
-                                  More
-                                </Button>
+                                    return `/professor/applicant-insights/${application.id}?${params.toString()}`;
+                                  })();
+
+                                  return (
+                                    <Button asChild variant="link" className="mt-1 h-auto p-0 text-xs text-red-700">
+                                      <Link to={href}>More</Link>
+                                    </Button>
+                                  );
+                                })()}
                               </td>
                               <td className="px-4 py-3">{application.studentMajor}</td>
                               <td className="px-4 py-3">{posting?.title ?? postingById.get(application.postingId)?.title ?? 'No project assigned'}</td>
