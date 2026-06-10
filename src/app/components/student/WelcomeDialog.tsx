@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Upload, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
-const YEARS = ['Freshman', 'Sophomore', 'Junior', 'Senior', 'Graduate'];
+const YEARS = ['Freshman', 'Sophomore', 'Junior', 'Senior', "Master's", 'PhD'];
 
 interface WelcomeDialogProps {
   onComplete: () => void;

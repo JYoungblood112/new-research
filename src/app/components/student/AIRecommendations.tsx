@@ -167,9 +167,9 @@ export default function AIRecommendations() {
       } catch {
         // Keep polling until the timeout or success.
       }
-    }, 5000);
+    }, 2000);
 
-    const timeoutId = window.setTimeout(() => stopPolling(postingId), 1000 * 60 * 3);
+    const timeoutId = window.setTimeout(() => stopPolling(postingId), 1000 * 60 * 6);
     activePollsRef.current.set(postingId, { intervalId, timeoutId });
   };
 

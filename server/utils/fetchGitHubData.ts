@@ -2,12 +2,14 @@ type GitHubRepo = {
   name: string;
   description: string | null;
   language: string | null;
+  url: string | null;
   stars: number;
   topics: string[];
 };
 
 type GitHubData = {
   username: string;
+  profile_url: string;
   bio: string | null;
   public_repos: number;
   followers: number;
@@ -39,6 +41,9 @@ export async function fetchGitHubData(githubUrl: string): Promise<GitHubData | n
     const username = normalizedUrl
       .replace(/https?:\/\/(www\.)?github\.com\//, '')
       .split('/')[0]
+      .split('?')[0]
+      .split('#')[0]
+      .replace(/[^\w-]+$/g, '')
       .trim();
 
     if (!username) {
@@ -77,6 +82,7 @@ export async function fetchGitHubData(githubUrl: string): Promise<GitHubData | n
       name: String(repo?.name ?? ''),
       description: typeof repo?.description === 'string' ? repo.description : null,
       language: typeof repo?.language === 'string' ? repo.language : null,
+      url: typeof repo?.html_url === 'string' ? repo.html_url : null,
       stars: Number.isFinite(Number(repo?.stargazers_count)) ? Number(repo.stargazers_count) : 0,
       topics: Array.isArray(repo?.topics)
         ? repo.topics.filter((topic: unknown) => typeof topic === 'string')
@@ -94,6 +100,7 @@ export async function fetchGitHubData(githubUrl: string): Promise<GitHubData | n
 
     return {
       username,
+      profile_url: `https://github.com/${username}`,
       bio: typeof profileJson?.bio === 'string' ? profileJson.bio : null,
       public_repos: Number.isFinite(Number(profileJson?.public_repos)) ? Number(profileJson.public_repos) : 0,
       followers: Number.isFinite(Number(profileJson?.followers)) ? Number(profileJson.followers) : 0,

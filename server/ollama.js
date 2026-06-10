@@ -8,11 +8,59 @@ function getOllamaConfig() {
     url: process.env.OLLAMA_URL || 'http://localhost:11434/api/generate',
     model: process.env.OLLAMA_MODEL || 'llama3.2:1b',
     timeoutMs: Number(process.env.OLLAMA_TIMEOUT_MS || 120000),
+    maxConcurrency: Math.max(1, Number(process.env.OLLAMA_MAX_CONCURRENCY || 1)),
+    retryCount: Math.max(0, Number(process.env.OLLAMA_RETRY_COUNT || 2)),
   };
 }
 
-async function callOllama(prompt) {
+let activeOllamaCalls = 0;
+const ollamaQueue = [];
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function runNextOllamaJob() {
   const config = getOllamaConfig();
+  while (activeOllamaCalls < config.maxConcurrency && ollamaQueue.length > 0) {
+    const job = ollamaQueue.shift();
+    activeOllamaCalls += 1;
+
+    void job()
+      .finally(() => {
+        activeOllamaCalls -= 1;
+        runNextOllamaJob();
+      });
+  }
+}
+
+function enqueueOllamaJob(task) {
+  return new Promise((resolve, reject) => {
+    ollamaQueue.push(async () => {
+      try {
+        resolve(await task());
+      } catch (error) {
+        reject(error);
+      }
+    });
+    runNextOllamaJob();
+  });
+}
+
+function isRetryableOllamaError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /fetch failed|aborted|terminated|socket|econnrefused|econnreset|etimedout|timeout|5\d\d/i.test(message);
+}
+
+function createOllamaUnavailableError(error, config) {
+  const message = error instanceof Error ? error.message : String(error);
+  const next = new Error(`Ollama unavailable after retries at ${config.url}: ${message}`);
+  next.code = 'OLLAMA_UNAVAILABLE';
+  next.cause = error;
+  return next;
+}
+
+async function callOllamaOnce(prompt, config) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
 
@@ -20,7 +68,16 @@ async function callOllama(prompt) {
     const response = await fetch(config.url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: config.model, prompt, stream: false }),
+      body: JSON.stringify({
+        model: config.model,
+        prompt,
+        stream: false,
+        format: 'json',
+        options: {
+          temperature: 0.1,
+          num_predict: 1800,
+        },
+      }),
       signal: controller.signal,
     });
 
@@ -33,6 +90,27 @@ async function callOllama(prompt) {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+async function callOllama(prompt) {
+  const config = getOllamaConfig();
+
+  return enqueueOllamaJob(async () => {
+    let lastError = null;
+    for (let attempt = 0; attempt <= config.retryCount; attempt += 1) {
+      try {
+        return await callOllamaOnce(prompt, config);
+      } catch (error) {
+        lastError = error;
+        if (attempt >= config.retryCount || !isRetryableOllamaError(error)) {
+          break;
+        }
+        await sleep(600 * (attempt + 1));
+      }
+    }
+
+    throw createOllamaUnavailableError(lastError, config);
+  });
 }
 
 function tryParseJsonText(text, expectedArray) {
@@ -72,6 +150,104 @@ function normalizeSkills(skills) {
     .filter(Boolean))];
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function cleanResumeField(value) {
+  return String(value ?? '')
+    .replace(/[\u2022|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\b(?:GPA|Relevant Coursework|Coursework|Honors|Awards)\b.*$/i, '')
+    .replace(/[.;,\s]+$/g, '')
+    .trim();
+}
+
+function toTitleCase(value) {
+  return value.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function getDegreeLevel(text) {
+  if (/\b(?:ph\.?\s*d\.?|doctor(?:ate|al)?|doctor\s+of\s+philosophy|phd\s+candidate|ph\.?\s*d\.?\s+candidate)\b/i.test(text)) {
+    return 'PhD';
+  }
+
+  if (/\b(?:m\.?\s*s\.?|m\.?\s*a\.?|m\.?\s*b\.?\s*a\.?|master(?:'s)?|master\s+of|mba)\b/i.test(text)) {
+    return "Master's";
+  }
+
+  if (/\b(?:b\.?\s*s\.?|b\.?\s*a\.?|bachelor(?:'s)?|bachelor\s+of|associate(?:'s)?)\b/i.test(text)) {
+    return 'Bachelor';
+  }
+
+  return null;
+}
+
+function getEducationYearCandidates(text) {
+  const currentYear = new Date().getFullYear();
+  return Array.from(
+    text.matchAll(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+(20\d{2})\b/gi),
+    (match) => Number(match[1])
+  ).filter((year) => Number.isFinite(year) && year > currentYear);
+}
+
+function getUndergradYearFromGraduationYear(gradYear) {
+  const currentYear = new Date().getFullYear();
+  const diff = gradYear - currentYear;
+
+  if (diff <= 1) return 'Senior';
+  if (diff === 2) return 'Junior';
+  if (diff === 3) return 'Sophomore';
+  return 'Freshman';
+}
+
+function getCurrentEducationInfo(text) {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const candidates = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const segment = [lines[index], lines[index + 1], lines[index + 2]].filter(Boolean).join(' ');
+    const level = getDegreeLevel(segment);
+    if (!level) {
+      continue;
+    }
+
+    const years = getEducationYearCandidates(segment);
+    if (years.length > 0) {
+      candidates.push({ level, year: Math.max(...years) });
+    } else if (level === 'PhD' && /\bcandidate\b/i.test(segment)) {
+      candidates.push({ level, year: Number.POSITIVE_INFINITY });
+    }
+  }
+
+  if (candidates.length === 0) {
+    const wholeResumeLevel = getDegreeLevel(text);
+    if (wholeResumeLevel === 'PhD' && /\bcandidate\b/i.test(text)) {
+      return { level: 'PhD', year: null };
+    }
+    return null;
+  }
+
+  candidates.sort((left, right) => {
+    if (right.year !== left.year) {
+      return right.year - left.year;
+    }
+    const priority = { PhD: 3, "Master's": 2, Bachelor: 1 };
+    return priority[right.level] - priority[left.level];
+  });
+
+  return candidates[0];
+}
+
+function appearsInResume(value, text) {
+  const cleaned = cleanResumeField(value);
+  if (!cleaned) {
+    return false;
+  }
+
+  return new RegExp(`\\b${escapeRegExp(cleaned)}\\b`, 'i').test(text);
+}
+
 async function extractPdfTextFromBase64(base64String) {
   const buffer = Buffer.from(base64String, 'base64');
   const parsed = await pdfParse(buffer);
@@ -90,6 +266,9 @@ function extractSkillsHeuristically(text) {
     'react', 'node', 'sql', 'mongodb', 'postgresql', 'pytorch', 'tensorflow',
     'machine learning', 'deep learning', 'data analysis', 'statistics', 'nlp',
     'computer vision', 'git', 'linux', 'aws', 'docker', 'kubernetes',
+    'tableau', 'databricks', 'excel', 'power bi', 'salesforce', 'financial modeling',
+    'market research', 'business analytics', 'data visualization', 'project management',
+    'leadership', 'communication', 'public speaking', 'research writing',
   ];
 
   const normalized = text.toLowerCase();
@@ -103,10 +282,12 @@ function extractSkillsHeuristically(text) {
 
 function parseResumeHeuristically(text) {
   const emailMatch = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-  const yearMatch = text.match(/\b(Freshman|Sophomore|Junior|Senior|Graduate)\b/i);
+  const yearMatch = text.match(/\b(Freshman|Sophomore|Junior|Senior)\b/i);
 
   const majorPatterns = [
     /(?:major|field of study)\s*[:\-]\s*([^\n]+)/i,
+    /\b(?:Master(?:'s)?(?:\s+of\s+(?:Science|Arts|Business Administration))?|M\.?\s*S\.?|M\.?\s*A\.?|M\.?\s*B\.?\s*A\.?|Doctor\s+of\s+Philosophy|Ph\.?\s*D\.?|PhD\s+Candidate)\s+(?:Candidate\s+)?(?:in|,)\s*([^\n,;]+)/i,
+    /(?:bachelor(?:'s)?|b\.?s\.?|master(?:'s)?|m\.?s\.?)\s+(?:of\s+)?(?:science|arts)?\s*,\s*([^\n,;]+)/i,
     /(?:bachelor(?:'s)?|b\.?s\.?|master(?:'s)?|m\.?s\.?)\s+(?:of\s+)?(?:science|arts)?\s*(?:in)?\s*([^\n,;]+)/i,
   ];
 
@@ -114,14 +295,26 @@ function parseResumeHeuristically(text) {
   for (const pattern of majorPatterns) {
     const match = text.match(pattern);
     if (match?.[1]) {
-      major = match[1].trim();
+      const cleaned = cleanResumeField(match[1]);
+      const business = cleaned.match(/\b(?:business administration|business analytics|business|finance|accounting|marketing|economics|information systems)\b/i)?.[0];
+      major = business
+        ? toTitleCase(business)
+        : cleaned.replace(/\b(?:additional|second|minor|concentration|track)\b.*$/i, '').trim();
       break;
     }
   }
 
+  const currentEducation = getCurrentEducationInfo(text);
+  const inferredAcademicYear =
+    currentEducation?.level === 'PhD' ? 'PhD' :
+    currentEducation?.level === "Master's" ? "Master's" :
+    currentEducation?.level === 'Bachelor' && Number.isFinite(currentEducation.year)
+      ? getUndergradYearFromGraduationYear(currentEducation.year)
+      : undefined;
+
   return {
     email: emailMatch?.[0]?.trim(),
-    academicYear: yearMatch?.[1] ? `${yearMatch[1][0].toUpperCase()}${yearMatch[1].slice(1).toLowerCase()}` : undefined,
+    academicYear: yearMatch?.[1] ? `${yearMatch[1][0].toUpperCase()}${yearMatch[1].slice(1).toLowerCase()}` : inferredAcademicYear,
     major,
     skills: extractSkillsHeuristically(text),
   };
@@ -131,10 +324,10 @@ function buildResumePrompt(mode, resumeText) {
   const header = 'You are a resume parser. Return RAW JSON only, no markdown fences, no prose.';
 
   if (mode === 'skills') {
-    return `${header}\nExtract technical and soft skills from the resume text.\nReturn JSON array of short strings.\n\nResume text:\n${resumeText}`;
+    return `${header}\nExtract skills from the resume text.\nRules:\n- Copy only skills that explicitly appear in the resume text.\n- Include business/data skills such as Tableau, Databricks, Excel, Power BI, financial modeling, market research, leadership, communication when present.\n- Do not infer skills from school, job titles, projects, or repository names.\nReturn JSON array of short strings.\n\nResume text:\n${resumeText}`;
   }
 
-  return `${header}\nExtract these fields from the resume text:\n- fullName (string)\n- email (string)\n- major (string)\n- academicYear (one of: Freshman, Sophomore, Junior, Senior, Graduate)\n- skills (array of strings)\nOnly include fields you are reasonably confident in.\nReturn a JSON object only.\n\nResume text:\n${resumeText}`;
+  return `${header}\nExtract these fields from the resume text:\n- fullName (string)\n- email (string)\n- major (string)\n- academicYear (one of: Freshman, Sophomore, Junior, Senior, Master's, PhD)\n- skills (array of strings)\nRules:\n- Copy facts only when the resume text explicitly supports them.\n- major is the declared primary field of study only. If the education line says "B.S. in Business, Additional Major in CS/AI", major must be "Business".\n- academicYear must be based on the most recent in-progress academic degree. If it is PhD/Doctor of Philosophy/PhD Candidate, return "PhD". If it is MS/MA/MBA/Master of..., return "Master's". If it is BS/BA/Bachelor of..., infer Freshman/Sophomore/Junior/Senior from expected graduation year. Do not return Graduate.\n- skills must appear in the resume text.\nReturn a JSON object only.\n\nResume text:\n${resumeText}`;
 }
 
 function toInt(value, fallback = 0) {
@@ -156,6 +349,13 @@ function toBool(value, fallback = false) {
   return fallback;
 }
 
+function cleanAiSignalString(value) {
+  return String(value ?? '')
+    .trim()
+    .replace(/^\[(?:Gaps?|Reason|Fit|Score|Qualifications?|Evidence)\]\s*:\s*/i, '')
+    .trim();
+}
+
 function sanitizeStringList(input, fallback = []) {
   if (!Array.isArray(input)) {
     return fallback;
@@ -163,8 +363,234 @@ function sanitizeStringList(input, fallback = []) {
 
   return input
     .filter((entry) => typeof entry === 'string')
-    .map((entry) => entry.trim())
+    .map((entry) => cleanAiSignalString(entry))
     .filter(Boolean);
+}
+
+function isUsefulEvidenceString(value) {
+  const trimmed = value.trim();
+  return (
+    !/^\s*(?:\[(?:Resume|GitHub|LinkedIn)\]\s*,?\s*)+$/i.test(trimmed) &&
+    !/^\s*(?:\[[^\]]+\]\s*)+$/i.test(trimmed) &&
+    !/^\s*\[[a-z_]+:/i.test(trimmed) &&
+    !/\[(?:github|linkedin|resume)_[a-z_]+\]/i.test(trimmed)
+  );
+}
+
+function isRecommendationLabelString(value) {
+  return /^(?:Strong Fit|Good Fit|Possible Fit|Weak Fit)$/i.test(String(value ?? '').trim());
+}
+
+const SCORING_STOP_WORDS = new Set([
+  'with', 'from', 'this', 'that', 'have', 'your', 'their', 'role', 'position', 'research',
+  'and', 'or', 'the', 'for', 'are', 'you', 'our', 'can', 'will', 'not', 'but', 'all',
+  'an', 'as', 'at', 'be', 'by', 'if', 'in', 'is', 'it', 'of', 'on', 'to',
+  'student', 'candidate', 'experience', 'skills', 'requirements', 'qualification',
+  'qualifications', 'fundamentals', 'coursework', 'project', 'projects', 'work',
+]);
+
+function tokenizeForScoring(text) {
+  return String(text ?? '')
+    .toLowerCase()
+    .replace(/c\+\+/g, 'cplusplus')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word.length >= 2)
+    .filter((word) => !SCORING_STOP_WORDS.has(word));
+}
+
+function normalizeRequirementList(input) {
+  return sanitizeStringList(
+    Array.isArray(input)
+      ? input
+      : String(input ?? '')
+        .split(/\r?\n|;|\|/)
+        .flatMap((line) => line.split(/\.\s+(?=[A-Z0-9])/)),
+    [],
+  );
+}
+
+function collectPostingRequirements(posting) {
+  return [
+    ...normalizeRequirementList(posting?.requiredQualifications),
+    ...normalizeRequirementList(posting?.preferredQualifications),
+    ...normalizeRequirementList(posting?.requirements),
+    ...normalizeRequirementList(posting?.qualifications),
+  ]
+    .map((item) => item.replace(/^[-*\d)\s]+/, '').trim())
+    .filter((item) => item.length > 0)
+    .filter((item, index, arr) => arr.findIndex((x) => x.toLowerCase() === item.toLowerCase()) === index)
+    .slice(0, 12);
+}
+
+function githubEvidenceText(githubData) {
+  if (!githubData) {
+    return '';
+  }
+
+  const repos = Array.isArray(githubData.top_repos) ? githubData.top_repos : [];
+  return [
+    githubData.username,
+    githubData.bio,
+    Array.isArray(githubData.top_languages) ? githubData.top_languages.join(' ') : '',
+    repos.map((repo) => [
+      repo?.name,
+      repo?.description,
+      repo?.language,
+      Array.isArray(repo?.topics) ? repo.topics.join(' ') : '',
+    ].filter(Boolean).join(' ')).join(' '),
+  ].filter(Boolean).join(' ');
+}
+
+function buildScoringEvidenceText({ resumeSignal, githubData, linkedinData }) {
+  return [
+    resumeSignal,
+    githubEvidenceText(githubData),
+    linkedinData?.rawText,
+  ].filter(Boolean).join('\n');
+}
+
+function requirementOverlapScore(requirement, evidenceText) {
+  const evidenceTokens = new Set(tokenizeForScoring(evidenceText));
+  const requirementTokens = tokenizeForScoring(requirement);
+
+  return requirementTokens.reduce((score, token) => score + (evidenceTokens.has(token) ? 1 : 0), 0);
+}
+
+function hasNegativeFitSignal(values) {
+  return /\b(?:lack|lacks|lacking|missing|absent|no direct evidence|limited alignment|limited signal|does not demonstrate|doesn't demonstrate|not demonstrate|not shown|without)\b/i
+    .test(values.filter(Boolean).join(' '));
+}
+
+function recommendationFromScore(score) {
+  if (score >= 85) return 'Strong Fit';
+  if (score >= 75) return 'Good Fit';
+  if (score >= 55) return 'Possible Fit';
+  return 'Weak Fit';
+}
+
+function calibrateRecommendationScore({
+  posting,
+  resumeSignal,
+  githubData,
+  linkedinData,
+  baseScore,
+  githubBonus,
+  linkedinBonus,
+  fitReasoning,
+  gaps,
+}) {
+  const requirements = collectPostingRequirements(posting);
+  const evidenceText = buildScoringEvidenceText({ resumeSignal, githubData, linkedinData });
+
+  let strongCount = 0;
+  let moderateCount = 0;
+  let limitedCount = 0;
+  const limitedRequirements = [];
+
+  requirements.forEach((requirement) => {
+    const overlap = requirementOverlapScore(requirement, evidenceText);
+    if (overlap >= 3) {
+      strongCount += 1;
+    } else if (overlap >= 1) {
+      moderateCount += 1;
+    } else {
+      limitedCount += 1;
+      limitedRequirements.push(requirement);
+    }
+  });
+
+  const requirementCount = requirements.length;
+  let cap = 100;
+
+  if (requirementCount > 0) {
+    if (strongCount === 0) {
+      cap = Math.min(cap, limitedCount > 0 ? 65 : 72);
+    }
+    if (limitedCount >= Math.ceil(requirementCount / 2)) {
+      cap = Math.min(cap, 60);
+    }
+    if (strongCount / requirementCount < 0.5) {
+      cap = Math.min(cap, 78);
+    }
+  }
+
+  if (hasNegativeFitSignal([...fitReasoning, ...gaps])) {
+    cap = Math.min(cap, strongCount === 0 ? 65 : 75);
+  }
+
+  const rawFinalScore = Math.min(100, baseScore + githubBonus + linkedinBonus);
+  const confidence = Math.min(rawFinalScore, cap);
+
+  let calibratedBaseScore = baseScore;
+  let calibratedGithubBonus = githubBonus;
+  let calibratedLinkedinBonus = linkedinBonus;
+
+  if (confidence < rawFinalScore) {
+    calibratedBaseScore = clampInt(confidence - calibratedGithubBonus - calibratedLinkedinBonus, 0, 100);
+    if (calibratedBaseScore + calibratedGithubBonus + calibratedLinkedinBonus > confidence) {
+      calibratedGithubBonus = clampInt(confidence - calibratedBaseScore - calibratedLinkedinBonus, 0, calibratedGithubBonus);
+    }
+    if (calibratedBaseScore + calibratedGithubBonus + calibratedLinkedinBonus > confidence) {
+      calibratedLinkedinBonus = clampInt(confidence - calibratedBaseScore - calibratedGithubBonus, 0, calibratedLinkedinBonus);
+    }
+  }
+
+  return {
+    confidence,
+    baseScore: calibratedBaseScore,
+    githubBonus: calibratedGithubBonus,
+    linkedinBonus: calibratedLinkedinBonus,
+    recommendation: recommendationFromScore(confidence),
+    limitedRequirements,
+  };
+}
+
+function buildEvidenceFallbacks({ posting, resumeSignal, githubData, linkedinData }) {
+  const fallback = [];
+  const requirementText = [
+    posting?.requiredQualifications,
+    posting?.preferredQualifications,
+    posting?.overview,
+    posting?.studentRoleDescription,
+  ]
+    .filter((value) => typeof value === 'string')
+    .join(' ')
+    .toLowerCase();
+
+  if (typeof resumeSignal === 'string' && resumeSignal.trim()) {
+    const resumeLines = resumeSignal
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const skillsLine = resumeLines.find((line) => /^skills:/i.test(line));
+    const majorLine = resumeLines.find((line) => /^major:/i.test(line));
+    fallback.push(`[Resume] ${skillsLine || majorLine || 'Saved resume/profile fields provide the baseline evidence for this match.'}`);
+  }
+
+  if (githubData) {
+    const repo = Array.isArray(githubData.top_repos) ? githubData.top_repos[0] : null;
+    const languages = Array.isArray(githubData.top_languages) ? githubData.top_languages.filter(Boolean).join(', ') : '';
+    const repoSummary = repo?.name
+      ? `${repo.name}${repo.description ? `: ${repo.description}` : ''}${repo.language ? ` (${repo.language})` : ''}`
+      : '';
+    fallback.push(`[GitHub] ${repoSummary || (languages ? `Top languages include ${languages}.` : `GitHub profile ${githubData.username || ''} was available for scoring.`)}`);
+  }
+
+  if (linkedinData?.rawText) {
+    const sentence =
+      linkedinData.rawText
+        .split(/[.!?]\s+/)
+        .map((entry) => entry.trim())
+        .find((entry) => {
+          const lower = entry.toLowerCase();
+          return requirementText.split(/\s+/).some((word) => word.length > 4 && lower.includes(word));
+        }) ||
+      linkedinData.rawText.slice(0, 180).trim();
+    fallback.push(`[LinkedIn] ${sentence}`);
+  }
+
+  return fallback.filter(Boolean);
 }
 
 function stripJsonFences(text) {
@@ -198,7 +624,7 @@ function parseJsonObjectFromOllama(responseText) {
     const fixed = match[0]
       .replace(/,\s*}/g, '}')
       .replace(/,\s*]/g, ']')
-      .replace(/(['"])?([a-zA-Z_][a-zA-Z0-9_]*)(['"])?:/g, '"$2":')
+      .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
       .replace(/:\s*'([^']*)'/g, ': "$1"');
 
     try {
@@ -216,6 +642,14 @@ function pickFirstNonEmpty(...values) {
     }
   }
   return null;
+}
+
+function getStudentGithubUrl(student) {
+  return pickFirstNonEmpty(student?.github, student?.githubUrl, student?.github_url);
+}
+
+function getStudentLinkedInUrl(student) {
+  return pickFirstNonEmpty(student?.linkedin, student?.linkedInUrl, student?.linkedinUrl, student?.linkedInURL, student?.linkedin_url);
 }
 
 function normalizeRecommendationLabel(value) {
@@ -254,7 +688,7 @@ function buildFallbackRecommendation(posting, index, fallbackReason) {
   };
 }
 
-function normalizeRecommendationObject(posting, parsed, githubData, linkedinData) {
+function normalizeRecommendationObject(posting, parsed, githubData, linkedinData, resumeSignal = '') {
   const baseScore = clampInt(parsed?.score_breakdown?.base_score, 0, 100);
   const githubAvailable = toBool(parsed?.score_breakdown?.github_available, Boolean(githubData));
   const linkedinAvailable = toBool(parsed?.score_breakdown?.linkedin_available, Boolean(linkedinData));
@@ -262,17 +696,30 @@ function normalizeRecommendationObject(posting, parsed, githubData, linkedinData
   const githubBonusRaw = githubAvailable ? clampInt(parsed?.score_breakdown?.github_bonus, 0, 15) : 0;
   const linkedinBonusRaw = linkedinAvailable ? clampInt(parsed?.score_breakdown?.linkedin_bonus, 0, 10) : 0;
 
-  const githubSparse = githubAvailable ? toBool(parsed?.score_breakdown?.github_sparse, false) : false;
-  const linkedinSparse = linkedinAvailable ? toBool(parsed?.score_breakdown?.linkedin_sparse, false) : false;
+  const githubSparseFromData = Boolean(githubData && Number(githubData.original_repo_count ?? 0) < 3);
+  const linkedinSparseFromData = Boolean(linkedinData?.rawText && linkedinData.rawText.length < 400);
+  const githubSparse = githubAvailable
+    ? githubSparseFromData || toBool(parsed?.score_breakdown?.github_sparse, false)
+    : false;
+  const linkedinSparse = linkedinAvailable
+    ? linkedinSparseFromData || toBool(parsed?.score_breakdown?.linkedin_sparse, false)
+    : false;
 
   const githubBonus = githubSparse ? Math.min(3, githubBonusRaw) : githubBonusRaw;
   const linkedinBonus = linkedinSparse ? Math.min(2, linkedinBonusRaw) : linkedinBonusRaw;
 
-  const confidenceScore = Math.min(100, baseScore + githubBonus + linkedinBonus);
-
-  const qualifications = sanitizeStringList(parsed?.qualifications, []);
-  const fitReasoning = sanitizeStringList(parsed?.fit_reasoning, []);
-  const gaps = sanitizeStringList(parsed?.gaps, []).filter((gap) => !/no\s+github|no\s+linkedin/i.test(gap));
+  const evidenceFallbacks = buildEvidenceFallbacks({ posting, resumeSignal, githubData, linkedinData });
+  const qualifications = [
+    ...sanitizeStringList(parsed?.qualifications, []).filter(isUsefulEvidenceString),
+    ...evidenceFallbacks,
+  ].filter((entry, index, arr) => arr.findIndex((item) => item.toLowerCase() === entry.toLowerCase()) === index);
+  const fitReasoning = sanitizeStringList(parsed?.fit_reasoning, [])
+    .filter(isUsefulEvidenceString)
+    .filter((item) => !isRecommendationLabelString(item));
+  const gaps = sanitizeStringList(parsed?.gaps, [])
+    .filter(isUsefulEvidenceString)
+    .filter((gap) => !isRecommendationLabelString(gap))
+    .filter((gap) => !/no\s+github|no\s+linkedin/i.test(gap));
 
   const fitReasoningWithSparseNotes = [...fitReasoning];
   if (githubSparse && !fitReasoningWithSparseNotes.some((item) => /github available but limited signal for this position/i.test(item))) {
@@ -282,32 +729,71 @@ function normalizeRecommendationObject(posting, parsed, githubData, linkedinData
     fitReasoningWithSparseNotes.push('LinkedIn available but limited additional context beyond resume');
   }
 
+  const dedupedFitReasoning = fitReasoningWithSparseNotes
+    .map((item) => item.replace(/^\[(GitHub|LinkedIn)\]\s+/i, '$1 '))
+    .filter((entry, index, arr) => arr.findIndex((item) => item.toLowerCase() === entry.toLowerCase()) === index);
+
+  const calibratedScore = calibrateRecommendationScore({
+    posting,
+    resumeSignal,
+    githubData,
+    linkedinData,
+    baseScore,
+    githubBonus,
+    linkedinBonus,
+    fitReasoning: dedupedFitReasoning,
+    gaps,
+  });
+
+  const calibratedGaps = [
+    ...gaps,
+    ...calibratedScore.limitedRequirements.map((requirement) => `Demonstrate direct evidence for: ${requirement}`),
+  ].filter((entry, index, arr) => arr.findIndex((item) => item.toLowerCase() === entry.toLowerCase()) === index);
+
   const oneLineReason =
     pickFirstNonEmpty(
-      fitReasoningWithSparseNotes[0],
+      dedupedFitReasoning.find((item) => !isRecommendationLabelString(item)),
       qualifications[0],
-      typeof parsed?.reason === 'string' ? parsed.reason : '',
+      typeof parsed?.reason === 'string' && !isRecommendationLabelString(parsed.reason) ? parsed.reason : '',
     ) || 'Profile shows meaningful overlap with this research position.';
 
   return {
     postingId: String(posting.id),
-    confidence: confidenceScore,
+    confidence: calibratedScore.confidence,
     reason: oneLineReason,
     score_breakdown: {
-      base_score: baseScore,
-      github_bonus: githubBonus,
+      base_score: calibratedScore.baseScore,
+      github_bonus: calibratedScore.githubBonus,
       github_available: githubAvailable,
       github_sparse: githubSparse,
-      linkedin_bonus: linkedinBonus,
+      linkedin_bonus: calibratedScore.linkedinBonus,
       linkedin_available: linkedinAvailable,
       linkedin_sparse: linkedinSparse,
     },
     qualifications: qualifications.length > 0 ? qualifications.slice(0, 6) : ['Resume provides baseline qualifications aligned to this role.'],
-    fit_reasoning: fitReasoningWithSparseNotes.length > 0
-      ? fitReasoningWithSparseNotes.slice(0, 6)
+    fit_reasoning: dedupedFitReasoning.length > 0
+      ? dedupedFitReasoning.slice(0, 6)
       : ['This candidate has partial evidence aligned to the listed research requirements.'],
-    gaps: gaps.length > 0 ? gaps.slice(0, 4) : ['Demonstrate deeper, role-specific examples during application review.'],
-    recommendation: normalizeRecommendationLabel(parsed?.recommendation),
+    gaps: calibratedGaps.length > 0 ? calibratedGaps.slice(0, 4) : ['Demonstrate deeper, role-specific examples during application review.'],
+    recommendation: calibratedScore.recommendation,
+    evidence_sources: {
+      resume: {
+        available: Boolean(typeof resumeSignal === 'string' && resumeSignal.trim()),
+      },
+      github: {
+        available: Boolean(githubData),
+        username: githubData?.username ?? null,
+        url: githubData?.profile_url ?? (githubData?.username ? `https://github.com/${githubData.username}` : null),
+        repositories_considered: Array.isArray(githubData?.top_repos) ? githubData.top_repos.length : 0,
+      },
+      linkedin: {
+        available: Boolean(linkedinData?.rawText),
+        url: linkedinData?.sourceUrl ?? null,
+        characters_considered: typeof linkedinData?.rawText === 'string' ? linkedinData.rawText.length : 0,
+      },
+    },
+    githubData: githubData ?? null,
+    linkedinData: linkedinData ?? null,
   };
 }
 
@@ -322,20 +808,27 @@ ${JSON.stringify(researchPosition, null, 2)}
 STUDENT RESUME TEXT:
 ${resumeText.slice(0, 2000)}
 
+SOURCE COVERAGE:
+- Resume/profile text included: ${typeof resumeText === 'string' && resumeText.trim() ? 'yes' : 'no'}
+- GitHub fetched and included: ${githubData ? 'yes' : 'no'}
+- LinkedIn fetched and included: ${linkedinData?.rawText ? 'yes' : 'no'}
+
 ${githubData ? `
 STUDENT GITHUB PROFILE:
 - Username: ${githubData.username}
+- Profile URL: ${githubData.profile_url || `https://github.com/${githubData.username}`}
 - Bio: ${githubData.bio}
 - Public repos: ${githubData.public_repos} total, ${githubData.original_repo_count} original (non-forked)
 - Followers: ${githubData.followers}
 - Total stars across original repos: ${githubData.total_stars}
 - Top languages: ${githubData.top_languages.join(', ')}
 - Top repositories:
-${githubData.top_repos.map((r) => `  * ${r.name}: ${r.description || 'no description'} [${r.language}] (${r.stars} stars) topics: ${r.topics?.join(', ') || 'none'}`).join('\n')}
+${githubData.top_repos.map((r) => `  * ${r.name}: ${r.description || 'no description'} [${r.language}] (${r.stars} stars) URL: ${r.url || `${githubData.profile_url || `https://github.com/${githubData.username}`}/${r.name}`} topics: ${r.topics?.join(', ') || 'none'}`).join('\n')}
 ` : 'GITHUB: Not provided or unavailable.'}
 
 ${linkedinData ? `
 STUDENT LINKEDIN PROFILE (extracted text):
+Source URL: ${linkedinData.sourceUrl || 'LinkedIn URL provided'}
 ${linkedinData.rawText}
 ` : 'LINKEDIN: Not provided or unavailable.'}
 
@@ -379,6 +872,18 @@ If LinkedIn text is under 400 characters of real content: set linkedin_sparse: t
 If LinkedIn is not available:
 Set linkedin_bonus: 0, linkedin_available: false, linkedin_sparse: false
 
+STAGE 3.5 - Cross-source evidence check
+Before assigning the final score, compare the position requirements against all available sources:
+- Resume/profile text for degree, major, skills, interests, coursework, projects, and work experience.
+- GitHub profile and repositories when githubData is available.
+- LinkedIn profile text when linkedinData is available.
+Do not invent evidence. If a source is available but irrelevant, mark it sparse or give 0 bonus.
+Every qualification and fit_reasoning item must name the source it came from: [Resume], [GitHub], or [LinkedIn].
+When GitHub is available, inspect repository names, descriptions, languages, topics, and URLs before assigning github_bonus.
+When LinkedIn is available, inspect the extracted LinkedIn text before assigning linkedin_bonus.
+Critical calibration rule: if no stated position requirement is strongly supported by direct evidence, confidence_score must be 65 or lower and recommendation cannot be "Strong Fit" or "Good Fit".
+If a required skill/tool/domain such as ROS, robotics, algorithms, systems programming, lab technique, language, or framework is absent from all available sources, list it as a gap and keep the score proportional to the missing requirement.
+
 STAGE 4 - Final score
 confidence_score = min(100, base_score + github_bonus + linkedin_bonus)
 
@@ -397,12 +902,15 @@ Return exactly this JSON shape:
     "linkedin_sparse": <boolean>
   },
   "qualifications": [
-    <4-6 strings - specific qualifications from their actual resume/github/linkedin.
-    Only reference GitHub if github_available is true. Only reference LinkedIn if linkedin_available is true.>
+    <4-6 strings - specific qualifications from their actual evidence.
+    Prefix each with [Resume], [GitHub], or [LinkedIn].
+    Include at least one [Resume] item.
+    Include [GitHub] only if github_available is true.
+    Include [LinkedIn] only if linkedin_available is true.>
   ],
   "fit_reasoning": [
     <4-6 strings - specific reasons why they fit or don't fit THIS position's stated requirements.
-    Reference the actual position requirements by name.
+    Reference the actual position requirements by name and explain which source supports each claim.
     If github_sparse is true, include: "GitHub available but limited signal for this position"
     If linkedin_sparse is true, include: "LinkedIn available but limited additional context beyond resume"
     Never mention GitHub or LinkedIn negatively if they were not provided.>
@@ -424,15 +932,18 @@ export async function scoreOnePosting({ posting, index, resumeSignal, githubData
     responseText = await callOllama(prompt);
     const parsed = parseJsonObjectFromOllama(responseText);
 
-    return normalizeRecommendationObject(posting, parsed, githubData, linkedinData);
+    return normalizeRecommendationObject(posting, parsed, githubData, linkedinData, resumeSignal);
   } catch (err) {
     console.error('[scoreOnePosting] Failed for posting', posting?.id || posting?.postingId, err.message);
     console.log('[fallback] Triggered. Last parse error:', err?.message);
     console.log('[fallback] Raw text that failed:', responseText?.slice(0, 500));
+    if (err?.code === 'OLLAMA_UNAVAILABLE') {
+      throw err;
+    }
     return {
       postingId: posting?.id || posting?.postingId,
       confidence: 50,
-      reason: `Scoring failed: ${err.message}`,
+      reason: 'Detailed scoring was unavailable because the model response could not be parsed. Retry after the model finishes processing.',
       score_breakdown: null,
       qualifications: [],
       fit_reasoning: [`Model output could not be parsed - ${err.message}`],
@@ -447,8 +958,8 @@ export async function getOllamaRecommendations({ student, postings, resumeText }
     return [];
   }
 
-  const githubUrl = pickFirstNonEmpty(student?.github, student?.githubUrl);
-  const linkedinUrl = pickFirstNonEmpty(student?.linkedin, student?.linkedInUrl);
+  const githubUrl = getStudentGithubUrl(student);
+  const linkedinUrl = getStudentLinkedInUrl(student);
   const resumeSignal = pickFirstNonEmpty(student?.resumeText, resumeText, student?.summary, '') || '';
 
   const [githubData, linkedinData] = await Promise.all([
@@ -497,19 +1008,31 @@ export async function parseResumeWithOllama({ resumeBase64, mode, fileName: _fil
 
   if (mode === 'skills') {
     const parsed = tryParseJsonText(responseText, true);
-    const merged = normalizeSkills([...(Array.isArray(parsed) ? parsed : []), ...heuristic.skills]);
+    const evidenceBackedParsed = Array.isArray(parsed)
+      ? parsed.filter((skill) => typeof skill === 'string' && appearsInResume(skill, cappedText))
+      : [];
+    const merged = normalizeSkills([...evidenceBackedParsed, ...heuristic.skills]);
     return merged;
   }
 
   const parsed = tryParseJsonText(responseText, false);
+  const parsedSkills = Array.isArray(parsed.skills)
+    ? parsed.skills.filter((skill) => typeof skill === 'string' && appearsInResume(skill, cappedText))
+    : [];
+  const parsedMajor =
+    typeof parsed.major === 'string' && parsed.major.trim() && appearsInResume(parsed.major, cappedText)
+      ? parsed.major.trim()
+      : undefined;
+  const parsedAcademicYear =
+    typeof parsed.academicYear === 'string' && ['Freshman', 'Sophomore', 'Junior', 'Senior', "Master's", 'PhD'].includes(parsed.academicYear.trim())
+      ? parsed.academicYear.trim()
+      : undefined;
+
   return {
     fullName: typeof parsed.fullName === 'string' ? parsed.fullName.trim() : undefined,
     email: typeof parsed.email === 'string' && parsed.email.trim() ? parsed.email.trim() : heuristic.email,
-    major: typeof parsed.major === 'string' && parsed.major.trim() ? parsed.major.trim() : heuristic.major,
-    academicYear:
-      typeof parsed.academicYear === 'string' && parsed.academicYear.trim()
-        ? parsed.academicYear.trim()
-        : heuristic.academicYear,
-    skills: normalizeSkills([...(Array.isArray(parsed.skills) ? parsed.skills : []), ...heuristic.skills]),
+    major: heuristic.major ?? parsedMajor,
+    academicYear: heuristic.academicYear ?? parsedAcademicYear,
+    skills: normalizeSkills([...parsedSkills, ...heuristic.skills]),
   };
 }

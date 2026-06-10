@@ -1,5 +1,6 @@
 type LinkedInData = {
   rawText: string;
+  sourceUrl: string;
 };
 
 export async function fetchLinkedInData(linkedinUrl: string): Promise<LinkedInData | null> {
@@ -44,7 +45,7 @@ export async function fetchLinkedInData(linkedinUrl: string): Promise<LinkedInDa
       return null;
     }
 
-    return { rawText };
+    return { rawText, sourceUrl: normalizedUrl };
   } catch {
     return null;
   }

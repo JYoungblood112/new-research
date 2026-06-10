@@ -129,16 +129,34 @@ function getRecommendationProfileFingerprint(profile) {
     summary: profile?.summary ?? '',
     university: profile?.university ?? '',
     degree: profile?.degree ?? '',
-    github: profile?.github ?? profile?.githubUrl ?? '',
-    linkedin: profile?.linkedin ?? profile?.linkedInUrl ?? '',
+    github: profile?.github ?? profile?.githubUrl ?? profile?.github_url ?? '',
+    linkedin: profile?.linkedin ?? profile?.linkedInUrl ?? profile?.linkedinUrl ?? profile?.linkedInURL ?? profile?.linkedin_url ?? '',
     resumeText: profile?.resumeText ?? '',
   });
 }
 
-function getCacheKey(studentId, postingId, profile) {
+function getRecommendationPostingFingerprint(posting) {
+  return JSON.stringify({
+    id: posting?.id ?? '',
+    title: posting?.title ?? '',
+    category: posting?.category ?? '',
+    professorName: posting?.professorName ?? '',
+    professorDepartment: posting?.professorDepartment ?? '',
+    overview: posting?.overview ?? '',
+    studentRoleDescription: posting?.studentRoleDescription ?? '',
+    requiredQualifications: posting?.requiredQualifications ?? '',
+    preferredQualifications: posting?.preferredQualifications ?? '',
+    compensation: posting?.compensation ?? '',
+    applicationDeadline: posting?.applicationDeadline ?? '',
+    status: posting?.status ?? '',
+  });
+}
+
+function getCacheKey(studentId, posting, profile) {
   return JSON.stringify({
     studentId,
-    postingId,
+    postingId: String(posting?.id ?? ''),
+    posting: getRecommendationPostingFingerprint(posting),
     profile: getRecommendationProfileFingerprint(profile),
   });
 }
@@ -159,6 +177,49 @@ function setExternalCached(cacheKey, value) {
   externalDataCache.set(cacheKey, value);
 }
 
+function hasExternalCached(cacheKey) {
+  return externalDataCache.has(cacheKey);
+}
+
+function buildStudentScoringSignal(profile) {
+  const parts = [];
+
+  const addLine = (label, value) => {
+    if (typeof value === 'string' && value.trim()) {
+      parts.push(`${label}: ${value.trim()}`);
+    }
+  };
+
+  addLine('Name', profile?.name);
+  addLine('Major', profile?.major);
+  addLine('Academic year', profile?.graduationYear);
+  addLine('Degree', profile?.degree);
+  addLine('University', profile?.university);
+  addLine('GPA', profile?.gpa);
+  addLine('Summary', profile?.summary);
+  addLine('Job title', profile?.jobTitle);
+  addLine('Employer', profile?.employer);
+
+  if (Array.isArray(profile?.skills) && profile.skills.length > 0) {
+    parts.push(`Skills: ${profile.skills.filter(Boolean).join(', ')}`);
+  }
+
+  if (Array.isArray(profile?.interests) && profile.interests.length > 0) {
+    parts.push(`Research interests: ${profile.interests.filter(Boolean).join(', ')}`);
+  }
+
+  addLine('GitHub URL', profile?.github ?? profile?.githubUrl ?? profile?.github_url);
+  addLine('LinkedIn URL', profile?.linkedin ?? profile?.linkedInUrl ?? profile?.linkedinUrl ?? profile?.linkedInURL ?? profile?.linkedin_url);
+
+  if (typeof profile?.resumeText === 'string' && profile.resumeText.trim()) {
+    parts.push(`Resume text:\n${profile.resumeText.trim().slice(0, 12000)}`);
+  } else if (profile?.resume?.name) {
+    parts.push(`Resume file uploaded: ${profile.resume.name}`);
+  }
+
+  return parts.join('\n');
+}
+
 function normalizePostingPayload(posting) {
   if (!posting || typeof posting !== 'object') {
     return null;
@@ -177,23 +238,23 @@ function normalizePostingPayload(posting) {
 
 async function resolveExternalStudentData(student) {
   const studentId = String(student?.id ?? '');
-  const githubUrl = String(student?.github ?? student?.githubUrl ?? '').trim();
-  const linkedinUrl = String(student?.linkedin ?? student?.linkedInUrl ?? '').trim();
+  const githubUrl = String(student?.github ?? student?.githubUrl ?? student?.github_url ?? '').trim();
+  const linkedinUrl = String(student?.linkedin ?? student?.linkedInUrl ?? student?.linkedinUrl ?? student?.linkedInURL ?? student?.linkedin_url ?? '').trim();
 
-  const githubCacheKey = `github:${studentId}`;
-  const linkedinCacheKey = `linkedin:${studentId}`;
+  const githubCacheKey = `github:${studentId}:${githubUrl.toLowerCase()}`;
+  const linkedinCacheKey = `linkedin:${studentId}:${linkedinUrl.toLowerCase()}`;
 
-  const cachedGithub = getExternalCached(githubCacheKey);
-  const cachedLinkedIn = getExternalCached(linkedinCacheKey);
+  const cachedGithub = hasExternalCached(githubCacheKey) ? getExternalCached(githubCacheKey) : undefined;
+  const cachedLinkedIn = hasExternalCached(linkedinCacheKey) ? getExternalCached(linkedinCacheKey) : undefined;
 
-  const githubData = cachedGithub ?? (githubUrl ? await fetchGitHubData(githubUrl) : null);
-  const linkedinData = cachedLinkedIn ?? (linkedinUrl ? await fetchLinkedInData(linkedinUrl) : null);
+  const githubData = cachedGithub !== undefined ? cachedGithub : githubUrl ? await fetchGitHubData(githubUrl) : null;
+  const linkedinData = cachedLinkedIn !== undefined ? cachedLinkedIn : linkedinUrl ? await fetchLinkedInData(linkedinUrl) : null;
 
-  if (githubData && !cachedGithub) {
+  if (cachedGithub === undefined) {
     setExternalCached(githubCacheKey, githubData);
   }
 
-  if (linkedinData && !cachedLinkedIn) {
+  if (cachedLinkedIn === undefined) {
     setExternalCached(linkedinCacheKey, linkedinData);
   }
 
@@ -217,12 +278,12 @@ async function scorePostingInBackground({ cacheKey, posting, profile, studentId 
       const scoringResult = await scoreOnePosting({
         posting,
         index: 0,
-        resumeSignal: profile?.resumeText ?? profile?.summary ?? '',
+        resumeSignal: buildStudentScoringSignal(profile),
         githubData,
         linkedinData,
       });
 
-      if (scoringResult) {
+      if (scoringResult?.score_breakdown) {
         setCached(cacheKey, scoringResult);
         console.log('[bg score complete]', posting.id, 'confidence:', scoringResult.confidence);
       }
@@ -235,12 +296,25 @@ async function scorePostingInBackground({ cacheKey, posting, profile, studentId 
   });
 }
 
+function warmRecommendationScoresForProfile({ store, studentId, profile }) {
+  const postings = (Array.isArray(store.postings) ? store.postings : []).filter((posting) => posting?.status === 'published');
+
+  for (const posting of postings) {
+    const cacheKey = getCacheKey(studentId, posting, profile);
+    if (getCached(cacheKey) || pendingRecommendationJobs.has(cacheKey)) {
+      continue;
+    }
+
+    scorePostingInBackground({ cacheKey, posting, profile, studentId });
+  }
+}
+
 function getResumePrompt(mode) {
   if (mode === 'skills') {
     return "Extract a list of technical and soft skills from this resume as a JSON array of short strings (e.g. 'Python', 'data analysis', 'teamwork'). Return raw JSON array only.";
   }
 
-  return 'Parse this resume and return a JSON object with these fields: fullName, email, major, academicYear (one of: Freshman, Sophomore, Junior, Senior, Graduate), skills (array of strings). Only include fields you are confident about. Return raw JSON only, no markdown.';
+  return `Parse this resume and return a JSON object with these fields: fullName, email, major, academicYear (one of: Freshman, Sophomore, Junior, Senior, Master's, PhD), skills (array of strings). Base academicYear on the most recent in-progress academic degree: use PhD for PhD/Doctor of Philosophy/PhD Candidate, Master's for MS/MA/MBA/Master of..., or infer Freshman/Sophomore/Junior/Senior from the expected graduation year for BS/BA/Bachelor of.... Do not return Graduate. Only include fields you are confident about. Return raw JSON only, no markdown.`;
 }
 
 function stripJsonFences(text) {
@@ -482,6 +556,7 @@ app.put('/api/setup/student', authRequired, (req, res) => {
   profile.interests = Array.isArray(next.interests) ? next.interests : profile.interests;
 
   writeStore(store);
+  warmRecommendationScoresForProfile({ store, studentId: user.id, profile });
   return res.json({ setup: getSetupState(store, user) });
 });
 
@@ -632,7 +707,7 @@ app.get('/api/ai/recommendations/score-one', authRequired, async (req, res) => {
     return res.status(404).json({ error: 'Posting not found.' });
   }
 
-  const cacheKey = getCacheKey(studentId, postingId, profile);
+  const cacheKey = getCacheKey(studentId, posting, profile);
   const cached = getCached(cacheKey);
   if (cached) {
     return res.json({ status: 'ready', postingId, result: cached });
@@ -662,10 +737,19 @@ app.get('/api/ai/recommendations/get-score', authRequired, (req, res) => {
     return res.status(404).json({ error: 'Student profile not found.' });
   }
 
-  const cacheKey = getCacheKey(studentId, postingId, profile);
+  const posting = getPostingById(store, postingId);
+  if (!posting) {
+    return res.status(404).json({ error: 'Posting not found.' });
+  }
+
+  const cacheKey = getCacheKey(studentId, posting, profile);
   const cached = getCached(cacheKey);
   if (cached) {
     return res.json({ status: 'ready', result: cached });
+  }
+
+  if (posting && !pendingRecommendationJobs.has(cacheKey)) {
+    scorePostingInBackground({ cacheKey, posting, profile, studentId });
   }
 
   return res.json({ status: 'pending' });
@@ -692,9 +776,9 @@ app.post('/api/ai/recommendations', authRequired, async (req, res) => {
       `[ai/recommendations:${requestId}] postings=${postings.length} skills=${Array.isArray(profile?.skills) ? profile.skills.length : 0} interests=${Array.isArray(profile?.interests) ? profile.interests.length : 0}`
     );
 
-    const githubUrl = (profile?.github || profile?.githubUrl || '').toString().trim() || null;
-    const linkedinUrl = (profile?.linkedin || profile?.linkedInUrl || '').toString().trim() || null;
-    const resumeText = (profile?.resumeText || '').toString();
+    const githubUrl = (profile?.github || profile?.githubUrl || profile?.github_url || '').toString().trim() || null;
+    const linkedinUrl = (profile?.linkedin || profile?.linkedInUrl || profile?.linkedinUrl || profile?.linkedInURL || profile?.linkedin_url || '').toString().trim() || null;
+    const resumeText = buildStudentScoringSignal(profile);
 
     const student = {
       ...profile,
@@ -702,6 +786,7 @@ app.post('/api/ai/recommendations', authRequired, async (req, res) => {
       githubUrl: githubUrl,
       linkedin: linkedinUrl,
       linkedInUrl: linkedinUrl,
+      linkedinUrl,
       resumeText,
     };
 

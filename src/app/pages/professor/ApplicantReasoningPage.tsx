@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { AlertCircle, ArrowLeft, Brain, CheckCircle, FileSearch, ShieldAlert, Sparkles, Target, XCircle } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Brain, CheckCircle, ExternalLink, FileSearch, ShieldAlert, Sparkles, Target, XCircle } from 'lucide-react';
 
 import { useData } from '../../contexts/DataContext';
 import { Button } from '../../components/ui/button';
@@ -35,6 +35,25 @@ function getSuggestedCoursework(project: string, major: string) {
   return ['36-401 Modern Regression', '70-311 Organizational Design and Implementation', ...base];
 }
 
+type EvidenceProof = {
+  label: string;
+  detail: string;
+  href?: string;
+};
+
+function getProofHref(source: 'resume' | 'github' | 'linkedin' | 'note', repoName?: string) {
+  if (source === 'resume') {
+    return '#submitted-resume';
+  }
+  if (source === 'github') {
+    return repoName ? `https://github.com/student-profile/${repoName}` : 'https://github.com/student-profile';
+  }
+  if (source === 'linkedin') {
+    return 'https://www.linkedin.com/in/student-profile';
+  }
+  return '#application-note';
+}
+
 function buildAiInsights(score: number, project: string, major: string, resumeName: string, quickNote: string) {
   const coursework = getSuggestedCoursework(project, major);
 
@@ -43,16 +62,27 @@ function buildAiInsights(score: number, project: string, major: string, resumeNa
       title: 'Strong Python experience',
       because: `Because of resume project and implementation evidence in ${resumeName}.`,
       source: `Resume project stack mentions Python-based workflows and experiment implementation, which matches requirements in your project description. Coursework alignment: ${coursework[0]} and ${coursework[1]} reinforce model development, experimentation, and evaluation skills directly used in this research project.`,
+      proof: [
+        { label: 'Resume', detail: `${resumeName} contains the submitted project/skills evidence.`, href: getProofHref('resume') },
+        { label: 'Coursework', detail: coursework.slice(0, 2).join(', '), href: getProofHref('resume') },
+      ],
     },
     {
       title: 'Relevant ML coursework',
       because: `Because of course taken: ${coursework[0]} and ${coursework[1]}.`,
       source: `Course trajectory aligns with ${project} requirements by connecting concepts learned in class to the project's expected research workflow and deliverables.`,
+      proof: [
+        { label: 'Coursework', detail: `${coursework[0]} and ${coursework[1]}`, href: getProofHref('resume') },
+      ],
     },
     {
       title: 'High quality resume and role alignment',
       because: `Because application note focuses on outcomes tied to this role: "${quickNote}"`,
       source: 'Statement and project alignment indicate readiness for weekly research deliverables.',
+      proof: [
+        { label: 'Application note', detail: quickNote, href: getProofHref('note') },
+        { label: 'Resume', detail: resumeName, href: getProofHref('resume') },
+      ],
     },
   ];
 
@@ -61,11 +91,18 @@ function buildAiInsights(score: number, project: string, major: string, resumeNa
       title: 'No publication experience listed',
       because: 'Because no accepted publication artifacts are referenced in submitted materials.',
       source: 'Resume/application currently emphasize coursework and projects over peer-reviewed outputs.',
+      proof: [
+        { label: 'Resume', detail: `${resumeName} does not show accepted publication artifacts.`, href: getProofHref('resume') },
+      ],
     },
     {
       title: 'Limited prior lab research background',
       because: `Because strongest evidence is coursework (${coursework[0]}) rather than long-form lab tenure.`,
       source: 'Potential fit is strong, but mentorship ramp-up may be required in first weeks.',
+      proof: [
+        { label: 'Coursework', detail: coursework[0], href: getProofHref('resume') },
+        { label: 'Application note', detail: quickNote, href: getProofHref('note') },
+      ],
     },
   ];
 
@@ -74,11 +111,17 @@ function buildAiInsights(score: number, project: string, major: string, resumeNa
       title: 'Clear motivation for research growth',
       because: `Because application note expresses growth intent: "${quickNote}"`,
       source: 'Motivation signal is high even with lighter prior depth in formal research outputs.',
+      proof: [
+        { label: 'Application note', detail: quickNote, href: getProofHref('note') },
+      ],
     };
     concerns[1] = {
       title: 'Portfolio depth appears early-stage',
       because: `Because current evidence centers around coursework (${coursework[0]}) and class projects.`,
       source: 'Consider scoped onboarding milestones before assigning independent project ownership.',
+      proof: [
+        { label: 'Coursework', detail: coursework[0], href: getProofHref('resume') },
+      ],
     };
   }
 
@@ -130,6 +173,7 @@ type RequirementMatch = {
   evidence: string;
   example: string;
   gapNote: string;
+  proof: EvidenceProof[];
 };
 
 function buildRequirementMatches(
@@ -146,27 +190,35 @@ function buildRequirementMatches(
   const evaluate = (requirement: string, priority: 'Required' | 'Preferred'): RequirementMatch => {
     const reqHints = getKeywordHints(requirement);
     const matchedSignals: string[] = [];
+    const proof: EvidenceProof[] = [];
 
     if (reqHints.python && profileHints.python) {
       matchedSignals.push('Resume evidence indicates Python implementation experience.');
+      proof.push({ label: 'Resume', detail: `${resumeName} is the submitted source for Python/project evidence.`, href: getProofHref('resume') });
     }
     if (reqHints.ml && profileHints.ml) {
       matchedSignals.push(`Coursework alignment: ${coursework[0]} and ${coursework[1]}.`);
+      proof.push({ label: 'Coursework', detail: `${coursework[0]} and ${coursework[1]}`, href: getProofHref('resume') });
     }
     if (reqHints.stats && profileHints.stats) {
       matchedSignals.push('Statistical methods signal appears in coursework/background.');
+      proof.push({ label: 'Coursework', detail: coursework[0], href: getProofHref('resume') });
     }
     if (reqHints.nlp && profileHints.nlp) {
       matchedSignals.push(`Domain-fit signal present for language-model tasks in ${quickNote}.`);
+      proof.push({ label: 'Application note', detail: quickNote, href: getProofHref('note') });
     }
     if (reqHints.research && profileHints.research) {
       matchedSignals.push('Research intent is explicit in application note and profile.');
+      proof.push({ label: 'Application note', detail: quickNote, href: getProofHref('note') });
     }
     if (reqHints.communication && profileHints.communication) {
       matchedSignals.push('Communication/readout signal found in applicant narrative.');
+      proof.push({ label: 'Application note', detail: quickNote, href: getProofHref('note') });
     }
     if (reqHints.data && profileHints.data) {
       matchedSignals.push('Data workflow signal appears in resume/project framing.');
+      proof.push({ label: 'Resume', detail: `${resumeName} supports data workflow review.`, href: getProofHref('resume') });
     }
 
     const status: RequirementMatchStatus =
@@ -208,6 +260,16 @@ function buildRequirementMatches(
           : `Requirement appears in posting, but current profile (${major}) and note do not explicitly reference it.`,
       example,
       gapNote,
+      proof:
+        proof.length > 0
+          ? proof
+          : [
+              {
+                label: 'Evidence gap',
+                detail: `No direct proof found in ${resumeName} or the submitted application note.`,
+                href: getProofHref('resume'),
+              },
+            ],
     };
   };
 
@@ -280,6 +342,36 @@ function getMatchStatusIcon(status: RequirementMatchStatus) {
     return { Icon: AlertCircle, iconClass: 'text-amber-600' };
   }
   return { Icon: XCircle, iconClass: 'text-red-600' };
+}
+
+function ProofLinks({ proof }: { proof: EvidenceProof[] }) {
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {proof.map((item) =>
+        item.href ? (
+          <a
+            key={`${item.label}-${item.detail}-${item.href}`}
+            href={item.href}
+            target={item.href.startsWith('#') ? undefined : '_blank'}
+            rel={item.href.startsWith('#') ? undefined : 'noreferrer'}
+            className="inline-flex max-w-full items-center gap-1 rounded-full border border-red-200 bg-white px-2 py-1 text-[11px] font-medium text-red-800 underline-offset-2 hover:underline"
+            title={item.detail}
+          >
+            <span className="truncate">{item.label}: {item.detail}</span>
+            {!item.href.startsWith('#') ? <ExternalLink className="h-3 w-3 shrink-0" /> : null}
+          </a>
+        ) : (
+          <span
+            key={`${item.label}-${item.detail}`}
+            className="inline-flex max-w-full rounded-full border border-red-100 bg-white px-2 py-1 text-[11px] font-medium text-red-800"
+            title={item.detail}
+          >
+            <span className="truncate">{item.label}: {item.detail}</span>
+          </span>
+        )
+      )}
+    </div>
+  );
 }
 
 export default function ApplicantReasoningPage() {
@@ -364,6 +456,47 @@ export default function ApplicantReasoningPage() {
         </Card>
 
         <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+          <Card id="submitted-materials" className="border-[#d0ceca] bg-white lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileSearch className="h-4 w-4 text-red-700" />
+                Submitted Evidence Sources
+              </CardTitle>
+              <CardDescription>
+                Proof links used below. Resume links jump to this submitted-materials section when no hosted resume URL is available.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 text-sm text-[#333333] md:grid-cols-3">
+              <a
+                id="submitted-resume"
+                href="#submitted-resume"
+                className="rounded-xl border border-[#ececec] bg-[#fafafa] p-3 underline-offset-2 hover:underline"
+              >
+                <p className="font-semibold text-[#111111]">Resume</p>
+                <p className="mt-1 text-xs text-[#555555]">{resumeName}</p>
+              </a>
+              <a
+                href="https://github.com/student-profile"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-xl border border-[#ececec] bg-[#fafafa] p-3 underline-offset-2 hover:underline"
+              >
+                <p className="inline-flex items-center gap-1 font-semibold text-[#111111]">
+                  GitHub profile <ExternalLink className="h-3 w-3" />
+                </p>
+                <p className="mt-1 text-xs text-[#555555]">Project links open directly when a repo is cited.</p>
+              </a>
+              <a
+                id="application-note"
+                href="#application-note"
+                className="rounded-xl border border-[#ececec] bg-[#fafafa] p-3 underline-offset-2 hover:underline"
+              >
+                <p className="font-semibold text-[#111111]">Application note</p>
+                <p className="mt-1 line-clamp-2 text-xs text-[#555555]">{quickNote}</p>
+              </a>
+            </CardContent>
+          </Card>
+
           <Card className="border-[#d0ceca] bg-white lg:col-span-2">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -410,6 +543,7 @@ export default function ApplicantReasoningPage() {
                     <p className="mt-1 text-xs text-[#555555]">Evidence: {match.evidence}</p>
                     <p className="mt-1 text-xs text-[#555555]">{match.example}</p>
                     <p className="mt-1 text-xs text-[#7b7b7b]">Interview focus: {match.gapNote}</p>
+                    <ProofLinks proof={match.proof} />
                   </div>
                 ))
               )}
@@ -456,6 +590,7 @@ export default function ApplicantReasoningPage() {
                                   <div className="space-y-1">
                                     <p className="text-xs leading-relaxed">{match.evidence}</p>
                                     <p className="text-xs leading-relaxed text-[#555555]">{match.example}</p>
+                                    <ProofLinks proof={match.proof} />
                                   </div>
                                 </div>
                               </td>
@@ -491,6 +626,7 @@ export default function ApplicantReasoningPage() {
                       ? ` Specifically for ${project}, this aligns with: ${projectContextLine}`
                       : ''}
                   </p>
+                  <ProofLinks proof={strength.proof} />
                 </div>
               ))}
             </CardContent>
@@ -514,6 +650,7 @@ export default function ApplicantReasoningPage() {
                       ? ` In context of ${project}, watch for gaps against: ${projectContextLine}`
                       : ''}
                   </p>
+                  <ProofLinks proof={concern.proof} />
                 </div>
               ))}
             </CardContent>

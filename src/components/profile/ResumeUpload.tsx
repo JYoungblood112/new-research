@@ -1,37 +1,51 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Loader2, UploadCloud } from 'lucide-react';
 
 export interface ResumeFields {
   full_name: string | null;
   email: string | null;
-  phone: string | null;
-  location: string | null;
   linkedin: string | null;
-  github_or_portfolio: string | null;
-  university: string | null;
-  degree: string | null;
+  github: string | null;
   major: string | null;
-  gpa: string | null;
-  graduation_date: string | null;
-  graduation_type: string | null;
-  most_recent_job_title: string | null;
-  most_recent_employer: string | null;
-  years_of_experience: string | null;
-  work_authorization: string | null;
+  academic_year: string | null;
   skills: string | null;
-  professional_summary: string | null;
+  degree: string | null;
 }
+
+const AUTOFILL_FIELDS: Array<{ key: keyof ResumeFields; label: string }> = [
+  { key: 'full_name', label: 'Full Name' },
+  { key: 'email', label: 'Email' },
+  { key: 'major', label: 'Major' },
+  { key: 'academic_year', label: 'Academic Year' },
+  { key: 'linkedin', label: 'LinkedIn' },
+  { key: 'github', label: 'GitHub' },
+  { key: 'skills', label: 'Skills' },
+  { key: 'degree', label: 'Degree' },
+];
 
 type ResumeUploadProps = {
   onAutofill: (fields: ResumeFields) => void;
+  onResumeUploaded?: () => void;
 };
 
-export default function ResumeUpload({ onAutofill }: ResumeUploadProps) {
+export type ResumeUploadHandle = {
+  triggerReplace: () => void;
+};
+
+const ResumeUpload = forwardRef<ResumeUploadHandle, ResumeUploadProps>(function ResumeUpload({ onAutofill, onResumeUploaded }, ref) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState('');
+  const [parsedFields, setParsedFields] = useState<ResumeFields | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    triggerReplace: () => {
+      replaceInputRef.current?.click();
+    },
+  }), []);
 
   useEffect(() => {
     if (!isUploading) {
@@ -68,12 +82,35 @@ export default function ResumeUpload({ onAutofill }: ResumeUploadProps) {
 
       console.log('Raw API response:', payload);
       console.log('Calling onAutofill with:', payload.data);
-      onAutofill(payload.data as ResumeFields);
+      const fields = payload.data as ResumeFields;
+      setParsedFields(fields);
+      onAutofill(fields);
+
+      const resumeFormData = new FormData();
+      resumeFormData.append('resume', file);
+      try {
+        const resumeSaveResponse = await fetch('/api/profile/resume', {
+          method: 'POST',
+          body: resumeFormData,
+        });
+
+        if (!resumeSaveResponse.ok) {
+          throw new Error('Resume upload failed while saving profile resume.');
+        }
+
+        onResumeUploaded?.();
+      } catch (saveError) {
+        console.error('Resume file save failed:', saveError);
+      }
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : 'Resume parsing failed.');
     } finally {
       setIsUploading(false);
     }
+  };
+
+  const handleUpload = async (file: File) => {
+    await uploadFile(file);
   };
 
   const handleFiles = async (files: FileList | null) => {
@@ -82,7 +119,7 @@ export default function ResumeUpload({ onAutofill }: ResumeUploadProps) {
       return;
     }
 
-    await uploadFile(file);
+    await handleUpload(file);
   };
 
   const handleClick = () => {
@@ -111,7 +148,7 @@ export default function ResumeUpload({ onAutofill }: ResumeUploadProps) {
     setIsDragging(false);
     const file = event.dataTransfer.files?.[0];
     if (file) {
-      await uploadFile(file);
+      await handleUpload(file);
     }
   };
 
@@ -136,6 +173,19 @@ export default function ResumeUpload({ onAutofill }: ResumeUploadProps) {
         } ${isUploading ? 'cursor-wait opacity-80' : ''}`}
       >
         <input ref={inputRef} type="file" accept=".pdf,.txt" onChange={handleChange} style={{ display: 'none' }} />
+        <input
+          ref={replaceInputRef}
+          type="file"
+          accept=".pdf,.txt"
+          style={{ display: 'none' }}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              void handleUpload(file);
+            }
+            event.target.value = '';
+          }}
+        />
 
         {isUploading ? (
           <div className="space-y-2 text-center">
@@ -149,14 +199,31 @@ export default function ResumeUpload({ onAutofill }: ResumeUploadProps) {
           <>
             <UploadCloud className="h-10 w-10 text-red-700" />
             <p className="mt-3 text-sm font-semibold text-foreground">Upload your resume</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Drag and drop a PDF or .txt file here, or click to browse.
+            <p className="text-sm text-muted-foreground">
+              Uploads will autofill: Full Name, Email, Major, Academic Year,
+              LinkedIn, GitHub, Skills, and Degree.
             </p>
           </>
         )}
       </div>
 
       {error ? <p className="text-sm text-red-600" role="alert">{error}</p> : null}
+
+      {parsedFields ? (
+        <div className="rounded-xl border border-[#d7d0ca] bg-[#fcfbfa] px-4 py-3">
+          {AUTOFILL_FIELDS.filter((f) => parsedFields[f.key] !== null).map((f) => (
+            <div key={f.key} className="flex items-center gap-2 text-sm py-1">
+              <span className="text-green-500">✓</span>
+              <span className="font-medium">{f.label}:</span>
+              <span className="text-muted-foreground truncate max-w-xs">
+                {parsedFields[f.key]}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
-}
+});
+
+export default ResumeUpload;

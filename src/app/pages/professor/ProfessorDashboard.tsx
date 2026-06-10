@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Command,
   Eye,
+  ExternalLink,
   Inbox,
   LayoutDashboard,
   LogOut,
@@ -187,8 +188,16 @@ type RequirementStatus = 'met' | 'partial' | 'missing';
 type StudentEvidenceProfile = {
   skills: string[];
   coursework: string[];
-  githubRepos: Array<{ name: string; description: string }>;
+  githubProfileUrl: string;
+  linkedinUrl?: string;
+  githubRepos: Array<{ name: string; description: string; url?: string }>;
   personalStatement: string;
+};
+
+type EvidenceProof = {
+  label: string;
+  detail: string;
+  href?: string;
 };
 
 const STUDENT_EVIDENCE_OVERRIDES: Record<string, StudentEvidenceProfile> = {
@@ -203,12 +212,16 @@ const STUDENT_EVIDENCE_OVERRIDES: Record<string, StudentEvidenceProfile> = {
       {
         name: 'ml-research-portfolio',
         description: 'Model benchmarking and experiment tracking toolkit built in Python.',
+        url: 'https://github.com/student-profile/ml-research-portfolio',
       },
       {
         name: 'llm-eval-lab',
         description: 'Evaluation scripts for instruction-tuned models on scientific text tasks.',
+        url: 'https://github.com/student-profile/llm-eval-lab',
       },
     ],
+    githubProfileUrl: 'https://github.com/student-profile',
+    linkedinUrl: 'https://www.linkedin.com/in/student-profile',
     personalStatement:
       'I want to join this lab to apply machine learning to real, high-impact research problems while growing my experimental design and publication skills.',
   },
@@ -219,8 +232,11 @@ const STUDENT_EVIDENCE_OVERRIDES: Record<string, StudentEvidenceProfile> = {
       {
         name: 'satellite-self-supervision',
         description: 'Self-supervised pretraining experiments for multi-spectral satellite imagery.',
+        url: 'https://github.com/student-profile/satellite-self-supervision',
       },
     ],
+    githubProfileUrl: 'https://github.com/student-profile',
+    linkedinUrl: 'https://www.linkedin.com/in/student-profile',
     personalStatement:
       'I am interested in reproducible computer vision research and careful error analysis for remote sensing systems.',
   },
@@ -231,8 +247,11 @@ const STUDENT_EVIDENCE_OVERRIDES: Record<string, StudentEvidenceProfile> = {
       {
         name: 'adaptive-learning-ui',
         description: 'Interface experiments for novice programmers with analytics dashboards.',
+        url: 'https://github.com/student-profile/adaptive-learning-ui',
       },
     ],
+    githubProfileUrl: 'https://github.com/student-profile',
+    linkedinUrl: 'https://www.linkedin.com/in/student-profile',
     personalStatement:
       'I want to strengthen my research foundations and learn to run structured studies that improve first-time learner outcomes.',
   },
@@ -255,8 +274,11 @@ function getStudentEvidenceProfile(application: Application): StudentEvidencePro
         {
           name: 'research-ml-tooling',
           description: 'Python notebooks and scripts for model training, evaluation, and reporting.',
+          url: 'https://github.com/student-profile/research-ml-tooling',
         },
       ],
+      githubProfileUrl: 'https://github.com/student-profile',
+      linkedinUrl: 'https://www.linkedin.com/in/student-profile',
       personalStatement: statement,
     };
   }
@@ -268,8 +290,11 @@ function getStudentEvidenceProfile(application: Application): StudentEvidencePro
       {
         name: 'research-workflow-notes',
         description: 'Project organization templates and experimental writeups for course research.',
+        url: 'https://github.com/student-profile/research-workflow-notes',
       },
     ],
+    githubProfileUrl: 'https://github.com/student-profile',
+    linkedinUrl: 'https://www.linkedin.com/in/student-profile',
     personalStatement: statement,
   };
 }
@@ -318,11 +343,12 @@ function analyzeRequirement(
   requirement: string,
   profile: StudentEvidenceProfile,
   application: Application
-): { requirement: string; status: RequirementStatus; assessment: string } {
+): { requirement: string; status: RequirementStatus; assessment: string; proof: EvidenceProof[] } {
   const req = requirement.toLowerCase();
   const major = application.studentMajor;
   const statement = profile.personalStatement;
   const resumeName = application.resume.name;
+  const resumeHref = '#resume-viewer';
 
   const skillMatches = profile.skills.filter((skill) => req.includes(skill.toLowerCase()));
   const courseMatches = profile.coursework.filter((course) => {
@@ -353,36 +379,101 @@ function analyzeRequirement(
       requirement,
       status: 'missing',
       assessment: `No publications are listed in ${resumeName}; recommend asking for preprints or writing samples if publication experience is required.`,
+      proof: [
+        {
+          label: 'Resume',
+          detail: `${resumeName} does not list accepted publications.`,
+          href: resumeHref,
+        },
+      ],
     };
   }
 
-  const hasStrongEvidence = skillMatches.length > 0 || courseMatches.length > 0 || repoMatches.length > 0;
+  const asksForCoursework = /\b(coursework|course|class|taken)\b/i.test(req);
+  const asksForPriorResearch = /\bprior\b.*\b(research|lab|experience)\b|\bresearch experience\b|\blab research\b/i.test(req);
+  const hasDirectPriorResearch = /\b(research assistant|lab|publication|published|paper|poster|study)\b/i.test(statement);
+  const hasAnyEvidence = skillMatches.length > 0 || courseMatches.length > 0 || repoMatches.length > 0;
+  const hasStrongEvidence =
+    asksForCoursework
+      ? courseMatches.length > 0
+      : asksForPriorResearch
+        ? hasDirectPriorResearch
+        : hasAnyEvidence;
   const hasIntentSignal = /research|experiment|independent|study|publication/i.test(statement);
 
+  const evidenceParts: string[] = [];
+  const proof: EvidenceProof[] = [];
+  if (skillMatches.length > 0) {
+    evidenceParts.push(`resume skills list ${skillMatches.join(', ')}`);
+    proof.push({
+      label: 'Resume skills',
+      detail: `${resumeName} lists ${skillMatches.join(', ')}.`,
+      href: resumeHref,
+    });
+  }
+  if (courseMatches.length > 0) {
+    evidenceParts.push(`coursework includes ${courseMatches.slice(0, 2).join(', ')}`);
+    proof.push({
+      label: 'Coursework',
+      detail: courseMatches.slice(0, 2).join(', '),
+      href: resumeHref,
+    });
+  }
+  if (repoMatches.length > 0) {
+    evidenceParts.push(`GitHub project ${repoMatches[0].name} shows related implementation work`);
+    proof.push({
+      label: 'GitHub project',
+      detail: `${repoMatches[0].name}: ${repoMatches[0].description}`,
+      href: repoMatches[0].url ?? profile.githubProfileUrl,
+    });
+  }
+
   if (hasStrongEvidence) {
-    const evidenceParts: string[] = [];
-    if (skillMatches.length > 0) {
-      evidenceParts.push(`skills (${skillMatches.join(', ')})`);
-    }
-    if (courseMatches.length > 0) {
-      evidenceParts.push(`coursework (${courseMatches.slice(0, 2).join(', ')})`);
-    }
-    if (repoMatches.length > 0) {
-      evidenceParts.push(`GitHub (${repoMatches[0].name})`);
-    }
+    const assessment =
+      courseMatches.length > 0 && asksForCoursework
+        ? `Direct coursework evidence found: ${courseMatches.slice(0, 2).join(', ')}.`
+        : repoMatches.length > 0 && skillMatches.length > 0
+          ? `${skillMatches.join(', ')} appears in the resume skills, and ${repoMatches[0].name} provides project-level support.`
+          : evidenceParts.length > 0
+            ? evidenceParts.join('; ') + '.'
+            : 'Direct supporting evidence found in submitted materials.';
 
     return {
       requirement,
       status: 'met',
-      assessment: `Demonstrated through ${evidenceParts.join('; ')}. Resume file ${resumeName} and statement align with this requirement for ${major}.`,
+      assessment,
+      proof,
     };
   }
 
-  if (hasIntentSignal || req.includes('research') || req.includes('experience')) {
+  if (hasAnyEvidence || hasIntentSignal || req.includes('research') || req.includes('experience')) {
+    const partialProof = proof.length > 0
+      ? proof
+      : [
+          {
+            label: 'Application note',
+            detail: statement,
+          },
+          {
+            label: 'Resume',
+            detail: `${resumeName} should be reviewed for deeper supporting examples.`,
+            href: resumeHref,
+          },
+        ];
+    const partialAssessment =
+      asksForCoursework
+        ? `Supporting signals exist, but no specific matching course is listed for this coursework requirement.`
+        : asksForPriorResearch
+          ? `Related project or motivation signals exist, but prior lab/research experience is not directly proven.`
+          : hasAnyEvidence
+            ? `Some supporting evidence found: ${evidenceParts.join('; ')}.`
+            : `No direct credential listed, but the personal statement suggests transferable research habits from project-based work.`;
+
     return {
       requirement,
       status: 'partial',
-      assessment: `No direct credential listed, but the personal statement references ${statement.toLowerCase()} and suggests transferable research habits from project-based work.`,
+      assessment: partialAssessment,
+      proof: partialProof,
     };
   }
 
@@ -390,6 +481,12 @@ function analyzeRequirement(
     requirement,
     status: 'missing',
     assessment: `This requirement is not explicitly supported by listed skills, coursework, or repository evidence; collect specific examples during interview.`,
+    proof: [
+      {
+        label: 'Evidence gap',
+        detail: `No direct match found in ${resumeName}, listed coursework, GitHub projects, or application note.`,
+      },
+    ],
   };
 }
 
@@ -2545,7 +2642,7 @@ export default function ProfessorDashboard() {
               </SheetHeader>
 
               <div className="space-y-4 overflow-y-auto px-4 pb-4">
-                <Card>
+                <Card id="resume-viewer">
                   <CardHeader>
                     <CardTitle className="text-base">Academic Snapshot</CardTitle>
                   </CardHeader>
@@ -2601,15 +2698,32 @@ export default function ProfessorDashboard() {
                     <CardTitle className="text-base">GitHub</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm">
-                    <a href="#" className="text-red-700 underline underline-offset-2">github.com/student-profile</a>
+                    <a
+                      href={selectedApplicantEvidence?.githubProfileUrl ?? 'https://github.com/student-profile'}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-red-700 underline underline-offset-2"
+                    >
+                      github.com/student-profile
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
                     {(selectedApplicantEvidence?.githubRepos ?? [
                       {
                         name: 'ml-research-portfolio',
                         description: 'Model benchmarking and experiment tracking toolkit.',
+                        url: 'https://github.com/student-profile/ml-research-portfolio',
                       },
                     ]).map((repo) => (
                       <div key={repo.name} className="rounded-xl border border-[#e7e7e7] p-3">
-                        <p className="font-medium">{repo.name}</p>
+                        <a
+                          href={repo.url ?? selectedApplicantEvidence?.githubProfileUrl ?? 'https://github.com/student-profile'}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 font-medium text-red-700 underline underline-offset-2"
+                        >
+                          {repo.name}
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
                         <p className="text-xs text-[#6f6f6f]">{repo.description}</p>
                       </div>
                     ))}
@@ -2663,7 +2777,34 @@ export default function ProfessorDashboard() {
                                       <td className="px-3 py-3 align-top text-red-900">
                                         <div className="flex items-start gap-2">
                                           <StatusIcon className={`mt-0.5 h-4 w-4 shrink-0 ${display.iconClass}`} />
-                                          <p className="text-xs leading-relaxed">{row.assessment}</p>
+                                          <div className="space-y-2">
+                                            <p className="text-xs leading-relaxed">{row.assessment}</p>
+                                            <div className="flex flex-wrap gap-2">
+                                              {row.proof.map((proof) =>
+                                                proof.href ? (
+                                                  <a
+                                                    key={`${row.requirement}-${proof.label}-${proof.detail}`}
+                                                    href={proof.href}
+                                                    target={proof.href.startsWith('#') ? undefined : '_blank'}
+                                                    rel={proof.href.startsWith('#') ? undefined : 'noreferrer'}
+                                                    className="inline-flex max-w-full items-center gap-1 rounded-full border border-red-200 bg-white px-2 py-1 text-[11px] font-medium text-red-800 underline-offset-2 hover:underline"
+                                                    title={proof.detail}
+                                                  >
+                                                    <span className="truncate">{proof.label}: {proof.detail}</span>
+                                                    {!proof.href.startsWith('#') ? <ExternalLink className="h-3 w-3 shrink-0" /> : null}
+                                                  </a>
+                                                ) : (
+                                                  <span
+                                                    key={`${row.requirement}-${proof.label}-${proof.detail}`}
+                                                    className="inline-flex max-w-full rounded-full border border-red-100 bg-white px-2 py-1 text-[11px] font-medium text-red-800"
+                                                    title={proof.detail}
+                                                  >
+                                                    <span className="truncate">{proof.label}: {proof.detail}</span>
+                                                  </span>
+                                                )
+                                              )}
+                                            </div>
+                                          </div>
                                         </div>
                                       </td>
                                     </tr>

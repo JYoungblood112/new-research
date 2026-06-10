@@ -39,7 +39,7 @@ export async function fetchLinkedInData(linkedinUrl) {
       return null;
     }
 
-    return { rawText };
+    return { rawText, sourceUrl: normalizedUrl };
   } catch {
     return null;
   }
