@@ -12,6 +12,44 @@ export const deanOverviewStats = [
   { label: 'Research Hours Logged', value: '11,840', detail: 'Student-reported hours' },
 ];
 
+export const deanKeyQuestions = [
+  {
+    question: 'How many students participate in research?',
+    answer: '142 student researchers are currently placed into research, representing a 31% participation rate.',
+    proof: 'Student Researchers, Student Participation Rate, Students Placed Into Research',
+  },
+  {
+    question: 'Which departments are growing?',
+    answer: 'Computer Science leads current growth with 64 active projects and a 27% participation increase, while Applied ML and Robotics show the fastest demand growth.',
+    proof: 'Department Comparison, Research Output by Semester, Supply and Demand',
+  },
+  {
+    question: 'Which faculty are mentoring students?',
+    answer: 'Dr. Emily Watson, Dr. Priya Shah, Dr. Marcus Lee, and Dr. Lina Huang are the top visible mentors, collectively mentoring 56 students.',
+    proof: 'Faculty Research Impact table',
+  },
+  {
+    question: 'Are research opportunities being utilized?',
+    answer: '142 of 174 available positions are filled, leaving 32 unfilled positions and showing 82% utilization.',
+    proof: 'Research Opportunity Supply and Demand',
+  },
+  {
+    question: 'Are students producing outcomes?',
+    answer: 'Students have produced 118 verified contributions, 34 publications, 49 conference presentations, 52 internships, and 21 full-time offers.',
+    proof: 'Student Outcomes and Research Portfolio Analytics',
+  },
+  {
+    question: 'Can we justify additional funding?',
+    answer: 'The department has $4.2M in active grants, 9.8 outputs per $1M, and student demand exceeding capacity in robotics and applied ML.',
+    proof: 'Funding and Grants, Research Gaps Analysis',
+  },
+  {
+    question: 'How does our institution compare to peers?',
+    answer: 'Computer Science ranks #1 against listed university peers and exceeds the peer institution average in projects per faculty, students mentored per faculty, and verified contributions per student.',
+    proof: 'Department Comparison',
+  },
+];
+
 export const researchOutputMetrics = [
   ['Active Projects', '64'],
   ['Completed Projects', '38'],
@@ -221,6 +259,7 @@ export const portfolioAnalytics = {
 
 export const deanAiPayload = {
   overview: deanOverviewStats,
+  keyQuestions: deanKeyQuestions,
   researchOutput: researchOutputMetrics,
   departmentComparisons,
   facultyImpactRows,
@@ -231,4 +270,3 @@ export const deanAiPayload = {
   accessMetrics,
   portfolioAnalytics,
 };
-

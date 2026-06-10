@@ -28,6 +28,7 @@ import { Badge } from '../../components/ui/badge';
 import {
   accessMetrics,
   deanAiPayload,
+  deanKeyQuestions,
   deanOverviewStats,
   departmentComparisons,
   facultyImpactRows,
@@ -216,6 +217,18 @@ export default function DeanDashboard() {
             );
           })}
         </div>
+
+        <Panel title="Dean Key Questions" subtitle="Direct answers to the decisions this dashboard is meant to support.">
+          <div className="grid gap-3 lg:grid-cols-2">
+            {deanKeyQuestions.map((item) => (
+              <div key={item.question} className="rounded-2xl border border-[#eeeeee] bg-[#fafafa] p-4">
+                <h3 className="text-sm font-semibold text-[#1f1f1f]">{item.question}</h3>
+                <p className="mt-2 text-sm leading-6 text-[#444444]">{item.answer}</p>
+                <p className="mt-3 text-xs font-medium uppercase tracking-wide text-[#777777]">Evidence: {item.proof}</p>
+              </div>
+            ))}
+          </div>
+        </Panel>
 
         <div id="dean-output" className="grid scroll-mt-6 gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
           <Panel title="Department Research Output" subtitle="Production, participation, publications, patents, and funding.">
