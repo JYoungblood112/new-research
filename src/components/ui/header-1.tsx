@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 type HeaderLink = {
   label: string;
   href: string;
+  active?: boolean;
   onClick?: (event: React.MouseEvent<HTMLAnchorElement>) => void;
 };
 
@@ -63,17 +64,24 @@ export function Header({
         className,
       )}
     >
-      <nav className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-4">
-        <div className="hover:bg-accent rounded-md p-2">
+      <nav className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-4">
+        <div className="rounded-xl p-2 transition-colors hover:bg-accent">
           {brand ?? <WordmarkIcon className="h-4" />}
         </div>
         <div className="hidden items-center gap-2 md:flex">
           {links.map((link) => (
             <a
               key={link.label}
-              className={buttonVariants({ variant: 'ghost' })}
+              className={buttonVariants({
+                variant: 'ghost',
+                className: cn(
+                  'rounded-xl px-3 text-sm text-[#575757]',
+                  link.active && 'border border-red-200 bg-red-50 text-red-800 hover:bg-red-50',
+                ),
+              })}
               href={link.href}
               onClick={link.onClick}
+              aria-current={link.active ? 'page' : undefined}
             >
               {link.label}
             </a>
@@ -103,13 +111,17 @@ export function Header({
               key={link.label}
               className={buttonVariants({
                 variant: 'ghost',
-                className: 'justify-start',
+                className: cn(
+                  'justify-start rounded-xl text-[#575757]',
+                  link.active && 'border border-red-200 bg-red-50 text-red-800 hover:bg-red-50',
+                ),
               })}
               href={link.href}
               onClick={(event) => {
                 link.onClick?.(event);
                 setOpen(false);
               }}
+              aria-current={link.active ? 'page' : undefined}
             >
               {link.label}
             </a>
@@ -147,7 +159,7 @@ function MobileMenu({ open, children, className, ...props }: MobileMenuProps) {
       id="mobile-menu"
       className={cn(
         'bg-background/95 supports-[backdrop-filter]:bg-background/50 backdrop-blur-lg',
-        'fixed top-14 right-0 bottom-0 left-0 z-40 flex flex-col overflow-hidden border-y md:hidden',
+        'fixed top-16 right-0 bottom-0 left-0 z-40 flex flex-col overflow-hidden border-y md:hidden',
       )}
     >
       <div

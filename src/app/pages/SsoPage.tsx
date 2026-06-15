@@ -62,15 +62,9 @@ export default function SsoPage() {
         const profile = profileByRole[role];
         const { user, setup } = await login(profile.email, profile.name, role);
 
-        // First-time users should land in setup first. Returning users are sent to dashboard.
-        const studentOnboardingDone =
-          user.role === 'student' && localStorage.getItem(`student_onboarding_${user.id}`) === 'true';
-        const professorOnboardingDone =
-          user.role === 'professor' && localStorage.getItem(`professor_onboarding_${user.id}`) === 'true';
-
         if (user.role === 'student') {
           navigate(
-            setup.completed && studentOnboardingDone ? '/student/dashboard' : '/student/setup',
+            setup.completed ? '/student/dashboard' : '/student/setup',
             { replace: true }
           );
           return;
@@ -87,9 +81,7 @@ export default function SsoPage() {
         }
 
         navigate(
-          setup.completed && professorOnboardingDone
-            ? '/professor/dashboard'
-            : '/professor/setup',
+          setup.completed ? '/professor/dashboard' : '/professor/setup',
           { replace: true }
         );
       } catch (error) {

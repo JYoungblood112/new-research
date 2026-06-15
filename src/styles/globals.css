@@ -1,3 +1,23 @@
+html {
+	text-rendering: optimizeLegibility;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+body {
+	background:
+		linear-gradient(180deg, color-mix(in oklab, var(--muted, #ececf0) 28%, white) 0%, transparent 16rem),
+		var(--background, #fff);
+}
+
+::selection {
+	background: color-mix(in oklab, var(--primary, #030213) 18%, transparent);
+}
+
+#root {
+	min-height: 100vh;
+}
+
 /* Global click affordances for interactive UI elements */
 :where(button, a, summary, label[for], [role="button"], [data-interactive="true"]) {
 	cursor: pointer;
@@ -51,4 +71,60 @@
 :where(button, a, summary, label[for], [role="button"], [data-interactive="true"]):disabled {
 	cursor: not-allowed;
 	transform: none;
+}
+
+:where(input, textarea, select, [role="combobox"]) {
+	min-width: 0;
+}
+
+:where(input, textarea, select, [role="combobox"]):focus-visible {
+	box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring, #717182) 18%, transparent);
+}
+
+:where([data-slot="card"], [data-slot="dialog-content"], [data-slot="table-container"]) {
+	transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+:where(.rounded-2xl.border.bg-white) {
+	box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 12px 30px -28px rgb(0 0 0 / 0.42);
+}
+
+:where([data-slot="card"], .rounded-2xl.border.bg-white):hover {
+	border-color: color-mix(in oklab, var(--border, rgba(0, 0, 0, 0.1)) 70%, var(--primary, #030213));
+	box-shadow: 0 10px 30px -24px rgb(0 0 0 / 0.45);
+}
+
+:where([data-slot="card-title"], [data-slot="dialog-title"]) {
+	text-wrap: balance;
+}
+
+:where([data-slot="card-description"], [data-slot="dialog-description"], p) {
+	text-wrap: pretty;
+}
+
+:where(table) {
+	border-collapse: separate;
+	border-spacing: 0;
+}
+
+:where(th, td) {
+	vertical-align: middle;
+}
+
+:where(progress) {
+	accent-color: var(--primary, #030213);
+}
+
+:where([aria-busy="true"]) {
+	cursor: progress;
+}
+
+@media (max-width: 640px) {
+	:where([data-slot="card"]) {
+		border-radius: 1rem;
+	}
+
+	:where([data-slot="table-container"]) {
+		border-radius: 0.875rem;
+	}
 }

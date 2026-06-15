@@ -48,6 +48,8 @@ interface AuthContextType {
     skills?: string[];
     interests?: string[];
     resume?: { name: string; uploadDate: string } | null;
+    transcript?: { name: string; uploadDate: string } | null;
+    coursework?: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
   }) => Promise<void>;
   updateProfessorProfile: (profile: {
     name?: string;
@@ -133,6 +135,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     skills?: string[];
     interests?: string[];
     resume?: { name: string; uploadDate: string } | null;
+    transcript?: { name: string; uploadDate: string } | null;
+    coursework?: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
   }): Promise<void> {
     const data = await updateStudentSetup(profile);
     setSetupState(data.setup);

@@ -321,13 +321,44 @@ function parseResumeHeuristically(text) {
 }
 
 function buildResumePrompt(mode, resumeText) {
-  const header = 'You are a resume parser. Return RAW JSON only, no markdown fences, no prose.';
+  const header = 'You extract structured resume facts. Return RAW JSON only, no markdown fences, no prose.';
 
   if (mode === 'skills') {
-    return `${header}\nExtract skills from the resume text.\nRules:\n- Copy only skills that explicitly appear in the resume text.\n- Include business/data skills such as Tableau, Databricks, Excel, Power BI, financial modeling, market research, leadership, communication when present.\n- Do not infer skills from school, job titles, projects, or repository names.\nReturn JSON array of short strings.\n\nResume text:\n${resumeText}`;
+    return `${header}
+Task: extract evidence-backed skills from the resume text.
+
+Rules:
+- Copy only skills that explicitly appear in the resume text.
+- Include technical, research, business, data, and communication skills when present.
+- Do not infer skills from school names, job titles, course titles, project titles, or repository names.
+- Return a JSON array of short strings. Return [] if no explicit skills are found.
+
+Resume text:
+${resumeText}`;
   }
 
-  return `${header}\nExtract these fields from the resume text:\n- fullName (string)\n- email (string)\n- major (string)\n- academicYear (one of: Freshman, Sophomore, Junior, Senior, Master's, PhD)\n- skills (array of strings)\nRules:\n- Copy facts only when the resume text explicitly supports them.\n- major is the declared primary field of study only. If the education line says "B.S. in Business, Additional Major in CS/AI", major must be "Business".\n- academicYear must be based on the most recent in-progress academic degree. If it is PhD/Doctor of Philosophy/PhD Candidate, return "PhD". If it is MS/MA/MBA/Master of..., return "Master's". If it is BS/BA/Bachelor of..., infer Freshman/Sophomore/Junior/Senior from expected graduation year. Do not return Graduate.\n- skills must appear in the resume text.\nReturn a JSON object only.\n\nResume text:\n${resumeText}`;
+  return `${header}
+Task: extract only fields directly supported by the resume text.
+
+Rules:
+- Use null for unknown scalar fields and [] for unknown arrays.
+- Do not infer facts from job titles, project titles, course names, or school reputation.
+- major is the declared primary field of study only. If the education line says "B.S. in Business, Additional Major in CS/AI", major must be "Business".
+- academicYear must be exactly one of: Freshman, Sophomore, Junior, Senior, Master's, PhD.
+- academicYear is based on the most recent in-progress degree. Use PhD for PhD/Doctor of Philosophy/PhD Candidate, Master's for MS/MA/MBA/Master of..., or infer Freshman/Sophomore/Junior/Senior from expected graduation year for BS/BA/Bachelor of...
+- skills must be exact skills that appear in the resume text.
+
+Return exactly:
+{
+  "fullName": null,
+  "email": null,
+  "major": null,
+  "academicYear": null,
+  "skills": []
+}
+
+Resume text:
+${resumeText}`;
 }
 
 function toInt(value, fallback = 0) {
@@ -423,6 +454,152 @@ function collectPostingRequirements(posting) {
     .slice(0, 12);
 }
 
+function collectPostingRequirementItems(posting) {
+  const required = normalizeRequirementList(posting?.requiredQualifications)
+    .map((item) => item.replace(/^[-*\d)\s]+/, '').trim())
+    .filter(Boolean)
+    .map((requirement) => ({ requirement, importance: 'required' }));
+
+  const preferred = normalizeRequirementList(posting?.preferredQualifications)
+    .map((item) => item.replace(/^[-*\d)\s]+/, '').trim())
+    .filter(Boolean)
+    .map((requirement) => ({ requirement, importance: 'preferred' }));
+
+  return [...required, ...preferred]
+    .filter((item, index, arr) => arr.findIndex((entry) => entry.requirement.toLowerCase() === item.requirement.toLowerCase()) === index)
+    .slice(0, 12);
+}
+
+function normalizeSourceList(input) {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  const valid = new Set(['resume', 'transcript', 'github', 'linkedin']);
+  return [...new Set(input
+    .map((item) => String(item ?? '').trim().toLowerCase())
+    .filter((item) => valid.has(item)))];
+}
+
+function sourceLabel(source) {
+  if (source === 'github') return '[GitHub]';
+  if (source === 'linkedin') return '[LinkedIn]';
+  if (source === 'transcript') return '[Transcript]';
+  return '[Resume]';
+}
+
+function normalizeRequirementAssessments(input) {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return input
+    .map((item) => {
+      const requirement = String(item?.requirement ?? '').trim();
+      const importance = item?.importance === 'preferred' ? 'preferred' : 'required';
+      const rawSupport = String(item?.support ?? '').trim().toLowerCase();
+      const support = rawSupport === 'strong' || rawSupport === 'partial' || rawSupport === 'none'
+        ? rawSupport
+        : 'none';
+      const sources = normalizeSourceList(item?.sources);
+      const evidence = cleanAiSignalString(item?.evidence ?? item?.evidence_quote ?? '');
+      const gap = cleanAiSignalString(item?.gap ?? '');
+
+      if (!requirement) {
+        return null;
+      }
+
+      return { requirement, importance, support, sources, evidence, gap };
+    })
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function scoreFromRequirementAssessments(assessments) {
+  if (!Array.isArray(assessments) || assessments.length === 0) {
+    return 60;
+  }
+
+  let earned = 0;
+  let possible = 0;
+
+  for (const assessment of assessments) {
+    const weight = assessment.importance === 'required' ? 2 : 1;
+    possible += weight;
+    if (assessment.support === 'strong') {
+      earned += weight;
+    } else if (assessment.support === 'partial') {
+      earned += weight * 0.55;
+    }
+  }
+
+  if (possible === 0) {
+    return 60;
+  }
+
+  return clampInt(Math.round((earned / possible) * 100), 0, 100);
+}
+
+function buildStringsFromRequirementAssessments(assessments) {
+  const qualifications = [];
+  const fitReasoning = [];
+  const gaps = [];
+
+  for (const assessment of assessments) {
+    const label = sourceLabel(assessment.sources[0]);
+    if (assessment.support === 'strong' || assessment.support === 'partial') {
+      const evidence = assessment.evidence || 'available profile evidence';
+      qualifications.push(`${label} ${assessment.requirement}: ${evidence}`);
+      fitReasoning.push(`${assessment.support === 'strong' ? 'Strong' : 'Partial'} support for "${assessment.requirement}" from ${assessment.sources.length > 0 ? assessment.sources.join(', ') : 'resume/profile evidence'}.`);
+    }
+
+    if (assessment.support !== 'strong') {
+      gaps.push(assessment.gap || `Demonstrate direct evidence for: ${assessment.requirement}`);
+    }
+  }
+
+  return { qualifications, fitReasoning, gaps };
+}
+
+function compactGithubEvidence(githubData) {
+  if (!githubData) {
+    return null;
+  }
+
+  const repos = Array.isArray(githubData.top_repos)
+    ? githubData.top_repos.slice(0, 5).map((repo) => ({
+        name: repo?.name ?? '',
+        description: repo?.description ?? '',
+        language: repo?.language ?? '',
+        stars: Number(repo?.stars ?? 0),
+        topics: Array.isArray(repo?.topics) ? repo.topics.slice(0, 8) : [],
+        url: repo?.url ?? '',
+      }))
+    : [];
+
+  return {
+    username: githubData.username ?? '',
+    bio: githubData.bio ?? '',
+    original_repo_count: Number(githubData.original_repo_count ?? 0),
+    public_repos: Number(githubData.public_repos ?? 0),
+    followers: Number(githubData.followers ?? 0),
+    total_stars: Number(githubData.total_stars ?? 0),
+    top_languages: Array.isArray(githubData.top_languages) ? githubData.top_languages.slice(0, 8) : [],
+    top_repos: repos,
+  };
+}
+
+function compactLinkedInEvidence(linkedinData) {
+  if (!linkedinData?.rawText) {
+    return null;
+  }
+
+  return {
+    sourceUrl: linkedinData.sourceUrl ?? '',
+    rawText: String(linkedinData.rawText).slice(0, 2500),
+  };
+}
+
 function githubEvidenceText(githubData) {
   if (!githubData) {
     return '';
@@ -479,6 +656,7 @@ function calibrateRecommendationScore({
   linkedinBonus,
   fitReasoning,
   gaps,
+  requirementAssessments = [],
 }) {
   const requirements = collectPostingRequirements(posting);
   const evidenceText = buildScoringEvidenceText({ resumeSignal, githubData, linkedinData });
@@ -502,6 +680,9 @@ function calibrateRecommendationScore({
 
   const requirementCount = requirements.length;
   let cap = 100;
+  const requiredAssessments = requirementAssessments.filter((assessment) => assessment.importance === 'required');
+  const missingRequiredCount = requiredAssessments.filter((assessment) => assessment.support === 'none').length;
+  const weakRequiredCount = requiredAssessments.filter((assessment) => assessment.support !== 'strong').length;
 
   if (requirementCount > 0) {
     if (strongCount === 0) {
@@ -512,6 +693,15 @@ function calibrateRecommendationScore({
     }
     if (strongCount / requirementCount < 0.5) {
       cap = Math.min(cap, 78);
+    }
+  }
+
+  if (requiredAssessments.length > 0) {
+    if (missingRequiredCount > 0) {
+      cap = Math.min(cap, missingRequiredCount >= Math.ceil(requiredAssessments.length / 2) ? 55 : 70);
+    }
+    if (weakRequiredCount === requiredAssessments.length) {
+      cap = Math.min(cap, 65);
     }
   }
 
@@ -565,7 +755,11 @@ function buildEvidenceFallbacks({ posting, resumeSignal, githubData, linkedinDat
       .filter(Boolean);
     const skillsLine = resumeLines.find((line) => /^skills:/i.test(line));
     const majorLine = resumeLines.find((line) => /^major:/i.test(line));
+    const courseworkLine = resumeLines.find((line) => /^transcript coursework:/i.test(line));
     fallback.push(`[Resume] ${skillsLine || majorLine || 'Saved resume/profile fields provide the baseline evidence for this match.'}`);
+    if (courseworkLine) {
+      fallback.push(`[Transcript] ${courseworkLine.replace(/^transcript coursework:\s*/i, '')}`);
+    }
   }
 
   if (githubData) {
@@ -598,8 +792,6 @@ function stripJsonFences(text) {
 }
 
 function parseJsonObjectFromOllama(responseText) {
-  console.log('[parseJson] Raw Ollama response:', responseText?.slice(0, 500));
-
   if (!responseText || typeof responseText !== 'string') {
     throw new Error('Empty or non-string response from Ollama');
   }
@@ -689,9 +881,16 @@ function buildFallbackRecommendation(posting, index, fallbackReason) {
 }
 
 function normalizeRecommendationObject(posting, parsed, githubData, linkedinData, resumeSignal = '') {
-  const baseScore = clampInt(parsed?.score_breakdown?.base_score, 0, 100);
-  const githubAvailable = toBool(parsed?.score_breakdown?.github_available, Boolean(githubData));
-  const linkedinAvailable = toBool(parsed?.score_breakdown?.linkedin_available, Boolean(linkedinData));
+  const requirementAssessments = normalizeRequirementAssessments(parsed?.requirement_assessments);
+  const assessmentStrings = buildStringsFromRequirementAssessments(requirementAssessments);
+  const assessmentBaseScore = scoreFromRequirementAssessments(requirementAssessments);
+  const parsedBaseScore = parsed?.score_breakdown?.base_score ?? parsed?.base_score;
+  const parsedBaseScoreNumber = Number(parsedBaseScore);
+  const baseScore = !Number.isFinite(parsedBaseScoreNumber) || parsedBaseScoreNumber <= 0
+    ? assessmentBaseScore
+    : Math.min(clampInt(parsedBaseScore, 0, 100), requirementAssessments.length > 0 ? assessmentBaseScore + 8 : 100);
+  const githubAvailable = Boolean(githubData);
+  const linkedinAvailable = Boolean(linkedinData?.rawText);
 
   const githubBonusRaw = githubAvailable ? clampInt(parsed?.score_breakdown?.github_bonus, 0, 15) : 0;
   const linkedinBonusRaw = linkedinAvailable ? clampInt(parsed?.score_breakdown?.linkedin_bonus, 0, 10) : 0;
@@ -710,13 +909,20 @@ function normalizeRecommendationObject(posting, parsed, githubData, linkedinData
 
   const evidenceFallbacks = buildEvidenceFallbacks({ posting, resumeSignal, githubData, linkedinData });
   const qualifications = [
+    ...assessmentStrings.qualifications,
     ...sanitizeStringList(parsed?.qualifications, []).filter(isUsefulEvidenceString),
     ...evidenceFallbacks,
   ].filter((entry, index, arr) => arr.findIndex((item) => item.toLowerCase() === entry.toLowerCase()) === index);
-  const fitReasoning = sanitizeStringList(parsed?.fit_reasoning, [])
+  const fitReasoning = [
+    ...assessmentStrings.fitReasoning,
+    ...sanitizeStringList(parsed?.fit_reasoning, []),
+  ]
     .filter(isUsefulEvidenceString)
     .filter((item) => !isRecommendationLabelString(item));
-  const gaps = sanitizeStringList(parsed?.gaps, [])
+  const gaps = [
+    ...assessmentStrings.gaps,
+    ...sanitizeStringList(parsed?.gaps, []),
+  ]
     .filter(isUsefulEvidenceString)
     .filter((gap) => !isRecommendationLabelString(gap))
     .filter((gap) => !/no\s+github|no\s+linkedin/i.test(gap));
@@ -743,6 +949,7 @@ function normalizeRecommendationObject(posting, parsed, githubData, linkedinData
     linkedinBonus,
     fitReasoning: dedupedFitReasoning,
     gaps,
+    requirementAssessments,
   });
 
   const calibratedGaps = [
@@ -776,6 +983,7 @@ function normalizeRecommendationObject(posting, parsed, githubData, linkedinData
       : ['This candidate has partial evidence aligned to the listed research requirements.'],
     gaps: calibratedGaps.length > 0 ? calibratedGaps.slice(0, 4) : ['Demonstrate deeper, role-specific examples during application review.'],
     recommendation: calibratedScore.recommendation,
+    requirement_assessments: requirementAssessments,
     evidence_sources: {
       resume: {
         available: Boolean(typeof resumeSignal === 'string' && resumeSignal.trim()),
@@ -798,131 +1006,81 @@ function normalizeRecommendationObject(posting, parsed, githubData, linkedinData
 }
 
 function buildScoringPrompt(researchPosition, resumeText, githubData, linkedinData) {
-  return `You are an expert academic research advisor evaluating a student applicant for a research position.
+  const requirementItems = collectPostingRequirementItems(researchPosition);
+  const promptPayload = {
+    research_posting: {
+      id: researchPosition?.id ?? '',
+      title: researchPosition?.title ?? '',
+      category: researchPosition?.category ?? '',
+      overview: researchPosition?.overview ?? '',
+      student_role: researchPosition?.studentRoleDescription ?? '',
+      requirements: requirementItems,
+    },
+    student_evidence: {
+      resume_profile_transcript_text: String(resumeText ?? '').slice(0, 3500),
+      github: compactGithubEvidence(githubData),
+      linkedin: compactLinkedInEvidence(linkedinData),
+    },
+  };
 
-You have access to the following information about the student:
+  return `You score student evidence against a university research posting.
+Return RAW JSON only. Use only the evidence in INPUT. Do not invent facts.
 
-RESEARCH POSITION REQUIREMENTS:
-${JSON.stringify(researchPosition, null, 2)}
+INPUT:
+${JSON.stringify(promptPayload, null, 2)}
 
-STUDENT RESUME TEXT:
-${resumeText.slice(0, 2000)}
+Instructions:
+- First assess each requirement independently.
+- support must be "strong", "partial", or "none".
+- Use "strong" only when direct evidence clearly supports the requirement.
+- Use "partial" when evidence is related but incomplete.
+- Use "none" when no direct evidence is present.
+- Required requirements matter more than preferred requirements.
+- Missing GitHub or LinkedIn is not a gap. Sparse or irrelevant GitHub/LinkedIn should receive 0 bonus.
+- External-source bonuses must be directly relevant to this posting.
+- Prefer exact evidence phrases from resume/profile/transcript/GitHub/LinkedIn.
 
-SOURCE COVERAGE:
-- Resume/profile text included: ${typeof resumeText === 'string' && resumeText.trim() ? 'yes' : 'no'}
-- GitHub fetched and included: ${githubData ? 'yes' : 'no'}
-- LinkedIn fetched and included: ${linkedinData?.rawText ? 'yes' : 'no'}
+Scoring guidance:
+- base_score is 0-100 from resume/profile/transcript evidence only.
+- github_bonus is 0-15, and 0 if GitHub is unavailable or irrelevant.
+- linkedin_bonus is 0-10, and 0 if LinkedIn is unavailable or irrelevant.
+- github_sparse is true when GitHub exists but has fewer than 3 original repos or little relevant evidence.
+- linkedin_sparse is true when LinkedIn exists but has under 400 useful characters or little relevant evidence.
+- Do not calculate final confidence; code will calculate and cap it from your component scores.
 
-${githubData ? `
-STUDENT GITHUB PROFILE:
-- Username: ${githubData.username}
-- Profile URL: ${githubData.profile_url || `https://github.com/${githubData.username}`}
-- Bio: ${githubData.bio}
-- Public repos: ${githubData.public_repos} total, ${githubData.original_repo_count} original (non-forked)
-- Followers: ${githubData.followers}
-- Total stars across original repos: ${githubData.total_stars}
-- Top languages: ${githubData.top_languages.join(', ')}
-- Top repositories:
-${githubData.top_repos.map((r) => `  * ${r.name}: ${r.description || 'no description'} [${r.language}] (${r.stars} stars) URL: ${r.url || `${githubData.profile_url || `https://github.com/${githubData.username}`}/${r.name}`} topics: ${r.topics?.join(', ') || 'none'}`).join('\n')}
-` : 'GITHUB: Not provided or unavailable.'}
-
-${linkedinData ? `
-STUDENT LINKEDIN PROFILE (extracted text):
-Source URL: ${linkedinData.sourceUrl || 'LinkedIn URL provided'}
-${linkedinData.rawText}
-` : 'LINKEDIN: Not provided or unavailable.'}
-
----
-
-YOUR TASK: Score this student using the additive system below. Return ONLY a raw JSON object. No markdown, no code fences, no backticks, no explanation. Start with { and end with }.
-
----
-
-SCORING SYSTEM - follow these steps exactly:
-
-STAGE 1 - Base score from resume alone (0 to 100)
-Score the student purely on their resume against the research position requirements.
-This score stands on its own even if no GitHub or LinkedIn is provided.
-Evaluate: relevant coursework, projects, technical skills, research/work experience, awards.
-Assign: base_score (integer 0-100)
-
-STAGE 2 - GitHub bonus (0 to 15 points, only if GitHub data is available)
-Only score this if githubData is not null.
-Only award points for content genuinely relevant to this research position.
-Never subtract points for a sparse GitHub - award 0 if nothing is useful.
-- Original repos in languages relevant to this research: 0-6 pts
-- Repo descriptions or topics that directly relate to the research area: 0-5 pts
-- Evidence of complexity or sustained work (stars, detailed READMEs): 0-4 pts
-Set github_available: true
-If GitHub has fewer than 3 original repos or no useful signal: set github_sparse: true and cap bonus at 3
-
-If GitHub is not available:
-Set github_bonus: 0, github_available: false, github_sparse: false
-
-STAGE 3 - LinkedIn bonus (0 to 10 points, only if LinkedIn data is available)
-Only score this if linkedinData is not null.
-Only award points for content genuinely relevant to this research position.
-Never subtract points for a sparse LinkedIn - award 0 if nothing is useful.
-- Relevant internships or work experience not already on resume: 0-5 pts
-- Relevant skills, endorsements, or certifications: 0-3 pts
-- Research experience or academic projects listed: 0-2 pts
-Set linkedin_available: true
-If LinkedIn text is under 400 characters of real content: set linkedin_sparse: true and cap bonus at 2
-
-If LinkedIn is not available:
-Set linkedin_bonus: 0, linkedin_available: false, linkedin_sparse: false
-
-STAGE 3.5 - Cross-source evidence check
-Before assigning the final score, compare the position requirements against all available sources:
-- Resume/profile text for degree, major, skills, interests, coursework, projects, and work experience.
-- GitHub profile and repositories when githubData is available.
-- LinkedIn profile text when linkedinData is available.
-Do not invent evidence. If a source is available but irrelevant, mark it sparse or give 0 bonus.
-Every qualification and fit_reasoning item must name the source it came from: [Resume], [GitHub], or [LinkedIn].
-When GitHub is available, inspect repository names, descriptions, languages, topics, and URLs before assigning github_bonus.
-When LinkedIn is available, inspect the extracted LinkedIn text before assigning linkedin_bonus.
-Critical calibration rule: if no stated position requirement is strongly supported by direct evidence, confidence_score must be 65 or lower and recommendation cannot be "Strong Fit" or "Good Fit".
-If a required skill/tool/domain such as ROS, robotics, algorithms, systems programming, lab technique, language, or framework is absent from all available sources, list it as a gap and keep the score proportional to the missing requirement.
-
-STAGE 4 - Final score
-confidence_score = min(100, base_score + github_bonus + linkedin_bonus)
-
----
-
-Return exactly this JSON shape:
+Return exactly:
 {
-  "confidence_score": <integer 0-100>,
   "score_breakdown": {
-    "base_score": <integer 0-100>,
-    "github_bonus": <integer 0-15>,
-    "github_available": <boolean>,
-    "github_sparse": <boolean>,
-    "linkedin_bonus": <integer 0-10>,
-    "linkedin_available": <boolean>,
-    "linkedin_sparse": <boolean>
+    "base_score": 0,
+    "github_bonus": 0,
+    "github_available": false,
+    "github_sparse": false,
+    "linkedin_bonus": 0,
+    "linkedin_available": false,
+    "linkedin_sparse": false
   },
+  "requirement_assessments": [
+    {
+      "requirement": "requirement text",
+      "importance": "required",
+      "support": "strong",
+      "sources": ["resume"],
+      "evidence": "short exact evidence phrase",
+      "gap": ""
+    }
+  ],
   "qualifications": [
-    <4-6 strings - specific qualifications from their actual evidence.
-    Prefix each with [Resume], [GitHub], or [LinkedIn].
-    Include at least one [Resume] item.
-    Include [GitHub] only if github_available is true.
-    Include [LinkedIn] only if linkedin_available is true.>
+    "up to 6 source-prefixed evidence-backed qualifications"
   ],
   "fit_reasoning": [
-    <4-6 strings - specific reasons why they fit or don't fit THIS position's stated requirements.
-    Reference the actual position requirements by name and explain which source supports each claim.
-    If github_sparse is true, include: "GitHub available but limited signal for this position"
-    If linkedin_sparse is true, include: "LinkedIn available but limited additional context beyond resume"
-    Never mention GitHub or LinkedIn negatively if they were not provided.>
+    "up to 6 concise requirement-specific fit statements"
   ],
   "gaps": [
-    <2-4 strings - what is missing relative to this position. Frame constructively, not harshly.
-    Never list "no GitHub" or "no LinkedIn" as a gap - these are optional.>
+    "up to 4 constructive missing-evidence statements"
   ],
-  "recommendation": <"Strong Fit" | "Good Fit" | "Possible Fit" | "Weak Fit">
+  "recommendation": "Strong Fit"
 }
-
-Return ONLY a raw JSON object starting with { and ending with }.`;
+Return only the JSON object.`;
 }
 
 export async function scoreOnePosting({ posting, index, resumeSignal, githubData, linkedinData }) {
@@ -935,8 +1093,6 @@ export async function scoreOnePosting({ posting, index, resumeSignal, githubData
     return normalizeRecommendationObject(posting, parsed, githubData, linkedinData, resumeSignal);
   } catch (err) {
     console.error('[scoreOnePosting] Failed for posting', posting?.id || posting?.postingId, err.message);
-    console.log('[fallback] Triggered. Last parse error:', err?.message);
-    console.log('[fallback] Raw text that failed:', responseText?.slice(0, 500));
     if (err?.code === 'OLLAMA_UNAVAILABLE') {
       throw err;
     }
@@ -1029,7 +1185,7 @@ export async function getRecruiterCandidateMatches({ role, candidates }) {
     return [];
   }
 
-  const prompt = `You are an expert technical recruiter for research talent. Return RAW JSON only.
+  const prompt = `You rank research candidates for a technical recruiting role. Return RAW JSON only.
 
 Rank these students for the recruiting role using only the provided evidence: candidate profile, research history, skills, publications, presentations, verified contributions, and faculty endorsements.
 
@@ -1043,6 +1199,8 @@ Rules:
 - Do not invent projects, publications, skills, schools, or endorsements.
 - Favor verified research contributions and faculty endorsements over listed skills alone.
 - Compare required skills, preferred skills, research areas, and experience level.
+- Penalize missing required skills more than missing preferred skills.
+- Each reason must cite an evidence field such as skills, researchAreas, verifiedContributions, publications, presentations, endorsements, projects, or GitHub.
 - Return each score from 0 to 100.
 
 Return exactly:
@@ -1053,7 +1211,8 @@ Return exactly:
       "candidateName": "candidate name",
       "matchScore": 0,
       "explanation": "one concise evidence-backed explanation",
-      "reasons": ["3 to 5 evidence-backed reasons"]
+      "reasons": ["3 to 5 evidence-backed reasons"],
+      "evidenceFields": ["skills"]
     }
   ]
 }`;
@@ -1064,9 +1223,10 @@ Return exactly:
 }
 
 export async function getRecruiterCandidateSummary({ candidate }) {
-  const prompt = `You are summarizing a student researcher for a recruiter. Return RAW JSON only.
+  const prompt = `You summarize a student researcher for a recruiter. Return RAW JSON only.
 
 Use only the evidence in this candidate profile. Mention verified contributions, skills, projects, publications, presentations, endorsements, evidence links, and GitHub activity when present.
+Do not invent missing achievements. Prefer concrete evidence over generic praise.
 
 CANDIDATE:
 ${JSON.stringify(candidate, null, 2)}
@@ -1087,6 +1247,7 @@ export async function getRecruiterOutreachMessage({ candidate, position }) {
   const prompt = `You write concise, professional recruiter outreach. Return RAW JSON only.
 
 Write a message to the candidate about this position. Use specific evidence from their research profile. Do not invent company details.
+Mention at most two specific evidence points. Keep the message human, direct, and under 160 words.
 
 POSITION:
 ${position}
@@ -1107,7 +1268,7 @@ Return exactly:
 }
 
 export async function getDeanDepartmentResearchReport({ metrics }) {
-  const prompt = `You are writing an executive research outcomes report for a university dean. Return RAW JSON only.
+  const prompt = `You write executive research outcomes reports for a university dean. Return RAW JSON only.
 
 Use only the provided metrics. Summarize research production, faculty mentorship, student outcomes, funding impact, access, progress-report activity, and competitive standing.
 
@@ -1118,6 +1279,7 @@ Rules:
 - Do not invent numbers.
 - Write in a concise, professional executive style.
 - Include 4 to 6 concrete metric-backed sentences.
+- Every sentence must refer to a provided metric, trend, count, rate, or named category from METRICS.
 
 Return exactly:
 {
@@ -1142,6 +1304,7 @@ ${JSON.stringify(metrics, null, 2)}
 Rules:
 - Do not invent facts or numbers.
 - Keep recommendations actionable and specific.
+- Each insight must cite the metric or dashboard field it is based on.
 - Return 5 to 7 insight objects.
 
 Return exactly:
@@ -1151,7 +1314,8 @@ Return exactly:
       "title": "short title",
       "category": "Strength | Improvement | Trend | Resource | Mentorship | Growth",
       "summary": "metric-backed insight",
-      "action": "recommended action"
+      "action": "recommended action",
+      "evidenceField": "metric or field name"
     }
   ]
 }`;

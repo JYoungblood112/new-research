@@ -6,7 +6,7 @@ import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import ApplyToResearchDialog from './ApplyToResearchDialog';
-import { AlertTriangle, ArrowRight, BadgeCheck, BrainCircuit, FileText, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowRight, BadgeCheck, BrainCircuit, Compass, FileText, Sparkles } from 'lucide-react';
 
 
 type RecommendationItem = {
@@ -27,6 +27,79 @@ type RecommendationItem = {
   gaps: string[];
   recommendation: 'Strong Fit' | 'Good Fit' | 'Possible Fit' | 'Weak Fit' | null;
 };
+
+type RecommendationView = 'aligned' | 'outside';
+
+const INTEREST_ALIASES: Record<string, string[]> = {
+  ai: ['artificial intelligence', 'machine learning', 'deep learning', 'nlp', 'natural language processing', 'computer vision', 'recommender systems'],
+  'artificial intelligence': ['ai', 'machine learning', 'deep learning', 'nlp', 'natural language processing', 'computer vision', 'recommender systems'],
+  hci: ['human-computer interaction', 'user research', 'ux research', 'design research', 'accessibility', 'interface', 'usability'],
+  'human-computer interaction': ['hci', 'user research', 'ux research', 'design research', 'accessibility', 'interface', 'usability'],
+  'data science': ['statistics', 'data analysis', 'data analytics', 'causal inference', 'data visualization', 'big data', 'data engineering'],
+  robotics: ['robotics engineering', 'autonomous systems', 'slam', 'trajectory planning', 'manipulator', 'mobile robot'],
+  nlp: ['natural language processing', 'language model', 'llm', 'summarization', 'multilingual'],
+  'natural language processing': ['nlp', 'language model', 'llm', 'summarization', 'multilingual'],
+  'computer vision': ['image analysis', 'satellite imagery', 'self-supervised learning', 'perception'],
+  'education technology': ['educational technology', 'ai tutor', 'learning', 'first-time programmers'],
+  'cognitive science': ['cognition', 'attention', 'perception', 'memory', 'cognitive psychology'],
+};
+
+function normalizeText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9+#]+/g, ' ').trim();
+}
+
+function buildInterestTerms(interests: unknown): string[] {
+  if (!Array.isArray(interests)) {
+    return [];
+  }
+
+  const terms = new Set<string>();
+
+  for (const interest of interests) {
+    if (typeof interest !== 'string') {
+      continue;
+    }
+
+    const normalized = normalizeText(interest);
+    if (!normalized) {
+      continue;
+    }
+
+    terms.add(normalized);
+    for (const alias of INTEREST_ALIASES[normalized] ?? []) {
+      terms.add(normalizeText(alias));
+    }
+  }
+
+  return Array.from(terms);
+}
+
+function postingMatchesInterestTerms(posting: ResearchPosting, interestTerms: string[]) {
+  if (interestTerms.length === 0) {
+    return true;
+  }
+
+  const postingText = normalizeText(
+    [
+      posting.category,
+      posting.title,
+      posting.overview,
+      posting.studentRoleDescription,
+      posting.studentGain,
+      posting.requiredQualifications,
+      posting.preferredQualifications,
+      posting.professorDepartment,
+    ].join(' ')
+  );
+
+  return interestTerms.some((term) => {
+    if (term.length < 3) {
+      return postingText.split(' ').includes(term);
+    }
+
+    return postingText.includes(term);
+  });
+}
 
 function normalizeRecommendationItem(item: Record<string, any>): RecommendationItem {
   const recommendationValue = item?.recommendation;
@@ -60,6 +133,16 @@ function normalizeRecommendationItem(item: Record<string, any>): RecommendationI
   };
 }
 
+async function readJsonResponse(response: Response) {
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload?.error || `Request failed with ${response.status}`);
+  }
+
+  return payload;
+}
+
 export default function AIRecommendations() {
   const navigate = useNavigate();
   const { user, setupState } = useAuth();
@@ -69,6 +152,8 @@ export default function AIRecommendations() {
   const [appliedPostingIds, setAppliedPostingIds] = useState<Set<string>>(new Set());
   const [allPostingIds, setAllPostingIds] = useState<string[]>([]);
   const [isHydrating, setIsHydrating] = useState(true);
+  const [recommendationError, setRecommendationError] = useState('');
+  const [recommendationView, setRecommendationView] = useState<RecommendationView>('aligned');
   const activePollsRef = useRef<
     Map<
       string,
@@ -104,12 +189,14 @@ export default function AIRecommendations() {
         major: studentProfile?.major ?? '',
         skills: Array.isArray(studentProfile?.skills) ? studentProfile.skills : [],
         interests: Array.isArray(studentProfile?.interests) ? studentProfile.interests : [],
+        coursework: Array.isArray(studentProfile?.coursework) ? studentProfile.coursework : [],
         summary: studentProfile?.summary ?? '',
         university: studentProfile?.university ?? '',
         degree: studentProfile?.degree ?? '',
         github: studentProfile?.github || studentProfile?.githubUrl || '',
         linkedin: studentProfile?.linkedin || studentProfile?.linkedInUrl || '',
         resumeText: studentProfile?.resumeText || '',
+        transcriptText: studentProfile?.transcriptText || '',
       }),
     [
       studentProfile?.major,
@@ -118,20 +205,46 @@ export default function AIRecommendations() {
       studentProfile?.degree,
       Array.isArray(studentProfile?.skills) ? studentProfile.skills.join('|') : '',
       Array.isArray(studentProfile?.interests) ? studentProfile.interests.join('|') : '',
+      Array.isArray(studentProfile?.coursework) ? JSON.stringify(studentProfile.coursework) : '',
       studentProfile?.github,
       studentProfile?.githubUrl,
       studentProfile?.linkedin,
       studentProfile?.linkedInUrl,
       studentProfile?.resumeText,
+      studentProfile?.transcriptText,
     ]
   );
 
-  const top5 = useMemo(() => {
-    return Array.from(scoredPostings.values())
+  const interestTerms = useMemo(
+    () => buildInterestTerms(studentProfile?.interests),
+    [Array.isArray(studentProfile?.interests) ? studentProfile.interests.join('|') : '']
+  );
+
+  const recommendationGroups = useMemo(() => {
+    const aligned: Array<{ posting: ResearchPosting; recommendation: RecommendationItem }> = [];
+    const outside: Array<{ posting: ResearchPosting; recommendation: RecommendationItem }> = [];
+
+    for (const recommendation of Array.from(scoredPostings.values())
       .filter((item) => !appliedPostingIds.has(item.postingId))
-      .sort((a, b) => b.confidence - a.confidence)
-      .slice(0, 5);
-  }, [scoredPostings, appliedPostingIds]);
+      .sort((a, b) => b.confidence - a.confidence)) {
+      const posting = postings.find((entry) => entry.id === recommendation.postingId);
+      if (!posting) {
+        continue;
+      }
+
+      const targetGroup = postingMatchesInterestTerms(posting, interestTerms) ? aligned : outside;
+      targetGroup.push({ posting, recommendation });
+    }
+
+    return { aligned, outside };
+  }, [scoredPostings, appliedPostingIds, postings, interestTerms]);
+
+  const visiblePostings = useMemo(
+    () => recommendationGroups[recommendationView].slice(0, 5),
+    [recommendationGroups, recommendationView]
+  );
+
+  const selectedViewLabel = recommendationView === 'aligned' ? 'aligned with your interests' : 'outside your saved interests';
 
   const stopPolling = (postingId: string) => {
     const active = activePollsRef.current.get(postingId);
@@ -154,7 +267,7 @@ export default function AIRecommendations() {
         const res = await fetch(`/api/ai/recommendations/get-score?postingId=${encodeURIComponent(postingId)}`, {
           credentials: 'include',
         });
-        const data = await res.json();
+        const data = await readJsonResponse(res);
 
         if (data.status === 'ready' && data.result) {
           stopPolling(postingId);
@@ -164,8 +277,9 @@ export default function AIRecommendations() {
             return next;
           });
         }
-      } catch {
-        // Keep polling until the timeout or success.
+      } catch (error) {
+        stopPolling(postingId);
+        setRecommendationError(error instanceof Error ? error.message : 'Unable to load recommendation score.');
       }
     }, 2000);
 
@@ -178,7 +292,7 @@ export default function AIRecommendations() {
       const res = await fetch(`/api/ai/recommendations/score-one?postingId=${encodeURIComponent(posting.id)}`, {
         credentials: 'include',
       });
-      const data = await res.json();
+      const data = await readJsonResponse(res);
 
       if (data.status === 'ready' && data.result) {
         setScoredPostings((prev) => {
@@ -192,15 +306,15 @@ export default function AIRecommendations() {
       if (data.status === 'scoring') {
         pollForScore(posting.id);
       }
-    } catch {
-      // Keep the queue moving; the next polling pass can retry.
+    } catch (error) {
+      setRecommendationError(error instanceof Error ? error.message : 'Unable to start recommendation scoring.');
     }
   };
 
   const loadPostingsFromServer = async () => {
     try {
       const res = await fetch('/api/postings', { credentials: 'include' });
-      const payload = await res.json();
+      const payload = await readJsonResponse(res);
       const serverPostings = Array.isArray(payload) ? payload : Array.isArray(payload?.postings) ? payload.postings : [];
       const merged = new Map<string, ResearchPosting>();
 
@@ -217,7 +331,8 @@ export default function AIRecommendations() {
       }
 
       return Array.from(merged.values()).filter((posting) => posting.status === 'published');
-    } catch {
+    } catch (error) {
+      setRecommendationError(error instanceof Error ? error.message : 'Unable to load server postings.');
       return postings.filter((posting) => posting.status === 'published');
     }
   };
@@ -238,6 +353,7 @@ export default function AIRecommendations() {
 
     activeSessionRef.current = `${user.id}:${profileKey}`;
     setIsHydrating(true);
+    setRecommendationError('');
     setScoredPostings(new Map());
     setAllPostingIds([]);
     setAppliedPostingIds(new Set(getApplicationsByStudent(user.id).map((application) => application.postingId)));
@@ -292,7 +408,7 @@ export default function AIRecommendations() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [allPostingIds, appliedPostingIds, top5]);
+  }, [allPostingIds, appliedPostingIds]);
 
   useEffect(() => {
     return () => {
@@ -301,18 +417,6 @@ export default function AIRecommendations() {
       }
     };
   }, []);
-
-  const visiblePostings = top5.map((rec) => {
-    const posting = postings.find((entry) => entry.id === rec.postingId);
-    if (!posting) {
-      return null;
-    }
-
-    return {
-      posting,
-      recommendation: rec,
-    };
-  }).filter(Boolean) as Array<{ posting: ResearchPosting; recommendation: RecommendationItem }>;
 
   const handleApplied = (postingId: string) => {
     setAppliedPostingIds((prev) => {
@@ -338,6 +442,18 @@ export default function AIRecommendations() {
               </Card>
             ) : null}
 
+            {recommendationError ? (
+              <Card className="border-amber-200 bg-amber-50/70 shadow-none">
+                <CardContent className="flex items-start gap-3 p-4 text-amber-950">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold">Recommendation scoring needs attention</p>
+                    <p className="text-sm text-amber-900/80">{recommendationError}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+
             <Card className="overflow-hidden border-[#d8cfc9] bg-[linear-gradient(135deg,#fffdfa_0%,#fff4ef_45%,#f8f6fb_100%)] shadow-none">
               <CardHeader className="pb-4">
                 <CardTitle className="flex items-center gap-2 text-[28px] tracking-[-0.02em] text-foreground">
@@ -345,7 +461,7 @@ export default function AIRecommendations() {
                   AI Recommendations
                 </CardTitle>
                 <CardDescription className="max-w-3xl text-sm text-muted-foreground">
-                  We compare your saved resume signals against every published research posting and rank the best fits.
+                  We compare your saved resume signals against every published research posting and rank matches inside and outside your research interests.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-3">
@@ -386,7 +502,53 @@ export default function AIRecommendations() {
                 </CardContent>
               </Card>
             )}
+            <Card className="border-[#d8cfc9] bg-white shadow-none">
+              <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-start gap-3">
+                  <Compass className="mt-0.5 h-5 w-5 text-red-700" />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Recommendation view</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Showing AI-ranked postings {selectedViewLabel}.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 rounded-xl border border-[#ddd6d0] bg-[#f8f6f4] p-1">
+                  <Button
+                    type="button"
+                    variant={recommendationView === 'aligned' ? 'default' : 'ghost'}
+                    className={`h-9 rounded-lg px-3 text-sm ${recommendationView === 'aligned' ? 'bg-[#c92e1f] text-white hover:bg-[#b3271b]' : 'text-[#4f4a46] hover:bg-white'}`}
+                    onClick={() => setRecommendationView('aligned')}
+                  >
+                    Aligned ({recommendationGroups.aligned.length})
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={recommendationView === 'outside' ? 'default' : 'ghost'}
+                    className={`h-9 rounded-lg px-3 text-sm ${recommendationView === 'outside' ? 'bg-[#c92e1f] text-white hover:bg-[#b3271b]' : 'text-[#4f4a46] hover:bg-white'}`}
+                    onClick={() => setRecommendationView('outside')}
+                  >
+                    Not aligned ({recommendationGroups.outside.length})
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
             <div className="space-y-4">
+              {!isHydrating && allPostingIds.length > 0 && visiblePostings.length === 0 ? (
+                <Card className="border-[#d8cfc9] bg-white shadow-none">
+                  <CardContent className="py-10 text-center">
+                    <FileText className="mx-auto mb-3 h-10 w-10 text-gray-400" />
+                    <p className="text-gray-600">
+                      No {recommendationView === 'aligned' ? 'aligned' : 'not aligned'} recommendations are ready yet.
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {recommendationView === 'aligned'
+                        ? 'Add or adjust research interests in your profile to broaden this view.'
+                        : 'Once scoring finishes, postings outside your saved interests will appear here.'}
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : null}
               {visiblePostings.map((rec, index) => {
                 const topPick = index === 0;
                 return (
@@ -404,7 +566,7 @@ export default function AIRecommendations() {
                             ) : null}
                           </div>
                           <CardDescription className="text-sm text-muted-foreground">
-                            {rec.posting.professorName} • {rec.posting.professorDepartment}
+                            {rec.posting.professorName} - {rec.posting.professorDepartment}
                           </CardDescription>
                         </div>
                         <div className="text-right">
@@ -478,8 +640,8 @@ export default function AIRecommendations() {
                   </Card>
                 );
               })}
-              {isHydrating || top5.length < 5
-                ? Array.from({ length: Math.max(0, 5 - top5.length) }).map((_, i) => (
+              {isHydrating || visiblePostings.length < 5
+                ? Array.from({ length: Math.max(0, 5 - visiblePostings.length) }).map((_, i) => (
                     <div key={`skeleton-${i}`} className="rounded-xl border p-4 animate-pulse">
                       <div className="mb-3 flex items-center justify-between">
                         <div className="h-4 w-1/3 rounded bg-muted" />

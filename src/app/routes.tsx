@@ -1,18 +1,20 @@
+import { lazy, Suspense, type ReactNode } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router';
-import LoginPage from './pages/LoginPage';
-import SsoPage from './pages/SsoPage';
-import ProfessorDashboard from './pages/professor/ProfessorDashboard';
-import ApplicantReasoningPage from './pages/professor/ApplicantReasoningPage';
-import ProfessorSetupPage from './pages/professor/ProfessorSetupPage';
-import StudentDashboard from './pages/student/StudentDashboard';
-import StudentRecommendationReasoningPage from './pages/student/StudentRecommendationReasoningPage';
-import StudentResearchDetailPage from './pages/student/StudentResearchDetailPage';
-import StudentSetupPage from './pages/student/StudentSetupPage';
-import RecruiterDashboard from './pages/recruiter/RecruiterDashboard';
-import CandidateProfilePage from './pages/recruiter/CandidateProfilePage';
-import DeanDashboard from './pages/dean/DeanDashboard';
 import { useAuth } from './contexts/AuthContext';
 import type { UserRole } from './lib/api';
+
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const SsoPage = lazy(() => import('./pages/SsoPage'));
+const ProfessorDashboard = lazy(() => import('./pages/professor/ProfessorDashboard'));
+const ApplicantReasoningPage = lazy(() => import('./pages/professor/ApplicantReasoningPage'));
+const ProfessorSetupPage = lazy(() => import('./pages/professor/ProfessorSetupPage'));
+const StudentDashboard = lazy(() => import('./pages/student/StudentDashboard'));
+const StudentRecommendationReasoningPage = lazy(() => import('./pages/student/StudentRecommendationReasoningPage'));
+const StudentResearchDetailPage = lazy(() => import('./pages/student/StudentResearchDetailPage'));
+const StudentSetupPage = lazy(() => import('./pages/student/StudentSetupPage'));
+const RecruiterDashboard = lazy(() => import('./pages/recruiter/RecruiterDashboard'));
+const CandidateProfilePage = lazy(() => import('./pages/recruiter/CandidateProfilePage'));
+const DeanDashboard = lazy(() => import('./pages/dean/DeanDashboard'));
 
 function dashboardPathForRole(role: UserRole) {
   if (role === 'professor') return '/professor/dashboard';
@@ -21,29 +23,27 @@ function dashboardPathForRole(role: UserRole) {
   return '/dean/dashboard';
 }
 
+function PageFallback() {
+  return <div className="min-h-screen bg-gray-50" />;
+}
+
+function LazyPage({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<PageFallback />}>{children}</Suspense>;
+}
+
 function ProtectedRoute({
   children,
   allowedRole,
   requireSetupComplete = false,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   allowedRole?: UserRole;
   requireSetupComplete?: boolean;
 }) {
   const { user, setupState, loadingSession } = useAuth();
 
-  const hasCompletedStudentOnboarding =
-    user?.role === 'student' &&
-    typeof window !== 'undefined' &&
-    localStorage.getItem(`student_onboarding_${user.id}`) === 'true';
-
-  const hasCompletedProfessorOnboarding =
-    user?.role === 'professor' &&
-    typeof window !== 'undefined' &&
-    localStorage.getItem(`professor_onboarding_${user.id}`) === 'true';
-
   if (loadingSession) {
-    return <div className="min-h-screen bg-gray-50" />;
+    return <PageFallback />;
   }
 
   if (!user) {
@@ -57,7 +57,7 @@ function ProtectedRoute({
   if (
     requireSetupComplete &&
     user.role === 'student' &&
-    (!setupState?.completed || !hasCompletedStudentOnboarding)
+    !setupState?.completed
   ) {
     return <Navigate to="/student/setup" replace />;
   }
@@ -65,7 +65,7 @@ function ProtectedRoute({
   if (
     requireSetupComplete &&
     user.role === 'professor' &&
-    (!setupState?.completed || !hasCompletedProfessorOnboarding)
+    !setupState?.completed
   ) {
     return <Navigate to="/professor/setup" replace />;
   }
@@ -76,90 +76,138 @@ function ProtectedRoute({
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <LoginPage />,
+    element: (
+      <LazyPage>
+        <LoginPage />
+      </LazyPage>
+    ),
   },
   {
     path: '/professor/dashboard',
     element: (
-      <ProtectedRoute allowedRole="professor" requireSetupComplete>
-        <ProfessorDashboard />
-      </ProtectedRoute>
+      <LazyPage>
+        <ProtectedRoute allowedRole="professor" requireSetupComplete>
+          <ProfessorDashboard />
+        </ProtectedRoute>
+      </LazyPage>
     ),
   },
   {
     path: '/professor/applicant-insights/:applicantId',
     element: (
-      <ProtectedRoute allowedRole="professor" requireSetupComplete>
-        <ApplicantReasoningPage />
-      </ProtectedRoute>
+      <LazyPage>
+        <ProtectedRoute allowedRole="professor" requireSetupComplete>
+          <ApplicantReasoningPage />
+        </ProtectedRoute>
+      </LazyPage>
     ),
   },
   {
     path: '/professor/setup',
     element: (
-      <ProtectedRoute allowedRole="professor">
-        <ProfessorSetupPage />
-      </ProtectedRoute>
+      <LazyPage>
+        <ProtectedRoute allowedRole="professor">
+          <ProfessorSetupPage />
+        </ProtectedRoute>
+      </LazyPage>
     ),
   },
   {
     path: '/sso',
-    element: <SsoPage />,
+    element: (
+      <LazyPage>
+        <SsoPage />
+      </LazyPage>
+    ),
   },
   {
     path: '/recruiter/dashboard',
     element: (
-      <ProtectedRoute allowedRole="recruiter">
-        <RecruiterDashboard />
-      </ProtectedRoute>
+      <LazyPage>
+        <ProtectedRoute allowedRole="recruiter">
+          <RecruiterDashboard />
+        </ProtectedRoute>
+      </LazyPage>
+    ),
+  },
+  {
+    path: '/recruiter/dashboard/:tabId',
+    element: (
+      <LazyPage>
+        <ProtectedRoute allowedRole="recruiter">
+          <RecruiterDashboard />
+        </ProtectedRoute>
+      </LazyPage>
     ),
   },
   {
     path: '/recruiter/candidates/:candidateId',
     element: (
-      <ProtectedRoute allowedRole="recruiter">
-        <CandidateProfilePage />
-      </ProtectedRoute>
+      <LazyPage>
+        <ProtectedRoute allowedRole="recruiter">
+          <CandidateProfilePage />
+        </ProtectedRoute>
+      </LazyPage>
     ),
   },
   {
     path: '/dean/dashboard',
     element: (
-      <ProtectedRoute allowedRole="dean">
-        <DeanDashboard />
-      </ProtectedRoute>
+      <LazyPage>
+        <ProtectedRoute allowedRole="dean">
+          <DeanDashboard />
+        </ProtectedRoute>
+      </LazyPage>
+    ),
+  },
+  {
+    path: '/dean/dashboard/:tabId',
+    element: (
+      <LazyPage>
+        <ProtectedRoute allowedRole="dean">
+          <DeanDashboard />
+        </ProtectedRoute>
+      </LazyPage>
     ),
   },
   {
     path: '/student/dashboard',
     element: (
-      <ProtectedRoute allowedRole="student" requireSetupComplete>
-        <StudentDashboard />
-      </ProtectedRoute>
+      <LazyPage>
+        <ProtectedRoute allowedRole="student" requireSetupComplete>
+          <StudentDashboard />
+        </ProtectedRoute>
+      </LazyPage>
     ),
   },
   {
     path: '/student/setup',
     element: (
-      <ProtectedRoute allowedRole="student">
-        <StudentSetupPage />
-      </ProtectedRoute>
+      <LazyPage>
+        <ProtectedRoute allowedRole="student">
+          <StudentSetupPage />
+        </ProtectedRoute>
+      </LazyPage>
     ),
   },
   {
     path: '/student/research/:postingId',
     element: (
-      <ProtectedRoute allowedRole="student" requireSetupComplete>
-        <StudentResearchDetailPage />
-      </ProtectedRoute>
+      <LazyPage>
+        <ProtectedRoute allowedRole="student" requireSetupComplete>
+          <StudentResearchDetailPage />
+        </ProtectedRoute>
+      </LazyPage>
     ),
   },
   {
     path: '/student/recommendations/:postingId/reasoning',
     element: (
-      <ProtectedRoute allowedRole="student" requireSetupComplete>
-        <StudentRecommendationReasoningPage />
-      </ProtectedRoute>
+      <LazyPage>
+        <ProtectedRoute allowedRole="student" requireSetupComplete>
+          <StudentRecommendationReasoningPage />
+        </ProtectedRoute>
+      </LazyPage>
     ),
   },
   {

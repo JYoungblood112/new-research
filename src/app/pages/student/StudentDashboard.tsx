@@ -52,6 +52,7 @@ export default function StudentDashboard() {
           {
             label: 'Browse',
             href: '#',
+            active: activeTab === 'browse',
             onClick: (event) => {
               event.preventDefault();
               void requestTabChange('browse');
@@ -60,6 +61,7 @@ export default function StudentDashboard() {
           {
             label: 'AI Recommendations',
             href: '#',
+            active: activeTab === 'recommendations',
             onClick: (event) => {
               event.preventDefault();
               void requestTabChange('recommendations');
@@ -68,6 +70,7 @@ export default function StudentDashboard() {
           {
             label: 'Applications',
             href: '#',
+            active: activeTab === 'applications',
             onClick: (event) => {
               event.preventDefault();
               void requestTabChange('applications');
@@ -76,6 +79,7 @@ export default function StudentDashboard() {
           {
             label: 'Progress Reports',
             href: '#',
+            active: activeTab === 'progress',
             onClick: (event) => {
               event.preventDefault();
               void requestTabChange('progress');
@@ -84,6 +88,7 @@ export default function StudentDashboard() {
           {
             label: 'Profile',
             href: '#',
+            active: activeTab === 'profile',
             onClick: (event) => {
               event.preventDefault();
               void requestTabChange('profile');
@@ -124,7 +129,7 @@ export default function StudentDashboard() {
                   void requestTabChange('profile');
                 }}
               >
-                Go to Profile →
+                Go to Profile {'->'}
               </Button>
             </div>
           </div>
@@ -137,7 +142,7 @@ export default function StudentDashboard() {
           }}
           className="space-y-4"
         >
-          <TabsList className="h-auto rounded-2xl border border-[#dddddd] bg-white p-1.5">
+          <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl border border-[#dddddd] bg-white p-1.5 shadow-sm sm:w-fit">
             <TabsTrigger
               value="browse"
               className="rounded-xl border border-transparent bg-transparent px-4 py-2 text-[#666666] data-[state=active]:border-red-200 data-[state=active]:bg-red-50 data-[state=active]:text-red-800 data-[state=active]:shadow-none"

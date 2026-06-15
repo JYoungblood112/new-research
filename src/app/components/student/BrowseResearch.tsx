@@ -85,7 +85,7 @@ function formatBrowseEndDate(duration: string, startDate: string) {
 }
 
 export default function BrowseResearch() {
-  const { postings } = useData();
+  const { postings, projectsLoading, projectsError, refreshProjects } = useData();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -239,7 +239,26 @@ export default function BrowseResearch() {
       </div>
 
       <div className="space-y-4">
-        {sortedPostings.length === 0 ? (
+        {projectsLoading ? (
+          <Card>
+            <CardContent className="space-y-3 py-12">
+              <div className="mx-auto h-4 w-48 animate-pulse rounded bg-[#efefef]" />
+              <div className="mx-auto h-4 w-72 max-w-full animate-pulse rounded bg-[#f4f4f4]" />
+            </CardContent>
+          </Card>
+        ) : projectsError ? (
+          <Card>
+            <CardContent className="space-y-4 py-12 text-center">
+              <div>
+                <p className="font-medium text-[#111111]">Unable to load research opportunities</p>
+                <p className="mt-1 text-sm text-gray-500">{projectsError}</p>
+              </div>
+              <Button variant="outline" onClick={() => void refreshProjects()}>
+                Try again
+              </Button>
+            </CardContent>
+          </Card>
+        ) : sortedPostings.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <p className="text-gray-500">No research opportunities found</p>

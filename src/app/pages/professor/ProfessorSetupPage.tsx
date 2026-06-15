@@ -77,14 +77,11 @@ export default function ProfessorSetupPage() {
     return `${firstInitial}${lastInitial}`;
   })();
 
-  const onboardingKey = user ? `professor_onboarding_${user.id}` : null;
-  const onboardingDone = onboardingKey ? localStorage.getItem(onboardingKey) === 'true' : false;
-
   useEffect(() => {
-    if (setupState?.completed && onboardingDone) {
+    if (setupState?.completed) {
       navigate('/professor/dashboard', { replace: true });
     }
-  }, [navigate, onboardingDone, setupState?.completed]);
+  }, [navigate, setupState?.completed]);
 
   const handleCompleteSetup = async () => {
     setShowValidationErrors(true);
@@ -129,12 +126,6 @@ export default function ProfessorSetupPage() {
         photoBase64: photoBase64 || undefined,
       });
       setShowValidationErrors(false);
-
-      if (!onboardingKey) {
-        return;
-      }
-
-      localStorage.setItem(onboardingKey, 'true');
       toast.success('Setup completed successfully!');
       navigate('/professor/dashboard', { replace: true });
     } catch (error) {

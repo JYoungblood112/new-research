@@ -1,4 +1,4 @@
-import { Camera, CheckCircle, FileText, Loader2, Upload, X } from 'lucide-react';
+import { BookOpen, Camera, CheckCircle, FileText, Loader2, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useAuth } from '../../contexts/AuthContext';
@@ -59,6 +59,44 @@ type ResumeFormValues = {
   major: string;
 };
 
+type CourseworkEntry = string | { courseNumber?: string; courseName?: string; semester?: string };
+
+function formatCourseworkEntry(course: CourseworkEntry) {
+  if (typeof course === 'string') {
+    return course;
+  }
+
+  const courseNumber = course.courseNumber?.trim() ?? '';
+  const courseName = course.courseName?.trim() ?? '';
+  return [courseNumber, courseName].filter(Boolean).join(' - ');
+}
+
+function getCourseworkKey(course: CourseworkEntry, index: number) {
+  return `${formatCourseworkEntry(course)}-${index}`;
+}
+
+function getCourseworkSemester(course: CourseworkEntry) {
+  if (typeof course === 'string') {
+    return 'Extracted coursework';
+  }
+
+  return course.semester?.trim() || 'Extracted coursework';
+}
+
+function groupCourseworkBySemester(coursework: CourseworkEntry[]) {
+  return coursework.reduce<Array<{ semester: string; courses: CourseworkEntry[] }>>((groups, course) => {
+    const semester = getCourseworkSemester(course);
+    const existing = groups.find((group) => group.semester === semester);
+    if (existing) {
+      existing.courses.push(course);
+      return groups;
+    }
+
+    groups.push({ semester, courses: [course] });
+    return groups;
+  }, []);
+}
+
 interface StudentProfileProps {
   mode?: 'edit' | 'setup';
   onSetupComplete?: () => void;
@@ -74,7 +112,7 @@ export default function StudentProfile({
   setupSubmitLabel,
   onRegisterLeaveGuard,
 }: StudentProfileProps) {
-  const { user, setupState, updateStudentProfile } = useAuth();
+  const { user, setupState, updateStudentProfile, refreshSession } = useAuth();
   const studentProfile = setupState?.profile as
     | {
         name?: string;
@@ -100,6 +138,8 @@ export default function StudentProfile({
         skills?: string[];
         interests?: string[];
         resume?: { name: string; uploadDate: string } | null;
+        transcript?: { name: string; uploadDate: string } | null;
+        coursework?: CourseworkEntry[];
       }
     | undefined;
 
@@ -132,11 +172,15 @@ export default function StudentProfile({
   const [skills, setSkills] = useState(studentProfile?.skills || []);
   const [skillInput, setSkillInput] = useState('');
   const [debouncedSkillInput, setDebouncedSkillInput] = useState('');
+  const [coursework, setCoursework] = useState(studentProfile?.coursework || []);
+  const [isUploadingTranscript, setIsUploadingTranscript] = useState(false);
+  const [transcriptError, setTranscriptError] = useState('');
   const [photoBase64, setPhotoBase64] = useState<string | null>(studentProfile?.photoBase64 ?? null);
   const [hasUploadedResume, setHasUploadedResume] = useState(Boolean(studentProfile?.resume));
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const [photoFormatError, setPhotoFormatError] = useState(false);
   const resumeUploadRef = useRef<ResumeUploadHandle | null>(null);
+  const transcriptInputRef = useRef<HTMLInputElement | null>(null);
   const trimmedDisplayName = displayName.trim();
   const trimmedDisplayEmail = displayEmail.trim();
   const trimmedMajor = major.trim();
@@ -212,6 +256,7 @@ export default function StudentProfile({
     setInterests(studentProfile?.interests || []);
     setDraftInterests(studentProfile?.interests || []);
     setSkills(studentProfile?.skills || []);
+    setCoursework(studentProfile?.coursework || []);
     setHasUploadedResume(Boolean(studentProfile?.resume));
   }, [
     user?.name,
@@ -224,6 +269,7 @@ export default function StudentProfile({
     studentProfile?.githubUrl,
     studentProfile?.interests,
     studentProfile?.skills,
+    studentProfile?.coursework,
     studentProfile?.resume,
   ]);
 
@@ -341,7 +387,6 @@ export default function StudentProfile({
   };
 
   const handleAutofill = (fields: ResumeFields) => {
-    console.log('handleAutofill called with:', fields);
     if (fields.full_name) {
       setValue('name', fields.full_name, { shouldDirty: true, shouldTouch: true });
       setDisplayName(fields.full_name);
@@ -377,7 +422,7 @@ export default function StudentProfile({
         setYear(fields.academic_year);
       }
     }
-    // researchInterests is intentionally NOT set here — ever
+    // researchInterests is intentionally not set here.
   };
 
   const handleRemoveResume = async () => {
@@ -387,6 +432,46 @@ export default function StudentProfile({
       toast.success('Resume removed.');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to remove resume');
+    }
+  };
+
+  const handleTranscriptFile = async (file: File) => {
+    setTranscriptError('');
+    setIsUploadingTranscript(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('transcript', file);
+
+      const response = await fetch('/api/profile/transcript', {
+        method: 'POST',
+        body: formData,
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Transcript upload failed.');
+      }
+
+      setCoursework(Array.isArray(payload?.coursework) ? payload.coursework : []);
+      await refreshSession();
+      toast.success('Transcript uploaded and coursework extracted.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Transcript upload failed.';
+      setTranscriptError(message);
+      toast.error(message);
+    } finally {
+      setIsUploadingTranscript(false);
+    }
+  };
+
+  const handleRemoveTranscript = async () => {
+    try {
+      await updateStudentProfile({ transcript: null, coursework: [] });
+      setCoursework([]);
+      toast.success('Transcript removed.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to remove transcript');
     }
   };
 
@@ -461,8 +546,10 @@ export default function StudentProfile({
     setIsEditingResearchInterests(false);
     setCustomInterestInput('');
     setSkills(studentProfile?.skills || []);
+    setCoursework(studentProfile?.coursework || []);
     setSkillInput('');
     setDebouncedSkillInput('');
+    setTranscriptError('');
     setPhotoFormatError(false);
     reset({
       name: user?.name || studentProfile?.name || '',
@@ -973,6 +1060,92 @@ export default function StudentProfile({
                   </div>
                 ) : null}
               </div>
+
+              <div className="space-y-3 md:col-span-2">
+                <Label className={labelClassName}>Transcript</Label>
+                <div className="rounded-2xl border border-[#d9d9d9] bg-[#fcfbfa] p-4">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-lg bg-red-50 p-2">
+                        <BookOpen className="h-5 w-5 text-red-700" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-[#111111]">
+                          {studentProfile?.transcript ? studentProfile.transcript.name : 'Upload transcript for coursework scoring'}
+                        </p>
+                        <p className="mt-1 text-sm text-[#666666]">
+                          Coursework from your transcript will be used as evidence in the AI confidence score.
+                        </p>
+                        {studentProfile?.transcript ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Uploaded {new Date(studentProfile.transcript.uploadDate).toLocaleDateString()}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {studentProfile?.transcript ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="rounded-2xl border-[#d8d8d8] bg-white px-4 text-[#575757] hover:bg-[#f7f7f7] hover:text-[#111111]"
+                          onClick={handleRemoveTranscript}
+                          disabled={isAiBusy || isUploadingTranscript}
+                        >
+                          Remove
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-2xl border-[#d8d8d8] bg-white px-4 text-[#575757] hover:bg-[#f7f7f7] hover:text-[#111111]"
+                        onClick={() => transcriptInputRef.current?.click()}
+                        disabled={isAiBusy || isUploadingTranscript}
+                      >
+                        {isUploadingTranscript ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Extracting
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="mr-2 h-4 w-4" />
+                            {studentProfile?.transcript ? 'Replace Transcript' : 'Upload Transcript'}
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {transcriptError ? <p className="mt-3 text-sm text-red-600" role="alert">{transcriptError}</p> : null}
+
+                  {coursework.length > 0 ? (
+                    <div className="mt-4 space-y-3">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#7b7b7b]">
+                        Extracted coursework ({coursework.length})
+                      </p>
+                      {groupCourseworkBySemester(coursework).map((group) => (
+                        <div key={group.semester} className="space-y-2">
+                          <p className="text-xs font-semibold text-[#555555]">{group.semester}</p>
+                          <div className="flex flex-wrap gap-2">
+                            {group.courses.map((course, index) => (
+                              <span
+                                key={getCourseworkKey(course, index)}
+                                className="inline-flex items-center rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-700"
+                              >
+                                {formatCourseworkEntry(course)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-4 text-sm text-[#777777]">No transcript coursework stored yet.</p>
+                  )}
+                </div>
+              </div>
           </div>
         </div>
       </div>
@@ -1044,6 +1217,19 @@ export default function StudentProfile({
           };
           reader.readAsDataURL(file);
           e.target.value = '';
+        }}
+        className="hidden"
+      />
+      <input
+        ref={transcriptInputRef}
+        type="file"
+        accept=".pdf,.txt"
+        onChange={async (event) => {
+          const file = event.target.files?.[0];
+          if (file) {
+            await handleTranscriptFile(file);
+          }
+          event.target.value = '';
         }}
         className="hidden"
       />

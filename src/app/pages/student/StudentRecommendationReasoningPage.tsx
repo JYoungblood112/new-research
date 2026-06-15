@@ -399,11 +399,11 @@ export default function StudentRecommendationReasoningPage() {
   const githubUsername = extractGitHubUsername(githubUrl);
 
   // Bug fix: consume actual recommendation arrays and flatten any malformed payload shape.
-  const qualificationItems = normalizeList(recommendation.qualifications?.map((q) => q) ?? recommendation.qualifications);
-  const fitItems = normalizeList(recommendation.fit_reasoning?.map((f) => f) ?? recommendation.fit_reasoning).filter(
+  const qualificationItems = normalizeList(recommendation.qualifications);
+  const fitItems = normalizeList(recommendation.fit_reasoning).filter(
     (item) => item !== 'Detailed model reasoning was unavailable for this request; fallback ranking is shown.'
   );
-  const gapItems = normalizeList(recommendation.gaps?.map((g) => g) ?? recommendation.gaps)
+  const gapItems = normalizeList(recommendation.gaps)
     .filter((item) => !/no\s+github|no\s+linkedin/i.test(item))
     .map((item) => buildConstructiveGapText(item))
     .filter(Boolean);
@@ -530,7 +530,7 @@ export default function StudentRecommendationReasoningPage() {
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground md:text-base">
-                        {posting.title} • {posting.professorName} • {posting.professorDepartment}
+                        {posting.title} - {posting.professorName} - {posting.professorDepartment}
                       </p>
                     </div>
 
@@ -794,8 +794,8 @@ export default function StudentRecommendationReasoningPage() {
               </CardHeader>
               <CardContent className="space-y-3 px-6 pb-6">
                 {qualificationItems.length > 0 ? (
-                  recommendation.qualifications?.map((q, i) => {
-                    const content = String(q ?? '').trim();
+                  qualificationItems.map((q, i) => {
+                    const content = q.trim();
                     if (!content || !removeVariableNameLeak(content)) {
                       return null;
                     }
@@ -818,8 +818,8 @@ export default function StudentRecommendationReasoningPage() {
                 <CardDescription>Model fit-reasoning statements used in this page</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 px-6 pb-6">
-                {recommendation.fit_reasoning?.map((f, i) => {
-                  const content = String(f ?? '').trim();
+                {fitItems.length > 0 ? fitItems.map((f, i) => {
+                  const content = f.trim();
                   if (!content || !removeVariableNameLeak(content)) {
                     return null;
                   }
@@ -829,7 +829,9 @@ export default function StudentRecommendationReasoningPage() {
                       <p className="text-sm text-[#1f2e4a]">{content}</p>
                     </div>
                   );
-                })}
+                }) : (
+                  <p className="text-sm text-muted-foreground">No reasoning signals were provided.</p>
+                )}
               </CardContent>
             </Card>
 
@@ -839,8 +841,8 @@ export default function StudentRecommendationReasoningPage() {
                 <CardDescription>Raw gap inputs received for this recommendation</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 px-6 pb-6">
-                {recommendation.gaps?.map((g, i) => {
-                  const content = String(g ?? '').trim();
+                {gapItems.length > 0 ? gapItems.map((g, i) => {
+                  const content = g.trim();
                   if (!content || !removeVariableNameLeak(content) || /^(not provided|null|undefined)$/i.test(content)) {
                     return null;
                   }
@@ -850,7 +852,9 @@ export default function StudentRecommendationReasoningPage() {
                       <p className="text-sm text-[#4d3f25]">{buildConstructiveGapText(content)}</p>
                     </div>
                   );
-                })}
+                }) : (
+                  <p className="text-sm text-muted-foreground">No gap signals were provided.</p>
+                )}
               </CardContent>
             </Card>
           </>

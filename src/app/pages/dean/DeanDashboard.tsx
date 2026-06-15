@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type React from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import {
   BarChart3,
   Building2,
@@ -44,6 +44,14 @@ import {
   supplyDemandMetrics,
 } from '../../mock/deanDashboard';
 import { generateDeanInsights, generateDeanResearchReport, type DeanInsight } from '../../lib/api';
+import {
+  calculateDepartmentComparisons,
+  calculateFacultyMentorshipMetrics,
+  calculateFundingOutputMetrics,
+  calculateOpportunityGap,
+  calculateResearchEcosystemHealth,
+  calculateStudentOutcomeRates,
+} from '../../lib/dashboardAnalytics';
 
 const defaultInsights: DeanInsight[] = [
   {
@@ -86,6 +94,7 @@ function metricIcon(index: number) {
 export default function DeanDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { tabId } = useParams();
   const [report, setReport] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState('');
@@ -93,7 +102,37 @@ export default function DeanDashboard() {
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsError, setInsightsError] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [activeNavItem, setActiveNavItem] = useState('overview');
+  const activeNavItem = DEAN_NAV_ITEMS.some((item) => item.id === tabId) ? tabId! : 'overview';
+  const ecosystemHealth = calculateResearchEcosystemHealth({
+    participationRate: 31,
+    facultyParticipationRate: 78,
+    completedProjects: 38,
+    activeProjects: 64,
+    publications: 41,
+    presentations: 57,
+    verifiedContributions: portfolioAnalytics.totalVerifiedContributions,
+    studentsPlaced: 142,
+    filledPositions: 142,
+    availablePositions: 174,
+  });
+  const opportunityGap = calculateOpportunityGap({
+    studentsSeeking: 386,
+    openPositions: 174,
+    filledPositions: 142,
+    demandRows: labDemandRows,
+  });
+  const calculatedDepartmentComparisons = calculateDepartmentComparisons(departmentComparisons);
+  const mentorshipMetrics = calculateFacultyMentorshipMetrics(facultyImpactRows);
+  const studentOutcomeRates = calculateStudentOutcomeRates(studentOutcomeMetrics, 142);
+  const fundingOutputMetrics = calculateFundingOutputMetrics({
+    totalGrantFunding: '$4.2M',
+    activeGrants: 17,
+    pendingGrantFunding: '$1.1M',
+    fundedProjects: 47,
+    outputs: 41 + 57 + 73,
+    fundedStudentCount: 86,
+    fundingByArea,
+  });
 
   async function handleGenerateReport() {
     setReportLoading(true);
@@ -128,8 +167,7 @@ export default function DeanDashboard() {
   }
 
   function handleNavClick(sectionId: string) {
-    setActiveNavItem(sectionId);
-    document.getElementById(`dean-${sectionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    navigate(sectionId === 'overview' ? '/dean/dashboard' : `/dean/dashboard/${sectionId}`);
   }
 
   async function handleLogout() {
@@ -204,6 +242,8 @@ export default function DeanDashboard() {
         </aside>
 
         <section className="min-w-0 flex-1 space-y-4">
+        {activeNavItem === 'overview' ? (
+        <>
         <div id="dean-overview" className="grid scroll-mt-6 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {deanOverviewStats.map((stat, index) => {
             const Icon = metricIcon(index);
@@ -218,6 +258,35 @@ export default function DeanDashboard() {
           })}
         </div>
 
+        <div className="grid gap-4 lg:grid-cols-[minmax(320px,0.75fr)_minmax(0,1.25fr)]">
+          <Panel title="Research Ecosystem Health" subtitle="Composite health score from participation, mentorship, outputs, verified contributions, outcomes, and opportunity fill rate.">
+            <div className="flex flex-col gap-5 md:flex-row md:items-center">
+              <div className="flex h-32 w-32 shrink-0 items-center justify-center rounded-full border-8 border-red-100 bg-red-50">
+                <span className="text-4xl font-bold text-red-700">{ecosystemHealth.score}</span>
+              </div>
+              <div className="grid flex-1 gap-3 sm:grid-cols-2">
+                <MiniMetric label="Project completion rate" value={`${ecosystemHealth.completionRate}%`} />
+                <MiniMetric label="Opportunity fill rate" value={`${ecosystemHealth.fillRate}%`} />
+                <MiniMetric label="Output strength" value={`${ecosystemHealth.outputRate}%`} />
+                <MiniMetric label="Contribution strength" value={`${ecosystemHealth.contributionRate}%`} />
+              </div>
+            </div>
+          </Panel>
+
+          <Panel title="Research Participation" subtitle="Institutional participation and mentorship capacity snapshot.">
+            <MetricGrid
+              rows={[
+                ['Students in research', '142'],
+                ['Student participation rate', '31%'],
+                ['Faculty participating', '36'],
+                ['Faculty participation rate', '78%'],
+                ['Student / faculty ratio', '3.9'],
+                ['Research hours logged', '11,840'],
+              ]}
+            />
+          </Panel>
+        </div>
+
         <Panel title="Dean Key Questions" subtitle="Direct answers to the decisions this dashboard is meant to support.">
           <div className="grid gap-3 lg:grid-cols-2">
             {deanKeyQuestions.map((item) => (
@@ -229,7 +298,10 @@ export default function DeanDashboard() {
             ))}
           </div>
         </Panel>
+        </>
+        ) : null}
 
+        {activeNavItem === 'output' ? (
         <div id="dean-output" className="grid scroll-mt-6 gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
           <Panel title="Department Research Output" subtitle="Production, participation, publications, patents, and funding.">
             <MetricGrid rows={researchOutputMetrics} />
@@ -258,11 +330,13 @@ export default function DeanDashboard() {
             </div>
           </Panel>
         </div>
+        ) : null}
 
+        {activeNavItem === 'comparison' ? (
         <div id="dean-comparison" className="grid scroll-mt-6 gap-6 lg:grid-cols-2">
           <Panel title="Department Comparison" subtitle="Relative performance across university departments, history, and peers.">
             <div className="space-y-3">
-              {departmentComparisons.map((row) => (
+              {calculatedDepartmentComparisons.map((row) => (
                 <div key={row.name} className="rounded-2xl border border-[#eeeeee] bg-[#fafafa] p-4">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
@@ -315,9 +389,17 @@ export default function DeanDashboard() {
             </div>
           </Panel>
         </div>
+        ) : null}
 
+        {activeNavItem === 'faculty' ? (
         <div id="dean-faculty" className="scroll-mt-6">
-        <Panel title="Faculty Research Impact" subtitle="Mentorship, output, grants, approved progress reports, and verified contributions.">
+          <Panel title="Faculty Research Impact" subtitle="Mentorship, output, grants, approved progress reports, and verified contributions.">
+          <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MiniMetric label="Active faculty mentors" value={mentorshipMetrics.activeFaculty.toString()} />
+            <MiniMetric label="Faculty without active students" value={mentorshipMetrics.inactiveFaculty.toString()} />
+            <MiniMetric label="Reports approved" value={mentorshipMetrics.reportsApproved.toString()} />
+            <MiniMetric label="Verified contributions supervised" value={mentorshipMetrics.verifiedContributionsSupervised.toString()} />
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[920px] text-left text-sm">
               <thead>
@@ -358,10 +440,20 @@ export default function DeanDashboard() {
           </div>
         </Panel>
         </div>
+        ) : null}
 
+        {activeNavItem === 'outcomes' ? (
         <div id="dean-outcomes" className="grid scroll-mt-6 gap-6 lg:grid-cols-2">
           <Panel title="Student Outcomes" subtitle="Research involvement translated into publications, presentations, internships, jobs, and graduate study.">
             <MetricGrid rows={studentOutcomeMetrics} />
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <MiniMetric label="Internship rate" value={`${studentOutcomeRates.internshipRate}%`} />
+              <MiniMetric label="Full-time offer rate" value={`${studentOutcomeRates.offerRate}%`} />
+              <MiniMetric label="Graduate placement rate" value={`${studentOutcomeRates.graduatePlacementRate}%`} />
+              <MiniMetric label="Publication rate" value={`${studentOutcomeRates.publicationRate}%`} />
+              <MiniMetric label="Presentation rate" value={`${studentOutcomeRates.presentationRate}%`} />
+              <MiniMetric label="Continued research rate" value={`${studentOutcomeRates.continuingResearchRate}%`} />
+            </div>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <TrendChart title="Students Placed" rows={outcomeTrend} valueKey="placed" />
               <TrendChart title="Verified Contributions" rows={outcomeTrend} valueKey="verified" />
@@ -391,10 +483,19 @@ export default function DeanDashboard() {
             </div>
           </Panel>
         </div>
+        ) : null}
 
+        {['gaps', 'funding', 'access'].includes(activeNavItem) ? (
         <div className="grid gap-6 lg:grid-cols-3">
+          {activeNavItem === 'gaps' ? (
           <div id="dean-gaps" className="scroll-mt-6">
           <Panel title="Research Gaps Analysis" subtitle="Metric-backed capacity and coverage issues.">
+            <div className="mb-5 grid gap-3 sm:grid-cols-2">
+              <MiniMetric label="Students seeking research" value="386" />
+              <MiniMetric label="Unfilled student demand" value={opportunityGap.unfilledStudentDemand.toString()} />
+              <MiniMetric label="Filled positions" value={opportunityGap.filledPositions.toString()} />
+              <MiniMetric label="Opportunity fill rate" value={`${opportunityGap.opportunityFillRate}%`} />
+            </div>
             <div className="space-y-3">
               {researchGapSignals.map((signal) => (
                 <div key={signal} className="flex gap-3 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-900">
@@ -405,16 +506,26 @@ export default function DeanDashboard() {
             </div>
           </Panel>
           </div>
+          ) : null}
 
+          {activeNavItem === 'funding' ? (
           <div id="dean-funding" className="scroll-mt-6">
           <Panel title="Funding and Grants" subtitle="Active funding, pending grants, student participation, and output per dollar.">
             <MetricGrid rows={fundingMetrics} />
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <MiniMetric label="Funded projects" value="47" />
+              <MiniMetric label="Output per funded project" value={fundingOutputMetrics.outputPerFundedProject.toString()} />
+              <MiniMetric label="Student participation in funded projects" value={fundingOutputMetrics.studentParticipationInFundedProjects.toString()} />
+              <MiniMetric label="Pending funding" value="$1.1M" />
+            </div>
             <div className="mt-5">
               <BarList title="Funding by Research Area" rows={fundingByArea.map((row) => [row.label, row.value])} suffix="M" prefix="$" />
             </div>
           </Panel>
           </div>
+          ) : null}
 
+          {activeNavItem === 'access' ? (
           <div id="dean-access" className="scroll-mt-6">
           <Panel title="Diversity and Access" subtitle="Participation by major, class year, department, and collaboration patterns.">
             <BarList title="Participation by Major" rows={accessMetrics.byMajor} suffix="%" />
@@ -428,8 +539,11 @@ export default function DeanDashboard() {
             </div>
           </Panel>
           </div>
+          ) : null}
         </div>
+        ) : null}
 
+        {activeNavItem === 'portfolio' ? (
         <div id="dean-portfolio" className="scroll-mt-6">
         <Panel title="Research Portfolio Analytics" subtitle="Aggregated progress reports and verified contribution activity from the platform.">
           <div className="grid gap-4 md:grid-cols-3">
@@ -445,6 +559,7 @@ export default function DeanDashboard() {
           </div>
         </Panel>
         </div>
+        ) : null}
         </section>
       </main>
     </div>

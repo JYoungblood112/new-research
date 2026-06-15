@@ -32,6 +32,8 @@ export type StudentSetupProfile = {
   skills?: string[];
   interests?: string[];
   resume?: { name: string; uploadDate: string } | null;
+  transcript?: { name: string; uploadDate: string } | null;
+  coursework?: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
 };
 
 export type ProfessorSetupProfile = {
@@ -55,6 +57,7 @@ export type SetupState = {
   steps: {
     basic: boolean;
     resume?: boolean;
+    transcript?: boolean;
     skills?: boolean;
     interests?: boolean;
     contact?: boolean;
@@ -134,6 +137,8 @@ export async function updateStudentSetup(payload: {
   skills?: string[];
   interests?: string[];
   resume?: { name: string; uploadDate: string } | null;
+  transcript?: { name: string; uploadDate: string } | null;
+  coursework?: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
 }): Promise<{ setup: SetupState }> {
   return request('/api/setup/student', {
     method: 'PUT',

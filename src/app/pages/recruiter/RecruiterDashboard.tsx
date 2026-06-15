@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import {
   ArrowRight,
   BarChart3,
@@ -41,6 +41,14 @@ import {
   rankRecruiterCandidates,
   type RecruiterCandidateMatch,
 } from '../../lib/api';
+import {
+  calculateCandidateQualityMetrics,
+  calculateRecruiterFunnel,
+  calculateResearchAreaTalentMap,
+  calculateSkillSupply,
+  calculateUniversityRankings,
+  calculateVerifiedTalentPipeline,
+} from '../../lib/dashboardAnalytics';
 
 const ALL = 'all';
 
@@ -82,6 +90,7 @@ function candidateSearchText(candidate: RecruiterCandidate) {
 export default function RecruiterDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { tabId } = useParams();
   const [query, setQuery] = useState('');
   const [university, setUniversity] = useState(ALL);
   const [major, setMajor] = useState(ALL);
@@ -101,7 +110,7 @@ export default function RecruiterDashboard() {
   const [outreachMessage, setOutreachMessage] = useState('');
   const [outreachLoading, setOutreachLoading] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [activeNavItem, setActiveNavItem] = useState('overview');
+  const activeNavItem = RECRUITER_NAV_ITEMS.some((item) => item.id === tabId) ? tabId! : 'overview';
 
   const universities = useMemo(() => uniqueValues(recruiterCandidates.map((candidate) => candidate.university)), []);
   const majors = useMemo(() => uniqueValues(recruiterCandidates.map((candidate) => candidate.major)), []);
@@ -131,6 +140,23 @@ export default function RecruiterDashboard() {
 
   const savedCandidates = recruiterCandidates.filter((candidate) => savedIds.includes(candidate.id));
   const outreachCandidate = recruiterCandidates.find((candidate) => candidate.id === outreachCandidateId) ?? recruiterCandidates[0];
+  const talentPipeline = calculateVerifiedTalentPipeline(recruiterCandidates);
+  const candidateQuality = calculateCandidateQualityMetrics(recruiterCandidates);
+  const skillSupply = calculateSkillSupply(recruiterCandidates, roleForm);
+  const universityRankings = calculateUniversityRankings(recruiterCandidates, researchArea === ALL ? undefined : researchArea);
+  const recruiterFunnel = calculateRecruiterFunnel({
+    savedCandidates: savedIds.length,
+    outreachSent: 126,
+    responsesReceived: 81,
+    interviewsScheduled: 34,
+    offersMade: 12,
+  });
+  const researchAreaTalentMap = calculateResearchAreaTalentMap(recruiterCandidates);
+  const bestFitCandidates = [...recruiterCandidates].sort((a, b) => b.matchPercentage - a.matchPercentage).slice(0, 3);
+  const trendingCandidates = [...recruiterCandidates].sort((a, b) => b.researchHours - a.researchHours).slice(0, 3);
+  const underTheRadarCandidates = recruiterCandidates
+    .filter((candidate) => candidate.researchScore >= 84 && candidate.matchPercentage < 88)
+    .sort((a, b) => b.verifiedContributions - a.verifiedContributions);
 
   function toggleSaveCandidate(candidateId: string) {
     setSavedIds((current) => {
@@ -183,8 +209,7 @@ export default function RecruiterDashboard() {
   }
 
   function handleNavClick(sectionId: string) {
-    setActiveNavItem(sectionId);
-    document.getElementById(`recruiter-${sectionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    navigate(sectionId === 'overview' ? '/recruiter/dashboard' : `/recruiter/dashboard/${sectionId}`);
   }
 
   async function handleLogout() {
@@ -259,6 +284,8 @@ export default function RecruiterDashboard() {
         </aside>
 
         <section className="min-w-0 flex-1 space-y-4">
+          {activeNavItem === 'overview' ? (
+          <>
           <div id="recruiter-overview" className="grid scroll-mt-6 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {recruiterOverviewStats.map((stat) => (
             <div key={stat.label} className="rounded-2xl border border-[#dddddd] bg-white p-4 shadow-sm">
@@ -268,8 +295,36 @@ export default function RecruiterDashboard() {
             </div>
           ))}
           </div>
+          <section className="rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-2">
+              <UserCheck className="h-5 w-5 text-red-700" />
+              <h2 className="text-lg font-semibold text-[#1f1f1f]">Verified Talent Pipeline</h2>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {talentPipeline.rows.map(([label, value]) => (
+                <Metric key={label} label={label} value={value} />
+              ))}
+            </div>
+          </section>
+          <section className="rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+            <h2 className="text-lg font-semibold text-[#1f1f1f]">Candidate Quality Analytics</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <Metric label="Avg research score" value={`${candidateQuality.averageResearchScore}/100`} />
+              <Metric label="Avg verification score" value={`${candidateQuality.averageVerificationScore}/100`} />
+              <Metric label="Evidence coverage" value={`${candidateQuality.evidenceCoverage}%`} />
+              <Metric label="Publication rate" value={`${candidateQuality.publicationRate}%`} />
+              <Metric label="Endorsement rate" value={`${candidateQuality.endorsementRate}%`} />
+            </div>
+            <div className="mt-5">
+              <BarRows title="Research Experience Distribution" rows={candidateQuality.experienceDistribution} suffix=" candidates" />
+            </div>
+          </section>
+          </>
+          ) : null}
 
+          {['candidates', 'matching'].includes(activeNavItem) ? (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.85fr)]">
+          {activeNavItem === 'candidates' ? (
           <div id="recruiter-candidates" className="scroll-mt-6 rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-3 border-b border-[#eeeeee] pb-4 md:flex-row md:items-center md:justify-between">
               <div>
@@ -317,7 +372,9 @@ export default function RecruiterDashboard() {
               )}
             </div>
           </div>
+          ) : null}
 
+          {activeNavItem === 'matching' ? (
           <div id="recruiter-matching" className="scroll-mt-6 space-y-6">
             <section className="rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
               <div className="flex items-center gap-2">
@@ -395,6 +452,28 @@ export default function RecruiterDashboard() {
             </section>
 
             <section className="rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold text-[#1f1f1f]">Skill Supply Analytics</h2>
+              <div className="mt-4">
+                <BarRows title="Most Common Skills" rows={skillSupply.commonSkills} suffix=" candidates" />
+              </div>
+              <AnalyticsBlock title="Fastest Growing Skills" rows={skillSupply.fastestGrowingSkills} />
+              <div className="mt-4">
+                <h3 className="text-sm font-semibold text-[#1f1f1f]">Role Skill Shortages</h3>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {skillSupply.shortages.length > 0 ? (
+                    skillSupply.shortages.map((skill) => (
+                      <Badge key={skill} className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
+                        {skill}
+                      </Badge>
+                    ))
+                  ) : (
+                    <p className="text-sm text-[#666666]">No shortage detected for the selected role skills.</p>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
               <div className="flex items-center gap-2">
                 <Mail className="h-5 w-5 text-red-700" />
                 <h2 className="text-lg font-semibold text-[#1f1f1f]">AI Outreach Assistant</h2>
@@ -430,9 +509,13 @@ export default function RecruiterDashboard() {
               </div>
             </section>
           </div>
+          ) : null}
           </div>
+          ) : null}
 
+          {['portfolio', 'watchlist', 'analytics'].includes(activeNavItem) ? (
           <div className="grid gap-6 lg:grid-cols-3">
+          {activeNavItem === 'portfolio' ? (
           <div id="recruiter-portfolio" className="scroll-mt-6 rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm lg:col-span-2">
             <h2 className="text-lg font-semibold text-[#1f1f1f]">Verified Research Portfolio Feed</h2>
             <div className="mt-4 space-y-4">
@@ -468,8 +551,12 @@ export default function RecruiterDashboard() {
               ))}
             </div>
           </div>
+          ) : null}
 
+          {['watchlist', 'analytics'].includes(activeNavItem) ? (
           <div className="space-y-6">
+            {activeNavItem === 'watchlist' ? (
+            <>
             <section id="recruiter-watchlist" className="scroll-mt-6 rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
               <h2 className="text-lg font-semibold text-[#1f1f1f]">Watchlist</h2>
               <p className="mt-1 text-sm text-[#666666]">{savedCandidates.length} saved candidates</p>
@@ -488,6 +575,21 @@ export default function RecruiterDashboard() {
               </div>
             </section>
 
+            <section className="rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold text-[#1f1f1f]">Recruiter Funnel</h2>
+              <div className="mt-4">
+                <BarRows title="Current Cycle" rows={recruiterFunnel.rows} />
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <Metric label="Response conversion" value={`${recruiterFunnel.responseRate}%`} />
+                <Metric label="Interview conversion" value={`${recruiterFunnel.interviewRate}%`} />
+                <Metric label="Offer conversion" value={`${recruiterFunnel.offerRate}%`} />
+              </div>
+            </section>
+            </>
+            ) : null}
+
+            {activeNavItem === 'analytics' ? (
             <section id="recruiter-analytics" className="scroll-mt-6 rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
               <div className="flex items-center gap-2">
                 <BarChart3 className="h-5 w-5 text-red-700" />
@@ -497,6 +599,9 @@ export default function RecruiterDashboard() {
               <AnalyticsBlock title="Top Departments" rows={recruiterAnalytics.topDepartments} />
               <AnalyticsBlock title="Top Labs" rows={recruiterAnalytics.topLabs} />
               <AnalyticsBlock title="Fastest Growing Areas" rows={recruiterAnalytics.growingAreas} />
+              <AnalyticsBlock title="Top Universities by Current Candidate Evidence" rows={universityRankings.universities.map(([label, value]) => [label, `${value} candidates`])} />
+              <AnalyticsBlock title="Top Departments by Current Candidate Evidence" rows={universityRankings.departments.map(([label, value]) => [label, `${value} candidates`])} />
+              <AnalyticsBlock title="Top Labs by Current Candidate Outcomes" rows={universityRankings.labs.map(([label, value]) => [label, `${value} candidates`])} />
               <div className="mt-4">
                 <h3 className="text-sm font-semibold text-[#1f1f1f]">Talent Distribution</h3>
                 <div className="mt-2 space-y-2">
@@ -513,9 +618,20 @@ export default function RecruiterDashboard() {
                   ))}
                 </div>
               </div>
+              <div className="mt-4">
+                <BarRows title="Research Area Talent Map" rows={researchAreaTalentMap} suffix=" candidates" />
+              </div>
+              <div className="mt-5 grid gap-3 lg:grid-cols-3">
+                <CandidateInsightList title="Best-fit candidates" candidates={bestFitCandidates} />
+                <CandidateInsightList title="Trending candidates" candidates={trendingCandidates} />
+                <CandidateInsightList title="Under-the-radar candidates" candidates={underTheRadarCandidates} />
+              </div>
             </section>
+            ) : null}
           </div>
+          ) : null}
           </div>
+          ) : null}
         </section>
       </main>
     </div>
@@ -634,6 +750,57 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="rounded-xl border border-[#eeeeee] bg-[#fafafa] p-3">
       <p className="font-semibold text-[#1f1f1f]">{value}</p>
       <p className="text-xs text-[#666666]">{label}</p>
+    </div>
+  );
+}
+
+function BarRows({ title, rows, suffix = '' }: { title: string; rows: Array<[string, number]>; suffix?: string }) {
+  const max = Math.max(...rows.map(([, value]) => value), 1);
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-[#1f1f1f]">{title}</h3>
+      <div className="mt-3 space-y-3">
+        {rows.length === 0 ? (
+          <p className="text-sm text-[#666666]">No analytics available yet.</p>
+        ) : (
+          rows.map(([label, value]) => (
+            <div key={label}>
+              <div className="flex justify-between text-xs text-[#666666]">
+                <span>{label}</span>
+                <span>
+                  {value}
+                  {suffix}
+                </span>
+              </div>
+              <div className="mt-1 h-2 rounded-full bg-[#eeeeee]">
+                <div className="h-2 rounded-full bg-red-700" style={{ width: `${Math.max(8, (value / max) * 100)}%` }} />
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CandidateInsightList({ title, candidates }: { title: string; candidates: RecruiterCandidate[] }) {
+  return (
+    <div className="rounded-2xl border border-[#eeeeee] bg-[#fafafa] p-4">
+      <h3 className="text-sm font-semibold text-[#1f1f1f]">{title}</h3>
+      <div className="mt-3 space-y-2">
+        {candidates.length === 0 ? (
+          <p className="text-sm text-[#666666]">No candidates in this segment yet.</p>
+        ) : (
+          candidates.map((candidate) => (
+            <Link key={`${title}-${candidate.id}`} to={`/recruiter/candidates/${candidate.id}`} className="block rounded-xl bg-white p-3 hover:text-red-700">
+              <p className="text-sm font-semibold">{candidate.name}</p>
+              <p className="text-xs text-[#666666]">
+                {candidate.researchScore} research score - {candidate.verifiedContributions} verified contributions
+              </p>
+            </Link>
+          ))
+        )}
+      </div>
     </div>
   );
 }

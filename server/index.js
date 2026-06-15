@@ -75,6 +75,7 @@ function getSetupState(store, user) {
       steps: {
         basic: !!profile?.name?.trim() && !!profile?.major?.trim() && !!profile?.graduationYear?.trim(),
         resume: !!profile?.resume?.name,
+        transcript: !!profile?.transcript?.name,
         interests: Array.isArray(profile?.interests) && profile.interests.length > 0,
       },
     };
@@ -145,13 +146,29 @@ function getRecommendationProfileFingerprint(profile) {
     major: profile?.major ?? '',
     skills: Array.isArray(profile?.skills) ? profile.skills : [],
     interests: Array.isArray(profile?.interests) ? profile.interests : [],
+    coursework: Array.isArray(profile?.coursework) ? profile.coursework : [],
     summary: profile?.summary ?? '',
     university: profile?.university ?? '',
     degree: profile?.degree ?? '',
     github: profile?.github ?? profile?.githubUrl ?? profile?.github_url ?? '',
     linkedin: profile?.linkedin ?? profile?.linkedInUrl ?? profile?.linkedinUrl ?? profile?.linkedInURL ?? profile?.linkedin_url ?? '',
     resumeText: profile?.resumeText ?? '',
+    transcriptText: profile?.transcriptText ?? '',
   });
+}
+
+function formatCourseworkEntry(course) {
+  if (typeof course === 'string') {
+    return course.trim();
+  }
+
+  if (!course || typeof course !== 'object') {
+    return '';
+  }
+
+  const courseNumber = typeof course.courseNumber === 'string' ? course.courseNumber.trim() : '';
+  const courseName = typeof course.courseName === 'string' ? course.courseName.trim() : '';
+  return [courseNumber, courseName].filter(Boolean).join(' - ');
 }
 
 function recruiterRequired(req, res, next) {
@@ -241,6 +258,13 @@ function buildStudentScoringSignal(profile) {
     parts.push(`Research interests: ${profile.interests.filter(Boolean).join(', ')}`);
   }
 
+  if (Array.isArray(profile?.coursework) && profile.coursework.length > 0) {
+    const coursework = profile.coursework.map(formatCourseworkEntry).filter(Boolean);
+    if (coursework.length > 0) {
+      parts.push(`Transcript coursework: ${coursework.join(', ')}`);
+    }
+  }
+
   addLine('GitHub URL', profile?.github ?? profile?.githubUrl ?? profile?.github_url);
   addLine('LinkedIn URL', profile?.linkedin ?? profile?.linkedInUrl ?? profile?.linkedinUrl ?? profile?.linkedInURL ?? profile?.linkedin_url);
 
@@ -248,6 +272,12 @@ function buildStudentScoringSignal(profile) {
     parts.push(`Resume text:\n${profile.resumeText.trim().slice(0, 12000)}`);
   } else if (profile?.resume?.name) {
     parts.push(`Resume file uploaded: ${profile.resume.name}`);
+  }
+
+  if (typeof profile?.transcriptText === 'string' && profile.transcriptText.trim()) {
+    parts.push(`Transcript text:\n${profile.transcriptText.trim().slice(0, 6000)}`);
+  } else if (profile?.transcript?.name) {
+    parts.push(`Transcript file uploaded: ${profile.transcript.name}`);
   }
 
   return parts.join('\n');
@@ -318,7 +348,6 @@ async function scorePostingInBackground({ cacheKey, posting, profile, studentId 
 
       if (scoringResult?.score_breakdown) {
         setCached(cacheKey, scoringResult);
-        console.log('[bg score complete]', posting.id, 'confidence:', scoringResult.confidence);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown background scoring error.';
@@ -490,6 +519,8 @@ app.post('/api/auth/stub-sso', (req, res) => {
         skills: [],
         interests: [],
         resume: null,
+        transcript: null,
+        coursework: [],
       });
     }
 
@@ -587,6 +618,17 @@ app.put('/api/setup/student', authRequired, (req, res) => {
   }
   profile.skills = Array.isArray(next.skills) ? next.skills : profile.skills;
   profile.interests = Array.isArray(next.interests) ? next.interests : profile.interests;
+  profile.coursework = Array.isArray(next.coursework) ? next.coursework : profile.coursework;
+  if (Object.prototype.hasOwnProperty.call(next, 'transcript')) {
+    profile.transcript = next.transcript;
+    if (next.transcript === null) {
+      profile.transcriptFileName = undefined;
+      profile.transcriptUploadedAt = undefined;
+      profile.transcriptData = undefined;
+      profile.transcriptText = undefined;
+      profile.coursework = [];
+    }
+  }
 
   writeStore(store);
   warmRecommendationScoresForProfile({ store, studentId: user.id, profile });

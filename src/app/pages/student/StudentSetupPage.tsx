@@ -10,20 +10,13 @@ export default function StudentSetupPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState<'profile' | 'interests'>('profile');
 
-  const onboardingKey = user ? `student_onboarding_${user.id}` : null;
-  const onboardingDone = onboardingKey ? localStorage.getItem(onboardingKey) === 'true' : false;
-
   useEffect(() => {
-    if (setupState?.completed && onboardingDone) {
+    if (setupState?.completed) {
       navigate('/student/dashboard', { replace: true });
     }
-  }, [navigate, onboardingDone, setupState?.completed]);
+  }, [navigate, setupState?.completed]);
 
   const handleContinue = () => {
-    if (!onboardingKey) {
-      return;
-    }
-    localStorage.setItem(onboardingKey, 'true');
     navigate('/student/dashboard', { replace: true });
   };
 

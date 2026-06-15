@@ -10,6 +10,63 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 const profileRouter = express.Router();
 const VALID_ACADEMIC_YEARS = ['Freshman', 'Sophomore', 'Junior', 'Senior', "Master's", 'PhD'];
+const TRANSCRIPT_COURSE_STOP_WORDS = new Set([
+  'course',
+  'courses',
+  'title',
+  'grade',
+  'credits',
+  'credit',
+  'term',
+  'semester',
+  'transcript',
+  'institution',
+  'student',
+  'attempted',
+  'earned',
+  'quality',
+  'points',
+  'gpa',
+]);
+const TRANSCRIPT_TITLE_REPLACEMENTS = [
+  [/\bDIFFERENTIAL INT CAL\b/gi, 'Differential and Integral Calculus'],
+  [/\bINTEGRTN & APPROX\b/gi, 'Integration and Approximation'],
+  [/\bINTRO TO\b/gi, 'Introduction to'],
+  [/\bPRINCPLS OF COMPUTNG\b/gi, 'Principles of Computing'],
+  [/\bPRINCPLES OF MICROEC\b/gi, 'Principles of Microeconomics'],
+  [/\bPRINCPLES OF MACROEC\b/gi, 'Principles of Macroeconomics'],
+  [/\bMATRC & LINR TRNSF\b/gi, 'Matrices and Linear Transformations'],
+  [/\bBUSINESS SCI\b/gi, 'Business Science'],
+  [/\bFNDMTLS OF PGMG & CS\b/gi, 'Fundamentals of Programming and Computer Science'],
+  [/\bCONCEPTS OF MATHMTCS\b/gi, 'Concepts of Mathematics'],
+  [/\bDIFFRENTL EQUATIONS\b/gi, 'Differential Equations'],
+  [/\bDEV BLOCKCHAIN CASE\b/gi, 'Developing Blockchain Use Cases'],
+  [/\bREASONING DATA\b/gi, 'Reasoning with Data'],
+  [/\bPROB & STAT INF\b/gi, 'Probability and Statistical Inference'],
+  [/\bCONTRACT LAW & STRAT\b/gi, 'Contract Law and Strategy'],
+  [/\bBUSINESS COMMUNCTNS\b/gi, 'Business Communications'],
+  [/\bINTERPRETN & ARGMNT\b/gi, 'Interpretation and Argument'],
+  [/\bBUS SOCIETY & ETHICS\b/gi, 'Business Society and Ethics'],
+  [/\bINDIAN YOGA & MEDIT\b/gi, 'Indian Yoga and Meditation'],
+  [/\bINTRO\. DEEP LRNG\./gi, 'Introduction to Deep Learning'],
+  [/\bPRIN IMPRTV COMPTATN\b/gi, 'Principles of Imperative Computation'],
+  [/\bINTR CMPTR SYSTEMS\b/gi, 'Introduction to Computer Systems'],
+  [/\bNATURAL LANGUAGE PR\b/gi, 'Natural Language Processing'],
+  [/\bORGNZTN BEHAVIOR\b/gi, 'Organizational Behavior'],
+  [/\bBUSINESS PRSNTATIONS\b/gi, 'Business Presentations'],
+  [/\bMGMT\b/gi, 'Management'],
+  [/\bTRNSF\b/gi, 'Transformations'],
+  [/\bCMPTR\b/gi, 'Computer'],
+  [/\bPGMG\b/gi, 'Programming'],
+  [/\bMATHMTCS\b/gi, 'Mathematics'],
+  [/\bCOMMUNCTNS\b/gi, 'Communications'],
+  [/\bPRSNTATIONS\b/gi, 'Presentations'],
+  [/\bORGNZTN\b/gi, 'Organizational'],
+  [/\bIMPRTV\b/gi, 'Imperative'],
+  [/\bCOMPTATN\b/gi, 'Computation'],
+  [/\bLRNG\b/gi, 'Learning'],
+  [/\bINF\b/gi, 'Inference'],
+];
 
 function coerceText(value) {
   if (typeof value !== 'string') {
@@ -307,6 +364,252 @@ function normalizeSkillList(...skillSources) {
   return skills.length > 0 ? skills.join(', ') : null;
 }
 
+function normalizeCourseName(value) {
+  let cleaned = String(value ?? '')
+    .replace(/\b(?:A\+?|A-|B\+?|B-|C\+?|C-|D\+?|D-|F|P|S|U|W|I)\b\s*$/i, '')
+    .replace(/\b(?:\d+(?:\.\d+)?\s*)?(?:credits?|units?)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[,;:\-\s]+|[,;:\-\s]+$/g, '')
+    .trim();
+
+  for (const [pattern, replacement] of TRANSCRIPT_TITLE_REPLACEMENTS) {
+    cleaned = cleaned.replace(pattern, replacement);
+  }
+
+  return cleaned
+    .replace(/\s*&\s*/g, ' and ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[,;:\-\s]+|[,;:\-\s]+$/g, '')
+    .replace(/\b\w+\b/g, (word) => {
+      if (/^(?:AI|ML|CS|CMU|BLE|I|II|III|IV|V)$/.test(word)) {
+        return word;
+      }
+      const lower = word.toLowerCase();
+      if (['and', 'of', 'to', 'with', 'in', 'for'].includes(lower)) {
+        return lower;
+      }
+      return `${word[0].toUpperCase()}${word.slice(1).toLowerCase()}`;
+    })
+    .trim();
+}
+
+function normalizeCourseNumber(value) {
+  const match = String(value ?? '').match(/\b\d{5}\b|\b[A-Z]{2,6}\s*[- ]?\d{2,4}[A-Z]?\b/i);
+  return match ? match[0].replace(/\s+/g, '').toUpperCase() : '';
+}
+
+function looksLikeCourseName(value) {
+  const cleaned = normalizeCourseName(value);
+  if (cleaned.length < 4 || cleaned.length > 90) {
+    return false;
+  }
+
+  const normalized = cleaned.toLowerCase();
+  if (TRANSCRIPT_COURSE_STOP_WORDS.has(normalized)) {
+    return false;
+  }
+
+  return /[a-z]/i.test(cleaned) && !/^\d+$/.test(cleaned);
+}
+
+function getTranscriptSemesterBlocks(text) {
+  const lines = String(text ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  const blocks = [];
+  let current = { semester: 'Transfer / AP Credit', lines: [] };
+  const semesterHeaderPattern = /^(?:(?:Fall|Spring|Summer)(?:\s+\d+|(?:\s+\d+)?\/All\s+\d+)|Advanced Placement \/ Transfer Credits)\b/i;
+
+  for (const line of lines) {
+    if (semesterHeaderPattern.test(line)) {
+      if (current.lines.length > 0) {
+        blocks.push(current);
+      }
+      current = { semester: line, lines: [] };
+      continue;
+    }
+
+    current.lines.push(line);
+  }
+
+  if (current.lines.length > 0) {
+    blocks.push(current);
+  }
+
+  return blocks;
+}
+
+function extractCourseRowsFromTranscriptBlock(block) {
+  const blockText = block.lines.join('\n');
+  const rowPattern = /(^|\n)(\d{5})([A-Z][A-Z0-9@/&.,' -]{1,90}?)(?=\d{1,2}\.0{1,2}(?:TR|A\+?|A-|B\+?|B-|C\+?|C-|D\+?|D-|F|P|R|S|U|W|I|\d|\.|[A-Z]{2,4}\b))/g;
+  const rows = [];
+  let match;
+
+  while ((match = rowPattern.exec(blockText)) !== null) {
+    rows.push({
+      semester: block.semester,
+      courseNumber: match[2],
+      courseName: match[3],
+    });
+  }
+
+  return rows;
+}
+
+function extractTranscriptCoursesHeuristically(text) {
+  const courses = [];
+  const seen = new Set();
+
+  const addCourse = (courseNumber, value, semester) => {
+    const courseName = normalizeCourseName(value);
+    const normalizedCourseNumber = normalizeCourseNumber(courseNumber);
+    const key = `${normalizedCourseNumber}:${courseName.toLowerCase()}`;
+    if (!looksLikeCourseName(courseName) || seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    courses.push({
+      courseNumber: normalizedCourseNumber,
+      courseName,
+      semester,
+    });
+  };
+
+  const semesterBlocks = getTranscriptSemesterBlocks(text);
+  for (const block of semesterBlocks) {
+    const rows = extractCourseRowsFromTranscriptBlock(block);
+    for (const row of rows) {
+      addCourse(row.courseNumber, row.courseName, row.semester);
+    }
+  }
+
+  if (courses.length > 0) {
+    return courses.slice(0, 80);
+  }
+
+  const lines = String(text ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    if (/^(?:total|semester|cumulative|final|grade|units|points|quality|advanced placement|transfer credit|carnegie mellon|jonathan youngblood|note\b|not intended|as required|family rights|information contained|third party|page \d+)/i.test(line)) {
+      continue;
+    }
+
+    const catalogMatch = line.match(/\b([A-Z]{2,6}\s*[- ]?\d{2,4}[A-Z]?)\b\s+(.+)/);
+    if (catalogMatch?.[1]) {
+      addCourse(catalogMatch[1], catalogMatch[2]);
+      continue;
+    }
+
+    const trailingCatalogMatch = line.match(/^(.+?)\s+\b([A-Z]{2,6}\s*[- ]?\d{2,4}[A-Z]?)\b/);
+    if (trailingCatalogMatch?.[1]) {
+      addCourse(trailingCatalogMatch[2], trailingCatalogMatch[1]);
+    }
+  }
+
+  return courses.slice(0, 80);
+}
+
+async function extractTextFromUploadedAcademicFile(file, label) {
+  if (!file) {
+    throw new Error(`${label} file is required`);
+  }
+
+  if (file.mimetype === 'application/pdf') {
+    const parsed = await pdfParse(file.buffer);
+    return String(parsed?.text ?? '');
+  }
+
+  if (file.mimetype === 'text/plain') {
+    return file.buffer.toString('utf-8');
+  }
+
+  throw new Error(`${label} must be a PDF or plain text file`);
+}
+
+async function parseTranscriptBuffer(file) {
+  const transcriptText = await extractTextFromUploadedAcademicFile(file, 'transcript');
+  const heuristicCourses = extractTranscriptCoursesHeuristically(transcriptText);
+
+  const promptText = `You are parsing a college transcript. Return ONLY a raw JSON array of course objects.
+No markdown. No code fences. No explanation.
+
+Rules:
+- Include completed, in-progress, and transfer courses when the transcript text explicitly lists them.
+- Return objects with "courseNumber" and "courseName".
+- courseNumber should be the catalog number when present, such as "15112" or "15-112".
+- courseName should not include grades, credits, GPA, semester headers, or catalog numbers.
+- Do not invent courses.
+- Keep names short and readable.
+
+Shape:
+[
+  { "courseNumber": "15112", "courseName": "Fundamentals of Programming and Computer Science" }
+]
+
+Transcript text:
+${transcriptText.slice(0, 12000)}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000);
+
+  try {
+    const ollamaRes = await fetch('http://localhost:11434/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        stream: false,
+        format: 'json',
+        prompt: promptText,
+      }),
+    });
+
+    const ollamaJson = await ollamaRes.json();
+    const raw = typeof ollamaJson?.response === 'string' ? ollamaJson.response : '';
+    const match = raw.match(/\[[\s\S]*\]/);
+    const parsed = match ? JSON.parse(match[0]) : JSON.parse(raw);
+    const modelCourses = Array.isArray(parsed) ? parsed : [];
+    const merged = [];
+    const seen = new Set();
+
+    const coursesToMerge = heuristicCourses.length > 0 ? heuristicCourses : modelCourses;
+
+    for (const course of coursesToMerge) {
+      const courseNumber = typeof course === 'object' && course
+        ? normalizeCourseNumber(course.courseNumber)
+        : normalizeCourseNumber(course);
+      const courseName = typeof course === 'object' && course
+        ? normalizeCourseName(course.courseName)
+        : normalizeCourseName(course);
+      const key = `${courseNumber}:${courseName.toLowerCase()}`;
+      if (!looksLikeCourseName(courseName) || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      merged.push({ courseNumber, courseName });
+    }
+
+    return {
+      coursework: merged.slice(0, 40),
+      transcriptText,
+    };
+  } catch (error) {
+    console.warn('[parse-transcript] Falling back to deterministic extraction:', error instanceof Error ? error.message : String(error));
+    return {
+      coursework: heuristicCourses,
+      transcriptText,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function extractSummary(text) {
   const cleaned = text
     .split(/\r?\n/)
@@ -356,31 +659,33 @@ async function parseResumeBuffer(file) {
     throw new Error('resume must be a PDF or plain text file');
   }
 
-  const promptText = `You are a resume parser. Return ONLY a raw JSON object.
-No markdown. No code fences. No explanation.
-Start with { and end with }. One object, nothing else.
+  const promptText = `You extract structured facts from a resume. Return ONLY a raw JSON object.
+No markdown. No code fences. No explanation. Start with { and end with }.
 
 Rules:
-- Copy facts only when the resume text explicitly supports them. Do not infer from projects, coursework, job titles, or skills.
-- full_name: the person's full name as written at the top of the resume
-- email: email address only
-- linkedin: LinkedIn URL only - must contain "linkedin.com". Do NOT mix with GitHub.
-- github: GitHub URL only - must contain "github.com". Do NOT mix with LinkedIn.
+- Copy facts only when the resume text explicitly supports them.
+- Use null for unknown scalar fields and [] for skills when none are explicit.
+- Do not infer skills or major from projects, coursework, job titles, or school reputation.
+- full_name: person's full name as written near the top of the resume.
+- email: email address only.
+- linkedin: LinkedIn URL only. Must contain "linkedin.com". Do not mix with GitHub.
+- github: GitHub URL only. Must contain "github.com". Do not mix with LinkedIn.
 - major: declared primary field of study only. If the education line says "B.S. in Business, Additional Major in CS/AI", major must be "Business".
-- academic_year: exactly one of Freshman Sophomore Junior Senior Master's PhD. If the most recent in-progress education is PhD/Doctor of Philosophy/PhD Candidate, return "PhD". If it is MS/MA/MBA/Master of..., return "Master's". If it is BS/BA/Bachelor of..., infer Freshman/Sophomore/Junior/Senior from expected graduation year.
-- skills: comma-separated skills that appear in the resume text. Include business/data skills such as Tableau, Databricks, Excel, Power BI, financial modeling, market research, leadership, communication when present.
-- degree: e.g. Bachelor of Science, Master of Science, PhD - or null
+- academic_year: exactly one of Freshman, Sophomore, Junior, Senior, Master's, PhD.
+- academic_year is based on the most recent in-progress degree. Use PhD for PhD/Doctor of Philosophy/PhD Candidate, Master's for MS/MA/MBA/Master of..., or infer Freshman/Sophomore/Junior/Senior from expected graduation year for BS/BA/Bachelor of...
+- skills: array of explicit skills that appear in the resume text.
+- degree: e.g. Bachelor of Science, Master of Science, PhD, or null.
 
-Return exactly this shape with null for any field not found:
+Return exactly this shape:
 {
-  "full_name": "...",
-  "email": "...",
-  "linkedin": "...",
-  "github": "...",
-  "major": "...",
-  "academic_year": "...",
-  "skills": "...",
-  "degree": "..."
+  "full_name": null,
+  "email": null,
+  "linkedin": null,
+  "github": null,
+  "major": null,
+  "academic_year": null,
+  "skills": [],
+  "degree": null
 }
 
 Resume text:
@@ -391,9 +696,6 @@ ${resumeText.slice(0, 12000)}`;
 
   let ollamaRes;
   try {
-    console.log('File mimetype:', file?.mimetype);
-    console.log('File size (bytes):', file?.buffer?.length);
-    console.log('Resume text preview:', resumeText.slice(0, 300));
     ollamaRes = await fetch('http://localhost:11434/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -422,8 +724,6 @@ ${resumeText.slice(0, 12000)}`;
     error.ollamaJson = ollamaJson;
     throw error;
   }
-
-  console.log('[parse-resume] Raw Ollama output:', raw.slice(0, 300));
 
   // Strip ALL variations of markdown fences
   const stripped = raw
@@ -460,7 +760,6 @@ ${resumeText.slice(0, 12000)}`;
   }
 
   const normalized = normalizeParsedResume(parsed, resumeText);
-  console.log('[parse-resume] Successfully parsed fields:', Object.keys(normalized));
   return normalized;
 }
 
@@ -493,6 +792,8 @@ profileRouter.post('/resume', upload.single('resume'), async (req, res) => {
         skills: [],
         interests: [],
         resume: null,
+        transcript: null,
+        coursework: [],
       };
       store.studentProfiles.push(profile);
     }
@@ -523,6 +824,64 @@ profileRouter.post('/resume', upload.single('resume'), async (req, res) => {
   }
 });
 
+profileRouter.post('/transcript', upload.single('transcript'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'transcript file is required' });
+    }
+
+    const token = req.cookies?.cmu_session;
+    const sessionUserId = token ? getSessionUserId(token) : null;
+    if (!sessionUserId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const store = readStore();
+    const user = store.users.find((entry) => entry.id === sessionUserId && entry.role === 'student');
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    let profile = store.studentProfiles.find((entry) => entry.userId === user.id) ?? null;
+    if (!profile) {
+      profile = {
+        id: randomId('sp'),
+        userId: user.id,
+        name: user.name ?? '',
+        major: '',
+        graduationYear: '',
+        skills: [],
+        interests: [],
+        resume: null,
+        transcript: null,
+        coursework: [],
+      };
+      store.studentProfiles.push(profile);
+    }
+
+    const parsed = await parseTranscriptBuffer(req.file);
+    const uploadedAt = new Date().toISOString();
+    profile.transcriptFileName = req.file.originalname;
+    profile.transcriptUploadedAt = uploadedAt;
+    profile.transcriptData = req.file.buffer.toString('base64');
+    profile.transcriptText = parsed.transcriptText.slice(0, 12000);
+    profile.coursework = parsed.coursework;
+    profile.transcript = {
+      name: req.file.originalname,
+      uploadDate: uploadedAt,
+    };
+
+    writeStore(store);
+    return res.json({
+      success: true,
+      transcript: profile.transcript,
+      coursework: profile.coursework,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 profileRouter.post('/parse-resume', upload.single('resume'), async (req, res) => {
   try {
     if (!req.file) {
@@ -546,4 +905,4 @@ profileRouter.post('/parse-resume', upload.single('resume'), async (req, res) =>
   }
 });
 
-export { OLLAMA_MODEL, profileRouter };
+export { OLLAMA_MODEL, extractTranscriptCoursesHeuristically, profileRouter };

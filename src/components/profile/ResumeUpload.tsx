@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { Loader2, UploadCloud } from 'lucide-react';
+import { Check, Loader2, UploadCloud } from 'lucide-react';
 
 export interface ResumeFields {
   full_name: string | null;
@@ -80,8 +80,6 @@ const ResumeUpload = forwardRef<ResumeUploadHandle, ResumeUploadProps>(function 
         throw new Error('Resume parser returned no data.');
       }
 
-      console.log('Raw API response:', payload);
-      console.log('Calling onAutofill with:', payload.data);
       const fields = payload.data as ResumeFields;
       setParsedFields(fields);
       onAutofill(fields);
@@ -213,7 +211,7 @@ const ResumeUpload = forwardRef<ResumeUploadHandle, ResumeUploadProps>(function 
         <div className="rounded-xl border border-[#d7d0ca] bg-[#fcfbfa] px-4 py-3">
           {AUTOFILL_FIELDS.filter((f) => parsedFields[f.key] !== null).map((f) => (
             <div key={f.key} className="flex items-center gap-2 text-sm py-1">
-              <span className="text-green-500">✓</span>
+              <Check className="h-4 w-4 shrink-0 text-green-500" aria-hidden="true" />
               <span className="font-medium">{f.label}:</span>
               <span className="text-muted-foreground truncate max-w-xs">
                 {parsedFields[f.key]}
