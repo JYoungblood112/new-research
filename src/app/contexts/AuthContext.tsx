@@ -1,72 +1,262 @@
-import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import {
-  getSession,
-  logoutSession,
-  stubSsoLogin,
-  updateProfessorSetup,
-  updateStudentSetup,
-  type SetupState,
-  type User,
-  type UserRole,
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import type {
+  ProfessorSetupProfile,
+  SetupState,
+  StudentSetupProfile,
+  User,
+  UserRole,
 } from '../lib/api';
+import { supabase } from '../lib/supabase';
+import { upsertProfessor, upsertProfile, upsertStudent } from '../lib/researchPlatformQueries';
+import type { AppRole, Json, ProfessorRow, StudentRow } from '../lib/database.types';
 
 export type { UserRole, User };
+
+type StudentProfileInput = {
+  name?: string;
+  email?: string;
+  photoBase64?: string;
+  phone?: string;
+  location?: string;
+  linkedin?: string;
+  github?: string;
+  major?: string;
+  university?: string;
+  degree?: string;
+  gpa?: string;
+  graduationDate?: string;
+  graduationType?: string;
+  jobTitle?: string;
+  employer?: string;
+  yearsOfExperience?: string;
+  workAuthorization?: string;
+  summary?: string;
+  graduationYear?: string;
+  linkedInUrl?: string;
+  githubUrl?: string;
+  skills?: string[];
+  interests?: string[];
+  resume?: { name: string; uploadDate: string } | null;
+  transcript?: { name: string; uploadDate: string } | null;
+  coursework?: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
+};
+
+type ProfessorProfileInput = {
+  name?: string;
+  department?: string;
+  title?: string;
+  contactEmail?: string;
+  officeHours?: string;
+  bioUrl?: string;
+  researchAreas?: string;
+  professorWebsite?: string;
+  publicationsLink?: string;
+  researchInterests?: string;
+  photoBase64?: string;
+};
 
 interface AuthContextType {
   user: User | null;
   setupState: SetupState | null;
   loadingSession: boolean;
-  login: (
-    email: string,
-    name: string,
-    role: UserRole
-  ) => Promise<{ user: User; setup: SetupState }>;
+  login: (email: string, password: string, role?: UserRole) => Promise<{ user: User; setup: SetupState }>;
+  signup: (payload: {
+    email: string;
+    password: string;
+    name: string;
+    role: UserRole;
+  }) => Promise<{ user: User | null; setup: SetupState | null; needsEmailConfirmation: boolean }>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
-  updateStudentProfile: (profile: {
-    name?: string;
-    email?: string;
-    photoBase64?: string;
-    phone?: string;
-    location?: string;
-    linkedin?: string;
-    github?: string;
-    major?: string;
-    university?: string;
-    degree?: string;
-    gpa?: string;
-    graduationDate?: string;
-    graduationType?: string;
-    jobTitle?: string;
-    employer?: string;
-    yearsOfExperience?: string;
-    workAuthorization?: string;
-    summary?: string;
-    graduationYear?: string;
-    linkedInUrl?: string;
-    githubUrl?: string;
-    skills?: string[];
-    interests?: string[];
-    resume?: { name: string; uploadDate: string } | null;
-    transcript?: { name: string; uploadDate: string } | null;
-    coursework?: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
-  }) => Promise<void>;
-  updateProfessorProfile: (profile: {
-    name?: string;
-    department?: string;
-    title?: string;
-    contactEmail?: string;
-    officeHours?: string;
-    bioUrl?: string;
-    researchAreas?: string;
-    professorWebsite?: string;
-    publicationsLink?: string;
-    researchInterests?: string;
-    photoBase64?: string;
-  }) => Promise<void>;
+  updateStudentProfile: (profile: StudentProfileInput) => Promise<void>;
+  updateProfessorProfile: (profile: ProfessorProfileInput) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+function emptySetup(): SetupState {
+  return {
+    completed: false,
+    profile: null,
+    steps: {
+      basic: false,
+    },
+  };
+}
+
+function asProfileObject(value: Json): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function getString(value: unknown) {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function getStringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : undefined;
+}
+
+function studentRowToProfile(row: StudentRow | null, user: User): StudentSetupProfile | null {
+  if (!row) return null;
+  const metadata = asProfileObject(row.metadata);
+
+  return {
+    id: row.id,
+    userId: row.id,
+    name: user.name,
+    phone: row.phone ?? undefined,
+    location: row.location ?? undefined,
+    linkedin: row.linkedin_url ?? undefined,
+    github: row.github_url ?? undefined,
+    linkedInUrl: row.linkedin_url ?? undefined,
+    githubUrl: row.github_url ?? undefined,
+    major: row.major ?? undefined,
+    university: row.university ?? undefined,
+    degree: row.degree ?? undefined,
+    gpa: row.gpa === null ? undefined : String(row.gpa),
+    graduationYear: row.graduation_year === null ? undefined : String(row.graduation_year),
+    graduationDate: getString(metadata.graduationDate),
+    graduationType: getString(metadata.graduationType),
+    jobTitle: getString(metadata.jobTitle),
+    employer: getString(metadata.employer),
+    yearsOfExperience: getString(metadata.yearsOfExperience),
+    workAuthorization: getString(metadata.workAuthorization),
+    summary: row.summary ?? undefined,
+    skills: getStringArray(metadata.skills),
+    interests: getStringArray(metadata.interests),
+    resume: (row.resume && typeof row.resume === 'object' && !Array.isArray(row.resume) ? row.resume : null) as StudentSetupProfile['resume'],
+    transcript: (row.transcript && typeof row.transcript === 'object' && !Array.isArray(row.transcript) ? row.transcript : null) as StudentSetupProfile['transcript'],
+    coursework: Array.isArray(row.coursework) ? (row.coursework as StudentSetupProfile['coursework']) : undefined,
+  };
+}
+
+function studentSetupFromRow(row: StudentRow | null, user: User): SetupState {
+  const profile = studentRowToProfile(row, user);
+  const skills = profile?.skills ?? [];
+  const interests = profile?.interests ?? [];
+  const basic = Boolean(profile?.major && profile.university && profile.degree && profile.graduationYear);
+  const resume = Boolean(profile?.resume);
+
+  return {
+    completed: Boolean(basic && resume && skills.length > 0 && interests.length > 0),
+    profile,
+    steps: {
+      basic,
+      resume,
+      transcript: Boolean(profile?.transcript),
+      skills: skills.length > 0,
+      interests: interests.length > 0,
+    },
+  };
+}
+
+function professorRowToProfile(row: ProfessorRow | null, user: User): ProfessorSetupProfile | null {
+  if (!row) return null;
+  const metadata = asProfileObject(row.metadata);
+
+  return {
+    id: row.id,
+    userId: row.id,
+    name: user.name,
+    department: row.department ?? undefined,
+    title: row.title ?? undefined,
+    contactEmail: row.contact_email ?? undefined,
+    officeHours: row.office_hours ?? undefined,
+    bioUrl: row.bio_url ?? undefined,
+    researchAreas: row.research_areas.join(', '),
+    professorWebsite: row.professor_website ?? undefined,
+    publicationsLink: row.publications_link ?? undefined,
+    researchInterests: row.research_interests ?? undefined,
+    photoBase64: getString(metadata.photoBase64),
+  };
+}
+
+function professorSetupFromRow(row: ProfessorRow | null, user: User): SetupState {
+  const profile = professorRowToProfile(row, user);
+  const contact = Boolean(profile?.contactEmail && profile.bioUrl);
+  const basic = Boolean(profile?.department && profile.title && profile.researchAreas);
+
+  return {
+    completed: Boolean(basic && contact && profile?.researchInterests),
+    profile,
+    steps: {
+      basic,
+      contact,
+    },
+  };
+}
+
+async function loadSetupForUser(user: User): Promise<SetupState> {
+  if (!supabase) return emptySetup();
+
+  if (user.role === 'student') {
+    const { data, error } = await supabase.from('students').select('*').eq('id', user.id).maybeSingle();
+    if (error) throw error;
+    return studentSetupFromRow(data, user);
+  }
+
+  if (user.role === 'professor') {
+    const { data, error } = await supabase.from('professors').select('*').eq('id', user.id).maybeSingle();
+    if (error) throw error;
+    return professorSetupFromRow(data, user);
+  }
+
+  return {
+    completed: true,
+    profile: null,
+    steps: {
+      basic: true,
+    },
+  };
+}
+
+async function ensureProfileForSession(fallbackRole?: UserRole): Promise<User | null> {
+  if (!supabase) return null;
+
+  const {
+    data: { user: authUser },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !authUser?.email) {
+    return null;
+  }
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', authUser.id)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  const metadataRole = authUser.user_metadata?.role as UserRole | undefined;
+  const metadataName =
+    typeof authUser.user_metadata?.full_name === 'string'
+      ? authUser.user_metadata.full_name
+      : typeof authUser.user_metadata?.name === 'string'
+        ? authUser.user_metadata.name
+        : authUser.email;
+
+  const role = (profile?.role ?? metadataRole ?? fallbackRole ?? 'student') as UserRole;
+  const fullName = profile?.full_name ?? metadataName;
+
+  if (!profile) {
+    await upsertProfile({
+      id: authUser.id,
+      email: authUser.email,
+      full_name: fullName,
+      role: role as AppRole,
+    });
+  }
+
+  return {
+    id: authUser.id,
+    email: authUser.email,
+    name: fullName,
+    role,
+  };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -74,13 +264,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loadingSession, setLoadingSession] = useState(true);
 
   async function refreshSession(): Promise<void> {
+    setLoadingSession(true);
     try {
-      const data = await getSession();
-      setUser(data.user);
-      setSetupState(data.setup);
-    } catch {
-      setUser(null);
-      setSetupState(null);
+      const nextUser = await ensureProfileForSession();
+      if (!nextUser) {
+        setUser(null);
+        setSetupState(null);
+        return;
+      }
+
+      const setup = await loadSetupForUser(nextUser);
+      setUser(nextUser);
+      setSetupState(setup);
     } finally {
       setLoadingSession(false);
     }
@@ -88,78 +283,160 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refreshSession();
+
+    if (!supabase) return undefined;
+    const { data } = supabase.auth.onAuthStateChange(() => {
+      void refreshSession();
+    });
+
+    return () => {
+      data.subscription.unsubscribe();
+    };
   }, []);
 
-  async function login(
-    email: string,
-    name: string,
-    role: UserRole
-  ): Promise<{ user: User; setup: SetupState }> {
-    const data = await stubSsoLogin({ email, name, role });
-    setUser(data.user);
-    setSetupState(data.setup);
-    return { user: data.user, setup: data.setup };
+  async function login(email: string, password: string, role?: UserRole): Promise<{ user: User; setup: SetupState }> {
+    if (!supabase) throw new Error('Supabase is not configured.');
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error) throw error;
+
+    const nextUser = await ensureProfileForSession(role);
+    if (!nextUser) throw new Error('Unable to load Supabase user profile.');
+
+    const setup = await loadSetupForUser(nextUser);
+    setUser(nextUser);
+    setSetupState(setup);
+    return { user: nextUser, setup };
+  }
+
+  async function signup(payload: {
+    email: string;
+    password: string;
+    name: string;
+    role: UserRole;
+  }): Promise<{ user: User | null; setup: SetupState | null; needsEmailConfirmation: boolean }> {
+    if (!supabase) throw new Error('Supabase is not configured.');
+
+    const { data, error } = await supabase.auth.signUp({
+      email: payload.email,
+      password: payload.password,
+      options: {
+        data: {
+          full_name: payload.name,
+          role: payload.role,
+        },
+      },
+    });
+    if (error) throw error;
+
+    if (!data.session) {
+      return {
+        user: null,
+        setup: null,
+        needsEmailConfirmation: true,
+      };
+    }
+
+    const nextUser = await ensureProfileForSession(payload.role);
+    if (!nextUser) throw new Error('Unable to load Supabase user profile.');
+
+    const setup = await loadSetupForUser(nextUser);
+    setUser(nextUser);
+    setSetupState(setup);
+    return { user: nextUser, setup, needsEmailConfirmation: false };
   }
 
   async function logout(): Promise<void> {
-    try {
-      await logoutSession();
-    } finally {
-      setUser(null);
-      setSetupState(null);
+    if (supabase) {
+      await supabase.auth.signOut();
     }
+    setUser(null);
+    setSetupState(null);
   }
 
-  async function updateStudentProfile(profile: {
-    name?: string;
-    email?: string;
-    photoBase64?: string;
-    phone?: string;
-    location?: string;
-    linkedin?: string;
-    github?: string;
-    major?: string;
-    university?: string;
-    degree?: string;
-    gpa?: string;
-    graduationDate?: string;
-    graduationType?: string;
-    jobTitle?: string;
-    employer?: string;
-    yearsOfExperience?: string;
-    workAuthorization?: string;
-    summary?: string;
-    graduationYear?: string;
-    linkedInUrl?: string;
-    githubUrl?: string;
-    skills?: string[];
-    interests?: string[];
-    resume?: { name: string; uploadDate: string } | null;
-    transcript?: { name: string; uploadDate: string } | null;
-    coursework?: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
-  }): Promise<void> {
-    const data = await updateStudentSetup(profile);
-    setSetupState(data.setup);
-  }
+  async function updateStudentProfile(profile: StudentProfileInput): Promise<void> {
+    if (!user || user.role !== 'student') throw new Error('Student role required.');
 
-  async function updateProfessorProfile(profile: {
-    name?: string;
-    department?: string;
-    title?: string;
-    contactEmail?: string;
-    officeHours?: string;
-    bioUrl?: string;
-    researchAreas?: string;
-    professorWebsite?: string;
-    publicationsLink?: string;
-    researchInterests?: string;
-    photoBase64?: string;
-  }): Promise<void> {
-    const data = await updateProfessorSetup(profile);
-    setSetupState(data.setup);
     if (profile.name?.trim()) {
-      setUser((current) => (current ? { ...current, name: profile.name!.trim() } : current));
+      await upsertProfile({
+        id: user.id,
+        email: profile.email?.trim() || user.email,
+        role: 'student',
+        full_name: profile.name.trim(),
+      });
     }
+
+    const metadata = {
+      graduationDate: profile.graduationDate,
+      graduationType: profile.graduationType,
+      jobTitle: profile.jobTitle,
+      employer: profile.employer,
+      yearsOfExperience: profile.yearsOfExperience,
+      workAuthorization: profile.workAuthorization,
+      skills: profile.skills,
+      interests: profile.interests,
+      photoBase64: profile.photoBase64,
+    };
+
+    const updated = await upsertStudent({
+      id: user.id,
+      major: profile.major,
+      university: profile.university,
+      degree: profile.degree,
+      gpa: profile.gpa ? Number(profile.gpa) : undefined,
+      graduation_year: profile.graduationYear ? Number.parseInt(profile.graduationYear, 10) : undefined,
+      phone: profile.phone,
+      location: profile.location,
+      linkedin_url: profile.linkedInUrl ?? profile.linkedin,
+      github_url: profile.githubUrl ?? profile.github,
+      summary: profile.summary,
+      resume: (profile.resume ?? {}) as Json,
+      transcript: (profile.transcript ?? {}) as Json,
+      coursework: (profile.coursework ?? []) as Json,
+      metadata: metadata as Json,
+    });
+    const nextUser = profile.name?.trim() ? { ...user, name: profile.name.trim() } : user;
+    setUser(nextUser);
+    setSetupState(studentSetupFromRow(updated, nextUser));
+  }
+
+  async function updateProfessorProfile(profile: ProfessorProfileInput): Promise<void> {
+    if (!user || user.role !== 'professor') throw new Error('Professor role required.');
+
+    const nextName = profile.name?.trim() || user.name;
+    await upsertProfile({
+      id: user.id,
+      email: user.email,
+      role: 'professor',
+      full_name: nextName,
+    });
+
+    const researchAreas = (profile.researchAreas ?? '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+
+    const updated = await upsertProfessor({
+      id: user.id,
+      department: profile.department,
+      title: profile.title,
+      contact_email: profile.contactEmail,
+      office_hours: profile.officeHours,
+      bio_url: profile.bioUrl,
+      research_areas: researchAreas,
+      professor_website: profile.professorWebsite,
+      publications_link: profile.publicationsLink,
+      research_interests: profile.researchInterests,
+      metadata: {
+        photoBase64: profile.photoBase64,
+      } as Json,
+    });
+    const nextUser = { ...user, name: nextName };
+    setUser(nextUser);
+    setSetupState(professorSetupFromRow(updated, nextUser));
   }
 
   return (
@@ -169,6 +446,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setupState,
         loadingSession,
         login,
+        signup,
         logout,
         refreshSession,
         updateStudentProfile,
