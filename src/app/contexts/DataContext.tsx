@@ -2,12 +2,18 @@ import { createContext, useContext, useState, ReactNode, useEffect } from 'react
 import { useAuth } from './AuthContext';
 import {
   createApplication,
+  createProject,
+  getCurrentProfessor,
   listMyApplications,
   listProjectApplications,
+  listProfessorProjects,
   listPublicProjects,
+  updateProject,
   updateProjectApplicationStatus,
 } from '../lib/researchPlatformQueries';
-import type { ApplicationRow, ApplicationStatus, Json, ProjectCompensation, ProjectStatus } from '../lib/database.types';
+import { supabase } from '../lib/supabase';
+import type { ProfessorSetupProfile, User } from '../lib/api';
+import type { ApplicationRow, ApplicationStatus, Json, ProjectCompensation, ProjectRow, ProjectStatus } from '../lib/database.types';
 
 export interface ApplicationQuestion {
   question: string;
@@ -50,6 +56,7 @@ export interface Application {
   studentName: string;
   studentEmail: string;
   studentMajor: string;
+  coursework: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
   resume: {
     name: string;
     uploadDate: string;
@@ -69,8 +76,8 @@ interface DataContextType {
   applicationsLoading: boolean;
   applicationsError: string | null;
   refreshApplications: () => Promise<void>;
-  addPosting: (posting: Omit<ResearchPosting, 'id' | 'createdAt'>) => void;
-  updatePosting: (id: string, updates: Partial<ResearchPosting>) => void;
+  addPosting: (posting: Omit<ResearchPosting, 'id' | 'createdAt'>) => Promise<ResearchPosting>;
+  updatePosting: (id: string, updates: Partial<ResearchPosting>) => Promise<void>;
   addApplication: (application: Omit<Application, 'id' | 'submittedAt'>) => Promise<Application>;
   updateApplicationStatus: (id: string, status: Application['status']) => Promise<void>;
   getPostingsByProfessor: (professorId: string) => ResearchPosting[];
@@ -115,6 +122,17 @@ function withProfessorBioUrl(posting: ResearchPosting): ResearchPosting {
 }
 
 type SupabasePublicProject = Awaited<ReturnType<typeof listPublicProjects>>[number];
+type ProjectInsert = Parameters<typeof createProject>[0];
+type ProjectUpdate = Parameters<typeof updateProject>[1];
+
+type ProfessorSnapshot = {
+  name: string;
+  email: string;
+  department: string;
+  bioUrl?: string;
+  researchAreas?: string[];
+  researchInterests?: string[];
+};
 
 function asString(value: unknown, fallback = '') {
   return typeof value === 'string' && value.trim() ? value : fallback;
@@ -129,6 +147,10 @@ function asStringArray(value: unknown): string[] {
     .filter((entry): entry is string => typeof entry === 'string')
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function asProjectRecord(project: unknown): Record<string, any> {
+  return project && typeof project === 'object' && !Array.isArray(project) ? project as Record<string, any> : {};
 }
 
 function asQuestionArray(value: Json): ApplicationQuestion[] {
@@ -167,7 +189,8 @@ function getProfessorDisplayName(professor: SupabasePublicProject['professors'])
 }
 
 function mapSupabaseProjectToPosting(project: SupabasePublicProject): ResearchPosting {
-  const professor = project.professors;
+  const projectRecord = asProjectRecord(project);
+  const professor = projectRecord.professors;
 
   return withProfessorBioUrl({
     id: project.id,
@@ -199,6 +222,96 @@ function mapSupabaseProjectToPosting(project: SupabasePublicProject): ResearchPo
   });
 }
 
+function mapProjectRowToPosting(project: ProjectRow, professor: ProfessorSnapshot): ResearchPosting {
+  return withProfessorBioUrl({
+    id: project.id,
+    professorId: project.professor_id ?? '',
+    professorName: professor.name,
+    professorEmail: professor.email,
+    professorBioUrl: professor.bioUrl,
+    professorDepartment: professor.department,
+    professorResearchAreas: professor.researchAreas ?? [],
+    professorResearchInterests: professor.researchInterests ?? [],
+    category: asString(project.category, 'Other'),
+    researchAreas: asStringArray(project.research_areas),
+    skillsNeeded: asStringArray(project.skills_needed),
+    title: project.title,
+    overview: asString(project.overview),
+    studentRoleDescription: asString(project.student_role_description),
+    studentGain: asString(project.student_gain),
+    requiredQualifications: asString(project.required_qualifications),
+    preferredQualifications: asString(project.preferred_qualifications),
+    timeCommitmentExpected: asString(project.time_commitment_expected),
+    startDate: asString(project.start_date),
+    duration: asString(project.duration),
+    applicationDeadline: asString(project.application_deadline),
+    compensation: (project.compensation ?? 'tbd') as ProjectCompensation,
+    questions: asQuestionArray(project.questions),
+    quickNoteEnabled: project.quick_note_enabled,
+    createdAt: project.created_at,
+    status: (project.status === 'archived' ? 'closed' : project.status) as Exclude<ProjectStatus, 'archived'>,
+  });
+}
+
+export function createProjectPayload(
+  formState: Omit<ResearchPosting, 'id' | 'createdAt' | 'professorId'>,
+  currentUser: User,
+  professorProfile: ProfessorSetupProfile
+): ProjectInsert {
+  if (currentUser.role !== 'professor') {
+    throw new Error('Only professor accounts can create research opportunities.');
+  }
+
+  if (!professorProfile.id || professorProfile.id !== currentUser.id) {
+    throw new Error('Professor profile is missing or does not match the signed-in user.');
+  }
+
+  return {
+    professor_id: currentUser.id,
+    title: formState.title.trim(),
+    category: formState.category.trim() || null,
+    research_areas: formState.researchAreas.filter(Boolean),
+    skills_needed: formState.skillsNeeded.filter(Boolean),
+    overview: formState.overview.trim() || null,
+    student_role_description: formState.studentRoleDescription.trim() || null,
+    student_gain: formState.studentGain.trim() || null,
+    required_qualifications: formState.requiredQualifications.trim() || null,
+    preferred_qualifications: formState.preferredQualifications.trim() || null,
+    time_commitment_expected: formState.timeCommitmentExpected.trim() || null,
+    start_date: formState.startDate || null,
+    duration: formState.duration || null,
+    application_deadline: formState.applicationDeadline || null,
+    compensation: formState.compensation,
+    questions: formState.questions as Json,
+    quick_note_enabled: formState.quickNoteEnabled ?? true,
+    status: requireProjectApproval ? 'pending_approval' : formState.status,
+  };
+}
+
+function postingUpdatesToProjectUpdate(updates: Partial<ResearchPosting>): ProjectUpdate {
+  const projectUpdate: ProjectUpdate = {};
+
+  if (updates.category !== undefined) projectUpdate.category = updates.category;
+  if (updates.researchAreas !== undefined) projectUpdate.research_areas = updates.researchAreas;
+  if (updates.skillsNeeded !== undefined) projectUpdate.skills_needed = updates.skillsNeeded;
+  if (updates.title !== undefined) projectUpdate.title = updates.title;
+  if (updates.overview !== undefined) projectUpdate.overview = updates.overview;
+  if (updates.studentRoleDescription !== undefined) projectUpdate.student_role_description = updates.studentRoleDescription;
+  if (updates.studentGain !== undefined) projectUpdate.student_gain = updates.studentGain;
+  if (updates.requiredQualifications !== undefined) projectUpdate.required_qualifications = updates.requiredQualifications;
+  if (updates.preferredQualifications !== undefined) projectUpdate.preferred_qualifications = updates.preferredQualifications;
+  if (updates.timeCommitmentExpected !== undefined) projectUpdate.time_commitment_expected = updates.timeCommitmentExpected;
+  if (updates.startDate !== undefined) projectUpdate.start_date = updates.startDate;
+  if (updates.duration !== undefined) projectUpdate.duration = updates.duration;
+  if (updates.applicationDeadline !== undefined) projectUpdate.application_deadline = updates.applicationDeadline;
+  if (updates.compensation !== undefined) projectUpdate.compensation = updates.compensation;
+  if (updates.questions !== undefined) projectUpdate.questions = updates.questions as Json;
+  if (updates.quickNoteEnabled !== undefined) projectUpdate.quick_note_enabled = updates.quickNoteEnabled;
+  if (updates.status !== undefined) projectUpdate.status = updates.status;
+
+  return projectUpdate;
+}
+
 function asRecord(value: Json): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
@@ -210,6 +323,34 @@ function asAnswerRecord(value: Json): Record<string, string> | undefined {
     .map(([question, answer]) => [question, answer as string]);
 
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function asCoursework(value: unknown): Application['coursework'] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      if (typeof entry === 'string') {
+        return entry.trim();
+      }
+
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return null;
+      }
+
+      const courseNumber = asString(entry.courseNumber);
+      const courseName = asString(entry.courseName);
+      const semester = asString(entry.semester);
+
+      if (!courseNumber && !courseName) {
+        return null;
+      }
+
+      return { courseNumber, courseName, semester };
+    })
+    .filter((entry): entry is Application['coursework'][number] => Boolean(entry));
 }
 
 function asResume(value: Json): Application['resume'] {
@@ -230,6 +371,7 @@ function mapSupabaseApplicationToApplication(row: ApplicationRow): Application {
     studentName: asString(snapshot.name, 'Student Applicant'),
     studentEmail: asString(snapshot.email),
     studentMajor: asString(snapshot.major, 'Undeclared'),
+    coursework: asCoursework(snapshot.coursework),
     resume: asResume(row.resume),
     answers: asAnswerRecord(row.answers),
     quickNote: row.quick_note ?? '',
@@ -239,7 +381,7 @@ function mapSupabaseApplicationToApplication(row: ApplicationRow): Application {
 }
 
 export function DataProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, setupState } = useAuth();
   const [postings, setPostings] = useState<ResearchPosting[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
@@ -253,7 +395,42 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
     try {
       const projects = await listPublicProjects();
-      setPostings(projects.map(mapSupabaseProjectToPosting));
+      const publicPostings = projects.map(mapSupabaseProjectToPosting);
+
+      if (user?.role !== 'professor') {
+        setPostings(publicPostings);
+        return;
+      }
+
+      const professorProfile = setupState?.profile as
+        | {
+            department?: string;
+            bioUrl?: string;
+            researchAreas?: string[];
+            researchInterests?: string[];
+          }
+        | null
+        | undefined;
+      const professorSnapshot: ProfessorSnapshot = {
+        name: user.name,
+        email: user.email,
+        department: professorProfile?.department ?? 'Research',
+        bioUrl: professorProfile?.bioUrl,
+        researchAreas: professorProfile?.researchAreas ?? [],
+        researchInterests: professorProfile?.researchInterests ?? [],
+      };
+      const professorProjects = await listProfessorProjects(user.id);
+      const ownPostings = professorProjects.map((project) => mapProjectRowToPosting(project as ProjectRow, professorSnapshot));
+      const postingMap = new Map<string, ResearchPosting>();
+
+      for (const posting of publicPostings) {
+        postingMap.set(posting.id, posting);
+      }
+      for (const posting of ownPostings) {
+        postingMap.set(posting.id, posting);
+      }
+
+      setPostings(Array.from(postingMap.values()));
     } catch (error) {
       setProjectsError(error instanceof Error ? error.message : 'Unable to load research projects.');
       setPostings([]);
@@ -264,7 +441,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refreshProjects();
-  }, []);
+  }, [user?.id, user?.role, setupState?.profile]);
 
   const refreshApplications = async () => {
     if (!user) {
@@ -304,20 +481,65 @@ export function DataProvider({ children }: { children: ReactNode }) {
     void refreshApplications();
   }, [user?.id, user?.role, postings]);
 
-  const addPosting = (posting: Omit<ResearchPosting, 'id' | 'createdAt'>) => {
+  const addPosting = async (posting: Omit<ResearchPosting, 'id' | 'createdAt'>) => {
+    if (!user || user.role !== 'professor') {
+      throw new Error('Only professor accounts can create research opportunities.');
+    }
+
+    const { data: authData, error: authError } = supabase
+      ? await supabase.auth.getUser()
+      : { data: { user: null }, error: new Error('Supabase is not configured.') };
+
+    if (authError || !authData.user) {
+      throw new Error('Your session expired. Please sign in again before creating a project.');
+    }
+
+    if (authData.user.id !== user.id) {
+      throw new Error('Signed-in Supabase user does not match the active professor account.');
+    }
+
+    const professorRow = await getCurrentProfessor().catch(() => null);
+    if (!professorRow || professorRow.id !== authData.user.id) {
+      throw new Error('Complete your professor profile before creating a research opportunity.');
+    }
+
+    const professorProfile = {
+      id: professorRow.id,
+      department: professorRow.department ?? undefined,
+      title: professorRow.title ?? undefined,
+      contactEmail: professorRow.contact_email ?? undefined,
+      bioUrl: professorRow.bio_url ?? undefined,
+      researchAreas: professorRow.research_areas,
+      researchInterests: professorRow.research_interests,
+    } satisfies ProfessorSetupProfile;
+    const insertPayload = createProjectPayload(posting, user, professorProfile);
+    if (import.meta.env.DEV) {
+      console.debug('Create Opportunity insert payload', insertPayload);
+    }
+    const row = await createProject(insertPayload);
     const newPosting = withProfessorBioUrl({
       ...posting,
-      id: Math.random().toString(36).substr(2, 9),
-      createdAt: new Date().toISOString(),
-      status: requireProjectApproval ? 'pending_approval' : posting.status,
+      professorId: row.professor_id ?? user.id,
+      id: row.id,
+      createdAt: row.created_at,
+      status: (row.status === 'archived' ? 'closed' : row.status) as Exclude<ProjectStatus, 'archived'>,
     });
     setPostings((prev) => [newPosting, ...prev]);
+    return newPosting;
   };
 
-  const updatePosting = (id: string, updates: Partial<ResearchPosting>) => {
+  const updatePosting = async (id: string, updates: Partial<ResearchPosting>) => {
+    const row = await updateProject(id, postingUpdatesToProjectUpdate(updates));
     setPostings((prev) =>
       prev.map((posting) =>
-        posting.id === id ? withProfessorBioUrl({ ...posting, ...updates }) : posting
+        posting.id === id
+          ? withProfessorBioUrl({
+              ...posting,
+              ...updates,
+              createdAt: row.created_at,
+              status: (row.status === 'archived' ? 'closed' : row.status) as Exclude<ProjectStatus, 'archived'>,
+            })
+          : posting
       )
     );
   };
@@ -334,6 +556,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         name: application.studentName,
         email: application.studentEmail,
         major: application.studentMajor,
+        coursework: application.coursework,
       } as Json,
     });
     const savedApplication = mapSupabaseApplicationToApplication(row);

@@ -51,12 +51,14 @@ create table if not exists public.profiles (
   role public.app_role not null,
   full_name text not null,
   avatar_url text,
+  setup_completed boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 create table if not exists public.students (
   id uuid primary key references public.profiles(id) on delete cascade,
+  setup_completed boolean not null default false,
   major text,
   university text,
   degree text,
@@ -80,6 +82,7 @@ create table if not exists public.students (
 
 create table if not exists public.professors (
   id uuid primary key references public.profiles(id) on delete cascade,
+  setup_completed boolean not null default false,
   department text,
   title text,
   contact_email text,

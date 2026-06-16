@@ -550,7 +550,9 @@
       ],
       "createdAt": "2026-05-01",
       "status": "published",
-      "professorBioUrl": "https://www.cs.cmu.edu/directory/schen"
+      "professorBioUrl": "https://www.cs.cmu.edu/directory/schen",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "2",
@@ -582,7 +584,9 @@
       ],
       "createdAt": "2026-05-05",
       "status": "published",
-      "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez"
+      "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "3",
@@ -614,7 +618,9 @@
       ],
       "createdAt": "2026-05-03",
       "status": "published",
-      "professorBioUrl": "https://www.ri.cmu.edu/ri-faculty/emily-watson"
+      "professorBioUrl": "https://www.ri.cmu.edu/ri-faculty/emily-watson",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "4",
@@ -646,7 +652,9 @@
       ],
       "createdAt": "2026-05-06",
       "status": "published",
-      "professorBioUrl": "https://www.cs.cmu.edu/directory/schen"
+      "professorBioUrl": "https://www.cs.cmu.edu/directory/schen",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "5",
@@ -678,7 +686,9 @@
       ],
       "createdAt": "2026-05-07",
       "status": "published",
-      "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez"
+      "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "6",
@@ -710,7 +720,9 @@
       ],
       "createdAt": "2026-05-08",
       "status": "published",
-      "professorBioUrl": "https://www.ri.cmu.edu/ri-faculty/emily-watson"
+      "professorBioUrl": "https://www.ri.cmu.edu/ri-faculty/emily-watson",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "7",
@@ -742,7 +754,9 @@
       ],
       "createdAt": "2026-05-09",
       "status": "published",
-      "professorBioUrl": "https://www.cs.cmu.edu/directory/schen"
+      "professorBioUrl": "https://www.cs.cmu.edu/directory/schen",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "8",
@@ -774,7 +788,9 @@
       ],
       "createdAt": "2026-05-10",
       "status": "published",
-      "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez"
+      "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "9",
@@ -806,7 +822,9 @@
       ],
       "createdAt": "2026-05-11",
       "status": "published",
-      "professorBioUrl": "https://www.ri.cmu.edu/ri-faculty/emily-watson"
+      "professorBioUrl": "https://www.ri.cmu.edu/ri-faculty/emily-watson",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "10",
@@ -838,7 +856,9 @@
       ],
       "createdAt": "2026-05-12",
       "status": "published",
-      "professorBioUrl": "https://www.cs.cmu.edu/directory/schen"
+      "professorBioUrl": "https://www.cs.cmu.edu/directory/schen",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "11",
@@ -870,7 +890,9 @@
       ],
       "createdAt": "2026-05-13",
       "status": "published",
-      "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez"
+      "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "12",
@@ -902,7 +924,9 @@
       ],
       "createdAt": "2026-05-14",
       "status": "published",
-      "professorBioUrl": "https://www.ri.cmu.edu/ri-faculty/emily-watson"
+      "professorBioUrl": "https://www.ri.cmu.edu/ri-faculty/emily-watson",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "13",
@@ -934,7 +958,9 @@
       ],
       "createdAt": "2026-05-15",
       "status": "published",
-      "professorBioUrl": "https://www.cs.cmu.edu/directory/schen"
+      "professorBioUrl": "https://www.cs.cmu.edu/directory/schen",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "14",
@@ -966,7 +992,9 @@
       ],
       "createdAt": "2026-05-16",
       "status": "published",
-      "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez"
+      "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "15",
@@ -998,7 +1026,9 @@
       ],
       "createdAt": "2026-05-17",
       "status": "published",
-      "professorBioUrl": "https://www.ri.cmu.edu/ri-faculty/emily-watson"
+      "professorBioUrl": "https://www.ri.cmu.edu/ri-faculty/emily-watson",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "16",
@@ -1030,7 +1060,9 @@
       ],
       "createdAt": "2026-05-18",
       "status": "published",
-      "professorBioUrl": "https://www.cs.cmu.edu/directory/schen"
+      "professorBioUrl": "https://www.cs.cmu.edu/directory/schen",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "17",
@@ -1062,7 +1094,9 @@
       ],
       "createdAt": "2026-05-19",
       "status": "published",
-      "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez"
+      "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "18",
@@ -1094,7 +1128,9 @@
       ],
       "createdAt": "2026-05-20",
       "status": "published",
-      "professorBioUrl": "https://www.ri.cmu.edu/ri-faculty/emily-watson"
+      "professorBioUrl": "https://www.ri.cmu.edu/ri-faculty/emily-watson",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "19",
@@ -1126,7 +1162,9 @@
       ],
       "createdAt": "2026-05-21",
       "status": "published",
-      "professorBioUrl": "https://www.cs.cmu.edu/directory/schen"
+      "professorBioUrl": "https://www.cs.cmu.edu/directory/schen",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "20",
@@ -1158,7 +1196,9 @@
       ],
       "createdAt": "2026-05-22",
       "status": "published",
-      "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez"
+      "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez",
+      "researchAreas": [],
+      "skillsNeeded": []
     },
     {
       "id": "14a4441c-0e11-4ba8-87f0-c80490281803",
@@ -1167,7 +1207,11 @@
       "professorEmail": "",
       "professorBioUrl": "https://www.google.com/search?q=Research%20Professor%20Research",
       "professorDepartment": "Research",
+      "professorResearchAreas": [],
+      "professorResearchInterests": [],
       "category": "Machine Learning",
+      "researchAreas": [],
+      "skillsNeeded": [],
       "title": "Deep Learning for Medical Image Analysis",
       "overview": "Develop deep learning architectures for automated diagnosis from radiological images.",
       "studentRoleDescription": "Implement model pipelines, run experiments, and join weekly research syncs.",
@@ -1187,6 +1231,42 @@
       ],
       "quickNoteEnabled": false,
       "createdAt": "2026-06-15T04:02:22.893721+00:00",
+      "status": "published"
+    },
+    {
+      "id": "2ef9976d-f431-4364-8476-4e34b03dc853",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Teaching Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science"
+      ],
+      "professorResearchInterests": [
+        "[\"[]\"]"
+      ],
+      "category": "Computer Science",
+      "researchAreas": [
+        "Machine Learning"
+      ],
+      "skillsNeeded": [
+        "Archival Research"
+      ],
+      "title": "nk l;",
+      "overview": "nkhl",
+      "studentRoleDescription": "bljkjl",
+      "studentGain": ";jl",
+      "requiredQualifications": "nml;jk",
+      "preferredQualifications": "o;j",
+      "timeCommitmentExpected": "jk;",
+      "startDate": "2027-05-05",
+      "duration": "2028-05-05",
+      "applicationDeadline": "2027-01-01",
+      "compensation": "tbd",
+      "questions": [],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-16T07:40:47.205872+00:00",
       "status": "published"
     }
   ]

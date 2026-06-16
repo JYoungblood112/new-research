@@ -10,7 +10,7 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Card, CardContent } from '../ui/card';
 import { Progress } from '../ui/progress';
-import { FileText, Calendar, Clock, AlertCircle, AlertTriangle, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
+import { BookOpen, FileText, Calendar, Clock, AlertCircle, AlertTriangle, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface ApplyToResearchDialogProps {
@@ -106,6 +106,16 @@ function toStringList(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
 }
 
+function formatCourseworkEntry(course: string | { courseNumber?: string; courseName?: string; semester?: string }) {
+  if (typeof course === 'string') {
+    return course.trim();
+  }
+
+  const courseNumber = course.courseNumber?.trim();
+  const courseName = course.courseName?.trim();
+  return [courseNumber, courseName].filter(Boolean).join(' - ');
+}
+
 function normalizeFitScore(item: Record<string, any>): FitScore {
   const recommendationValue = item?.recommendation;
   const recommendation =
@@ -189,6 +199,7 @@ export default function ApplyToResearchDialog({
   const studentProfile = setupState?.profile as
     | {
         resume?: { name: string; uploadDate: string } | null;
+        coursework?: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
       }
     | undefined;
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -351,6 +362,7 @@ export default function ApplyToResearchDialog({
         studentName: user.name,
         studentEmail: user.email,
         studentMajor: (setupState?.profile as { major?: string } | null)?.major ?? 'Undeclared',
+        coursework: Array.isArray(studentProfile?.coursework) ? studentProfile.coursework : [],
         resume: {
           ...studentProfile!.resume!,
           name: resumeNameOverride ?? studentProfile!.resume!.name,
@@ -380,6 +392,9 @@ export default function ApplyToResearchDialog({
   const visibleRequirementAssessments = fitScore?.requirement_assessments.slice(0, 5) ?? [];
   const fallbackEvidence = fitScore?.fit_reasoning.slice(0, 3) ?? [];
   const fallbackGaps = fitScore?.gaps.slice(0, 2) ?? [];
+  const profileCoursework = Array.isArray(studentProfile?.coursework)
+    ? studentProfile.coursework.map(formatCourseworkEntry).filter(Boolean)
+    : [];
 
   const openFullReasoning = () => {
     if (!fitScore) {
@@ -589,6 +604,31 @@ export default function ApplyToResearchDialog({
                   }}
                   className="text-sm"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <BookOpen className="w-4 h-4" />
+                  Coursework from Profile
+                </Label>
+                {profileCoursework.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 rounded bg-gray-50 p-3">
+                    {profileCoursework.slice(0, 12).map((course) => (
+                      <Badge key={course} variant="secondary" className="rounded-full bg-white text-gray-700">
+                        {course}
+                      </Badge>
+                    ))}
+                    {profileCoursework.length > 12 ? (
+                      <Badge variant="outline" className="rounded-full">
+                        +{profileCoursework.length - 12} more
+                      </Badge>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded bg-gray-50 p-3 text-sm text-gray-500">
+                    No coursework is saved on your profile yet.
+                  </div>
+                )}
               </div>
 
               {posting.questions && posting.questions.length > 0 && (

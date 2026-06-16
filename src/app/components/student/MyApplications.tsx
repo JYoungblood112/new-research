@@ -3,7 +3,7 @@ import { useData } from '../../contexts/DataContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Calendar, CheckCircle, Clock, XCircle, FileText } from 'lucide-react';
+import { BookOpen, Calendar, CheckCircle, Clock, XCircle, FileText } from 'lucide-react';
 
 const STATUS_CONFIG = {
   Pending: {
@@ -37,6 +37,16 @@ const STATUS_CONFIG = {
     description: 'Your application was not selected for this position',
   },
 };
+
+function formatCourseworkEntry(course: string | { courseNumber?: string; courseName?: string; semester?: string }) {
+  if (typeof course === 'string') {
+    return course.trim();
+  }
+
+  const courseNumber = course.courseNumber?.trim();
+  const courseName = course.courseName?.trim();
+  return [courseNumber, courseName].filter(Boolean).join(' - ');
+}
 
 export default function MyApplications() {
   const { user } = useAuth();
@@ -137,6 +147,30 @@ export default function MyApplications() {
                   <div className="bg-gray-50 p-3 rounded">
                     <p className="text-xs text-gray-500 mb-1">Quick note:</p>
                     <p className="text-sm">{application.quickNote}</p>
+                  </div>
+                )}
+
+                {application.coursework.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="flex items-center gap-2 text-xs text-gray-500">
+                      <BookOpen className="h-3 w-3" />
+                      Coursework included:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {application.coursework.slice(0, 10).map((course, index) => {
+                        const label = formatCourseworkEntry(course);
+                        return label ? (
+                          <Badge key={`${label}-${index}`} variant="secondary" className="rounded-full bg-gray-50 text-gray-700">
+                            {label}
+                          </Badge>
+                        ) : null;
+                      })}
+                      {application.coursework.length > 10 ? (
+                        <Badge variant="outline" className="rounded-full">
+                          +{application.coursework.length - 10} more
+                        </Badge>
+                      ) : null}
+                    </div>
                   </div>
                 )}
 

@@ -274,7 +274,7 @@ export default function StudentResearchInterestsStep({
 
     setIsSaving(true);
     try {
-      await updateStudentProfile({ interests: selectedInterests });
+      await updateStudentProfile({ interests: selectedInterests, setupCompleted: true });
       await refreshSession();
       toast.success('Research interests saved.');
       onContinue();

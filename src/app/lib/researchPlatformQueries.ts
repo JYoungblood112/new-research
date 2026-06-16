@@ -5,6 +5,18 @@ type Tables = Database['public']['Tables'];
 type InsertRow<TableName extends keyof Tables> = Tables[TableName]['Insert'];
 type UpdateRow<TableName extends keyof Tables> = Tables[TableName]['Update'];
 
+function throwSupabaseError(error: { message?: string } | null, fallback: string): never {
+  const message = error?.message || fallback;
+
+  if (/schema cache/i.test(message) && /projects/i.test(message)) {
+    throw new Error(
+      'The Supabase projects table is missing Create Opportunity columns. Apply supabase/migrations/20260616002000_fix_projects_columns_and_reload_schema.sql, then try again.'
+    );
+  }
+
+  throw new Error(message);
+}
+
 export async function getCurrentProfile() {
   const client = requireSupabaseClient();
   const { data, error } = await client.from('profiles').select('*').single();
@@ -36,14 +48,14 @@ export async function upsertStudent(student: InsertRow<'students'>) {
 export async function getCurrentProfessor() {
   const client = requireSupabaseClient();
   const { data, error } = await client.from('professors').select('*').single();
-  if (error) throw error;
+  if (error) throwSupabaseError(error, 'Unable to load professor profile.');
   return data;
 }
 
 export async function upsertProfessor(professor: InsertRow<'professors'>) {
   const client = requireSupabaseClient();
   const { data, error } = await client.from('professors').upsert(professor).select('*').single();
-  if (error) throw error;
+  if (error) throwSupabaseError(error, 'Unable to save professor profile.');
   return data;
 }
 
@@ -54,7 +66,7 @@ export async function listPublicProjects() {
     .select('*, professors(department,title,contact_email,bio_url,research_areas,research_interests,metadata)')
     .eq('status', 'published')
     .order('application_deadline', { ascending: true, nullsFirst: false });
-  if (error) throw error;
+  if (error) throwSupabaseError(error, 'Unable to load published projects.');
   return data ?? [];
 }
 
@@ -65,21 +77,21 @@ export async function listProfessorProjects(professorId: string) {
     .select('*')
     .eq('professor_id', professorId)
     .order('created_at', { ascending: false });
-  if (error) throw error;
+  if (error) throwSupabaseError(error, 'Unable to load professor projects.');
   return data ?? [];
 }
 
 export async function createProject(project: InsertRow<'projects'>) {
   const client = requireSupabaseClient();
   const { data, error } = await client.from('projects').insert(project).select('*').single();
-  if (error) throw error;
+  if (error) throwSupabaseError(error, 'Unable to create project.');
   return data;
 }
 
 export async function updateProject(projectId: string, updates: UpdateRow<'projects'>) {
   const client = requireSupabaseClient();
   const { data, error } = await client.from('projects').update(updates).eq('id', projectId).select('*').single();
-  if (error) throw error;
+  if (error) throwSupabaseError(error, 'Unable to update project.');
   return data;
 }
 

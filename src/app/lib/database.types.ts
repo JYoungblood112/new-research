@@ -12,12 +12,14 @@ export type ProfileRow = {
   role: AppRole;
   full_name: string;
   avatar_url: string | null;
+  setup_completed: boolean;
   created_at: string;
   updated_at: string;
 };
 
 export type StudentRow = {
   id: string;
+  setup_completed: boolean;
   major: string | null;
   degree: string | null;
   academic_year: string | null;
@@ -36,6 +38,7 @@ export type StudentRow = {
 
 export type ProfessorRow = {
   id: string;
+  setup_completed: boolean;
   department: string | null;
   title: string | null;
   contact_email: string | null;
@@ -132,7 +135,7 @@ export type RecommendationRow = {
 type Tables = {
   profiles: {
     Row: ProfileRow;
-    Insert: Omit<ProfileRow, 'created_at' | 'updated_at'> & Partial<Pick<ProfileRow, 'avatar_url' | 'created_at' | 'updated_at'>>;
+    Insert: Omit<ProfileRow, 'avatar_url' | 'setup_completed' | 'created_at' | 'updated_at'> & Partial<Pick<ProfileRow, 'avatar_url' | 'setup_completed' | 'created_at' | 'updated_at'>>;
     Update: Partial<Omit<ProfileRow, 'id' | 'created_at' | 'updated_at'>>;
   };
   students: {

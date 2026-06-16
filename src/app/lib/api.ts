@@ -25,6 +25,7 @@ export type StudentSetupProfile = {
   transcript?: { name: string; uploadDate: string } | null;
   transcriptText?: string | null;
   coursework?: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
+  setupCompleted?: boolean;
 };
 
 export type ProfessorSetupProfile = {
@@ -41,6 +42,7 @@ export type ProfessorSetupProfile = {
   researchInterests?: string[];
   researchSummary?: string;
   photoBase64?: string;
+  setupCompleted?: boolean;
 };
 
 export type SetupState = {
@@ -121,6 +123,7 @@ export async function updateStudentSetup(payload: {
   transcript?: { name: string; uploadDate: string } | null;
   transcriptText?: string | null;
   coursework?: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
+  setupCompleted?: boolean;
 }): Promise<{ setup: SetupState }> {
   return request('/api/setup/student', {
     method: 'PUT',
@@ -141,6 +144,7 @@ export async function updateProfessorSetup(payload: {
   researchInterests?: string[];
   researchSummary?: string;
   photoBase64?: string;
+  setupCompleted?: boolean;
 }): Promise<{ setup: SetupState }> {
   return request('/api/setup/professor', {
     method: 'PUT',

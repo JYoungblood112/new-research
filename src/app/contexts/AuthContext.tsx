@@ -29,6 +29,7 @@ type StudentProfileInput = {
   transcript?: { name: string; uploadDate: string } | null;
   transcriptText?: string | null;
   coursework?: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
+  setupCompleted?: boolean;
 };
 
 type ProfessorProfileInput = {
@@ -44,6 +45,7 @@ type ProfessorProfileInput = {
   researchInterests?: string[];
   researchSummary?: string;
   photoBase64?: string;
+  setupCompleted?: boolean;
 };
 
 interface AuthContextType {
@@ -73,6 +75,44 @@ function emptySetup(): SetupState {
       basic: false,
     },
   };
+}
+
+function getDashboardPathForRole(role: UserRole, setupCompleted: boolean) {
+  if (role === 'student') {
+    return setupCompleted ? '/student/dashboard' : '/student/setup';
+  }
+  if (role === 'professor') {
+    return setupCompleted ? '/professor/dashboard' : '/professor/setup';
+  }
+  if (role === 'recruiter') {
+    return '/recruiter/dashboard';
+  }
+  return '/dean/dashboard';
+}
+
+function logOnboardingDebug(details: {
+  authUserId?: string | null;
+  role?: UserRole | null;
+  profileExists: boolean;
+  professorProfileExists: boolean;
+  studentProfileExists: boolean;
+  setupCompleted: boolean;
+  redirectDestination: string;
+}) {
+  if (!import.meta.env.DEV) return;
+  console.debug('Onboarding state', details);
+}
+
+function getSupabaseMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    return error.message;
+  }
+  return '';
+}
+
+function isMissingSetupCompletedColumn(error: unknown) {
+  return /setup_completed/i.test(getSupabaseMessage(error));
 }
 
 function asProfileObject(value: Json): Record<string, unknown> {
@@ -115,6 +155,60 @@ function getUploadedFile(value: Json): { name: string; uploadDate: string } | nu
   };
 }
 
+function isStudentRowSetupReady(row: StudentRow | null) {
+  if (!row) return false;
+  const resume = getUploadedFile(row.resume);
+  return Boolean(
+    row.major?.trim() &&
+      row.academic_year?.trim() &&
+      resume &&
+      row.research_interests.length > 0
+  );
+}
+
+function isProfessorRowSetupReady(row: ProfessorRow | null) {
+  if (!row) return false;
+  return Boolean(
+    row.department?.trim() &&
+      row.title?.trim() &&
+      row.contact_email?.trim() &&
+      row.research_areas.length > 0 &&
+      row.research_interests.length > 0
+  );
+}
+
+async function persistSetupCompleted(table: 'students' | 'professors', userId: string) {
+  if (!supabase) return;
+
+  const { error: profileError } = await supabase
+    .from('profiles')
+    .update({ setup_completed: true })
+    .eq('id', userId);
+  if (profileError) {
+    if (isMissingSetupCompletedColumn(profileError)) {
+      if (import.meta.env.DEV) {
+        console.warn('Skipping setup_completed profile update until Supabase migration is applied.', profileError);
+      }
+      return;
+    }
+    throw profileError;
+  }
+
+  const { error: setupError } = await supabase
+    .from(table)
+    .update({ setup_completed: true })
+    .eq('id', userId);
+  if (setupError) {
+    if (isMissingSetupCompletedColumn(setupError)) {
+      if (import.meta.env.DEV) {
+        console.warn('Skipping setup_completed setup-row update until Supabase migration is applied.', setupError);
+      }
+      return;
+    }
+    throw setupError;
+  }
+}
+
 function studentRowToProfile(row: StudentRow | null, user: User): StudentSetupProfile | null {
   if (!row) return null;
   const metadata = asProfileObject(row.metadata);
@@ -123,6 +217,7 @@ function studentRowToProfile(row: StudentRow | null, user: User): StudentSetupPr
     id: row.id,
     userId: row.id,
     name: user.name,
+    setupCompleted: row.setup_completed,
     photoBase64: getString(metadata.photoBase64),
     linkedin: row.linkedin_url ?? undefined,
     github: row.github_url ?? undefined,
@@ -140,15 +235,16 @@ function studentRowToProfile(row: StudentRow | null, user: User): StudentSetupPr
   };
 }
 
-function studentSetupFromRow(row: StudentRow | null, user: User): SetupState {
+function studentSetupFromRow(row: StudentRow | null, user: User, profileSetupCompleted = false): SetupState {
   const profile = studentRowToProfile(row, user);
   const skills = profile?.skills ?? [];
   const interests = profile?.interests ?? [];
   const basic = Boolean(profile?.major && profile.graduationYear);
   const resume = Boolean(profile?.resume);
+  const rowSetupCompleted = Boolean(row?.setup_completed);
 
   return {
-    completed: Boolean(basic && resume && interests.length > 0),
+    completed: Boolean(row && profileSetupCompleted && rowSetupCompleted),
     profile,
     steps: {
       basic,
@@ -168,6 +264,7 @@ function professorRowToProfile(row: ProfessorRow | null, user: User): ProfessorS
     id: row.id,
     userId: row.id,
     name: user.name,
+    setupCompleted: row.setup_completed,
     department: row.department ?? undefined,
     title: row.title ?? undefined,
     contactEmail: row.contact_email ?? undefined,
@@ -182,15 +279,16 @@ function professorRowToProfile(row: ProfessorRow | null, user: User): ProfessorS
   };
 }
 
-function professorSetupFromRow(row: ProfessorRow | null, user: User): SetupState {
+function professorSetupFromRow(row: ProfessorRow | null, user: User, profileSetupCompleted = false): SetupState {
   const profile = professorRowToProfile(row, user);
-  const contact = Boolean(profile?.contactEmail && profile.bioUrl);
+  const contact = Boolean(profile?.contactEmail);
   const researchAreas = profile?.researchAreas ?? [];
   const researchInterests = profile?.researchInterests ?? [];
   const basic = Boolean(profile?.department && profile.title && researchAreas.length > 0);
+  const rowSetupCompleted = Boolean(row?.setup_completed);
 
   return {
-    completed: Boolean(basic && contact && researchInterests.length > 0),
+    completed: Boolean(row && profileSetupCompleted && rowSetupCompleted),
     profile,
     steps: {
       basic,
@@ -199,19 +297,35 @@ function professorSetupFromRow(row: ProfessorRow | null, user: User): SetupState
   };
 }
 
-async function loadSetupForUser(user: User): Promise<SetupState> {
+async function loadSetupForUser(user: User, profileSetupCompleted = false): Promise<SetupState> {
   if (!supabase) return emptySetup();
 
   if (user.role === 'student') {
     const { data, error } = await supabase.from('students').select('*').eq('id', user.id).maybeSingle();
     if (error) throw error;
-    return studentSetupFromRow(data, user);
+    const inferredCompleted = isStudentRowSetupReady(data);
+    if (inferredCompleted && (!profileSetupCompleted || !data?.setup_completed)) {
+      await persistSetupCompleted('students', user.id);
+    }
+    return studentSetupFromRow(
+      data ? { ...data, setup_completed: data.setup_completed || inferredCompleted } : data,
+      user,
+      profileSetupCompleted || inferredCompleted
+    );
   }
 
   if (user.role === 'professor') {
     const { data, error } = await supabase.from('professors').select('*').eq('id', user.id).maybeSingle();
     if (error) throw error;
-    return professorSetupFromRow(data, user);
+    const inferredCompleted = isProfessorRowSetupReady(data);
+    if (inferredCompleted && (!profileSetupCompleted || !data?.setup_completed)) {
+      await persistSetupCompleted('professors', user.id);
+    }
+    return professorSetupFromRow(
+      data ? { ...data, setup_completed: data.setup_completed || inferredCompleted } : data,
+      user,
+      profileSetupCompleted || inferredCompleted
+    );
   }
 
   return {
@@ -223,7 +337,13 @@ async function loadSetupForUser(user: User): Promise<SetupState> {
   };
 }
 
-async function ensureProfileForSession(fallbackRole?: UserRole): Promise<User | null> {
+type SessionProfileResult = {
+  user: User;
+  profileExists: boolean;
+  profileSetupCompleted: boolean;
+};
+
+async function ensureProfileForSession(fallbackRole?: UserRole): Promise<SessionProfileResult | null> {
   if (!supabase) return null;
 
   const {
@@ -264,10 +384,14 @@ async function ensureProfileForSession(fallbackRole?: UserRole): Promise<User | 
   }
 
   return {
-    id: authUser.id,
-    email: authUser.email,
-    name: fullName,
-    role,
+    user: {
+      id: authUser.id,
+      email: authUser.email,
+      name: fullName,
+      role,
+    },
+    profileExists: true,
+    profileSetupCompleted: Boolean(profile?.setup_completed),
   };
 }
 
@@ -279,16 +403,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function refreshSession(): Promise<void> {
     setLoadingSession(true);
     try {
-      const nextUser = await ensureProfileForSession();
-      if (!nextUser) {
+      const sessionProfile = await ensureProfileForSession();
+      if (!sessionProfile) {
         setUser(null);
         setSetupState(null);
+        logOnboardingDebug({
+          authUserId: null,
+          role: null,
+          profileExists: false,
+          professorProfileExists: false,
+          studentProfileExists: false,
+          setupCompleted: false,
+          redirectDestination: '/',
+        });
         return;
       }
 
-      const setup = await loadSetupForUser(nextUser);
+      const nextUser = sessionProfile.user;
+      const setup = await loadSetupForUser(nextUser, sessionProfile.profileSetupCompleted);
       setUser(nextUser);
       setSetupState(setup);
+      logOnboardingDebug({
+        authUserId: nextUser.id,
+        role: nextUser.role,
+        profileExists: sessionProfile.profileExists,
+        professorProfileExists: nextUser.role === 'professor' && Boolean(setup.profile),
+        studentProfileExists: nextUser.role === 'student' && Boolean(setup.profile),
+        setupCompleted: setup.completed,
+        redirectDestination: getDashboardPathForRole(nextUser.role, setup.completed),
+      });
     } finally {
       setLoadingSession(false);
     }
@@ -316,12 +459,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     if (error) throw error;
 
-    const nextUser = await ensureProfileForSession(role);
-    if (!nextUser) throw new Error('Unable to load Supabase user profile.');
+    const sessionProfile = await ensureProfileForSession(role);
+    if (!sessionProfile) throw new Error('Unable to load Supabase user profile.');
 
-    const setup = await loadSetupForUser(nextUser);
+    const nextUser = sessionProfile.user;
+    const setup = await loadSetupForUser(nextUser, sessionProfile.profileSetupCompleted);
     setUser(nextUser);
     setSetupState(setup);
+    logOnboardingDebug({
+      authUserId: nextUser.id,
+      role: nextUser.role,
+      profileExists: sessionProfile.profileExists,
+      professorProfileExists: nextUser.role === 'professor' && Boolean(setup.profile),
+      studentProfileExists: nextUser.role === 'student' && Boolean(setup.profile),
+      setupCompleted: setup.completed,
+      redirectDestination: getDashboardPathForRole(nextUser.role, setup.completed),
+    });
     return { user: nextUser, setup };
   }
 
@@ -353,12 +506,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
     }
 
-    const nextUser = await ensureProfileForSession(payload.role);
-    if (!nextUser) throw new Error('Unable to load Supabase user profile.');
+    const sessionProfile = await ensureProfileForSession(payload.role);
+    if (!sessionProfile) throw new Error('Unable to load Supabase user profile.');
 
-    const setup = await loadSetupForUser(nextUser);
+    const nextUser = sessionProfile.user;
+    const setup = await loadSetupForUser(nextUser, sessionProfile.profileSetupCompleted);
     setUser(nextUser);
     setSetupState(setup);
+    logOnboardingDebug({
+      authUserId: nextUser.id,
+      role: nextUser.role,
+      profileExists: sessionProfile.profileExists,
+      professorProfileExists: nextUser.role === 'professor' && Boolean(setup.profile),
+      studentProfileExists: nextUser.role === 'student' && Boolean(setup.profile),
+      setupCompleted: setup.completed,
+      redirectDestination: getDashboardPathForRole(nextUser.role, setup.completed),
+    });
     return { user: nextUser, setup, needsEmailConfirmation: false };
   }
 
@@ -380,6 +543,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: profile.email?.trim() || user.email,
         role: 'student',
         full_name: profile.name.trim(),
+        setup_completed: profile.setupCompleted ?? setupState?.completed ?? false,
       });
     }
 
@@ -404,10 +568,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         : profile.transcriptText ?? currentProfile?.transcriptText,
       coursework: (profile.coursework ?? currentProfile?.coursework ?? []) as Json,
       metadata: metadata as Json,
+      setup_completed: profile.setupCompleted ?? setupState?.completed ?? false,
     });
     const nextUser = profile.name?.trim() ? { ...user, name: profile.name.trim() } : user;
     setUser(nextUser);
-    setSetupState(studentSetupFromRow(updated, nextUser));
+    setSetupState(studentSetupFromRow(updated, nextUser, profile.setupCompleted ?? setupState?.completed ?? false));
   }
 
   async function updateProfessorProfile(profile: ProfessorProfileInput): Promise<void> {
@@ -419,6 +584,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: user.email,
       role: 'professor',
       full_name: nextName,
+      setup_completed: profile.setupCompleted ?? setupState?.completed ?? false,
     });
 
     const currentProfile = setupState?.profile as ProfessorSetupProfile | null;
@@ -439,10 +605,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       publications_link: profile.publicationsLink ?? currentProfile?.publicationsLink,
       research_interests: profile.researchInterests ?? currentProfile?.researchInterests ?? [],
       metadata: metadata as Json,
+      setup_completed: profile.setupCompleted ?? setupState?.completed ?? false,
     });
     const nextUser = { ...user, name: nextName };
     setUser(nextUser);
-    setSetupState(professorSetupFromRow(updated, nextUser));
+    setSetupState(professorSetupFromRow(updated, nextUser, profile.setupCompleted ?? setupState?.completed ?? false));
   }
 
   return (

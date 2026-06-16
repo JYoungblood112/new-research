@@ -27,6 +27,19 @@ function PageFallback() {
   return <div className="min-h-screen bg-gray-50" />;
 }
 
+function logRouteDecision(details: {
+  authUserId?: string | null;
+  role?: UserRole | null;
+  profileExists: boolean;
+  professorProfileExists: boolean;
+  studentProfileExists: boolean;
+  setupCompleted: boolean;
+  redirectDestination: string;
+}) {
+  if (!import.meta.env.DEV) return;
+  console.debug('Onboarding redirect', details);
+}
+
 function LazyPage({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageFallback />}>{children}</Suspense>;
 }
@@ -47,11 +60,30 @@ function ProtectedRoute({
   }
 
   if (!user) {
+    logRouteDecision({
+      authUserId: null,
+      role: null,
+      profileExists: false,
+      professorProfileExists: false,
+      studentProfileExists: false,
+      setupCompleted: false,
+      redirectDestination: '/',
+    });
     return <Navigate to="/" replace />;
   }
 
   if (allowedRole && user.role !== allowedRole) {
-    return <Navigate to={dashboardPathForRole(user.role)} replace />;
+    const redirectDestination = dashboardPathForRole(user.role);
+    logRouteDecision({
+      authUserId: user.id,
+      role: user.role,
+      profileExists: true,
+      professorProfileExists: user.role === 'professor' && Boolean(setupState?.profile),
+      studentProfileExists: user.role === 'student' && Boolean(setupState?.profile),
+      setupCompleted: Boolean(setupState?.completed),
+      redirectDestination,
+    });
+    return <Navigate to={redirectDestination} replace />;
   }
 
   if (
@@ -59,6 +91,15 @@ function ProtectedRoute({
     user.role === 'student' &&
     !setupState?.completed
   ) {
+    logRouteDecision({
+      authUserId: user.id,
+      role: user.role,
+      profileExists: true,
+      professorProfileExists: false,
+      studentProfileExists: Boolean(setupState?.profile),
+      setupCompleted: Boolean(setupState?.completed),
+      redirectDestination: '/student/setup',
+    });
     return <Navigate to="/student/setup" replace />;
   }
 
@@ -67,6 +108,15 @@ function ProtectedRoute({
     user.role === 'professor' &&
     !setupState?.completed
   ) {
+    logRouteDecision({
+      authUserId: user.id,
+      role: user.role,
+      profileExists: true,
+      professorProfileExists: Boolean(setupState?.profile),
+      studentProfileExists: false,
+      setupCompleted: Boolean(setupState?.completed),
+      redirectDestination: '/professor/setup',
+    });
     return <Navigate to="/professor/setup" replace />;
   }
 

@@ -101,6 +101,7 @@ export default function PostResearchDialog({
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [currentWordLimit, setCurrentWordLimit] = useState('');
   const [interestCounts, setInterestCounts] = useState<Record<string, number>>({});
+  const [isSaving, setIsSaving] = useState(false);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -302,9 +303,14 @@ export default function PostResearchDialog({
     setStep((current) => current + 1);
   };
 
-  const handleSubmit = () => {
-    if (!setupState?.completed) {
-      toast.error('Complete professor setup before posting a project');
+  const handleSubmit = async () => {
+    if (!user || user.role !== 'professor') {
+      toast.error('Only professor accounts can create research opportunities.');
+      return;
+    }
+
+    if (!professorProfile?.department) {
+      toast.error('Professor profile is missing. Complete your professor profile before posting a project.');
       return;
     }
 
@@ -317,7 +323,7 @@ export default function PostResearchDialog({
       professorName: user!.name,
       professorEmail: user!.email,
       professorBioUrl: toSafeOptionalHttpUrl(professorBioUrl),
-      professorDepartment: professorProfile?.department ?? 'Unknown Department',
+      professorDepartment: professorProfile.department,
       category,
       researchAreas,
       skillsNeeded,
@@ -337,16 +343,23 @@ export default function PostResearchDialog({
       status: 'published' as const,
     };
 
-    if (isEditing && postingToEdit) {
-      updatePosting(postingToEdit.id, payload);
-      toast.success('Research posting updated successfully!');
-    } else {
-      addPosting(payload);
-      toast.success('Research opportunity posted successfully!');
-    }
+    setIsSaving(true);
+    try {
+      if (isEditing && postingToEdit) {
+        await updatePosting(postingToEdit.id, payload);
+        toast.success('Research posting updated successfully!');
+      } else {
+        await addPosting(payload);
+        toast.success('Research opportunity posted successfully!');
+      }
 
-    onOpenChange(false);
-    resetForm();
+      onOpenChange(false);
+      resetForm();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to save research posting.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const resetForm = () => {
@@ -596,7 +609,9 @@ export default function PostResearchDialog({
             {step < 4 ? (
               <Button onClick={handleNextStep}>Next</Button>
             ) : (
-              <Button onClick={handleSubmit}>{isEditing ? 'Save Changes' : 'Post Research Opportunity'}</Button>
+              <Button onClick={handleSubmit} disabled={isSaving}>
+                {isSaving ? 'Saving...' : isEditing ? 'Save Changes' : 'Post Research Opportunity'}
+              </Button>
             )}
           </div>
         </div>

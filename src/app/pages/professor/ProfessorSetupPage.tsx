@@ -242,6 +242,7 @@ export default function ProfessorSetupPage() {
         researchInterests,
         researchSummary: researchSummary.trim() || undefined,
         photoBase64: photoBase64 || undefined,
+        setupCompleted: true,
       });
       setShowValidationErrors(false);
       toast.success('Setup completed successfully!');

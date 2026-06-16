@@ -1,17 +1,27 @@
 import { useState } from 'react';
-import { useData } from '../../contexts/DataContext';
+import { useData, type Application, type ResearchPosting } from '../../contexts/DataContext';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { FileText, Mail, Calendar, CheckCircle, XCircle, Clock, UserCheck } from 'lucide-react';
+import { BookOpen, FileText, Mail, Calendar, CheckCircle, XCircle, Clock, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface ViewApplicationsDialogProps {
   postingId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+}
+
+function formatCourseworkEntry(course: Application['coursework'][number]) {
+  if (typeof course === 'string') {
+    return course.trim();
+  }
+
+  const courseNumber = course.courseNumber?.trim();
+  const courseName = course.courseName?.trim();
+  return [courseNumber, courseName].filter(Boolean).join(' - ');
 }
 
 export default function ViewApplicationsDialog({
@@ -195,8 +205,8 @@ function ApplicationCard({
   onStatusChange,
   updating,
 }: {
-  application: any;
-  posting: any;
+  application: Application;
+  posting: ResearchPosting;
   onStatusChange: (
     id: string,
     status: 'Pending' | 'Shortlisted' | 'Interview' | 'Rejected' | 'Accepted'
@@ -264,6 +274,30 @@ function ApplicationCard({
           <div>
             <p className="text-sm mb-1">Quick note from applicant:</p>
             <p className="text-sm bg-gray-50 p-3 rounded">{application.quickNote}</p>
+          </div>
+        )}
+
+        {application.coursework.length > 0 && (
+          <div>
+            <p className="mb-2 flex items-center gap-2 text-sm">
+              <BookOpen className="h-4 w-4" />
+              Coursework from profile:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {application.coursework.slice(0, 12).map((course, index) => {
+                const label = formatCourseworkEntry(course);
+                return label ? (
+                  <Badge key={`${label}-${index}`} variant="secondary" className="rounded-full bg-gray-50 text-gray-700">
+                    {label}
+                  </Badge>
+                ) : null;
+              })}
+              {application.coursework.length > 12 ? (
+                <Badge variant="outline" className="rounded-full">
+                  +{application.coursework.length - 12} more
+                </Badge>
+              ) : null}
+            </div>
           </div>
         )}
 

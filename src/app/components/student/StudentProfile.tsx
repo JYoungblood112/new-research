@@ -524,6 +524,7 @@ export default function StudentProfile({
         interests: includeInterestsSection ? interests : undefined,
         skills,
         resume: uploadedResume ?? studentProfile?.resume ?? undefined,
+        setupCompleted: mode === 'setup' && includeInterestsSection ? true : setupState?.completed ?? false,
       });
       setShowValidationErrors(false);
       if (mode === 'setup') {
