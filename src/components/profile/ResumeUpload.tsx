@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Check, Loader2, UploadCloud } from 'lucide-react';
+import { supabase } from '../../app/lib/supabase';
 
 export interface ResumeFields {
   full_name: string | null;
@@ -25,7 +26,7 @@ const AUTOFILL_FIELDS: Array<{ key: keyof ResumeFields; label: string }> = [
 
 type ResumeUploadProps = {
   onAutofill: (fields: ResumeFields) => void;
-  onResumeUploaded?: () => void;
+  onResumeUploaded?: (resume: { name: string; uploadDate: string }) => void;
 };
 
 export type ResumeUploadHandle = {
@@ -62,11 +63,22 @@ const ResumeUpload = forwardRef<ResumeUploadHandle, ResumeUploadProps>(function 
     setIsUploading(true);
 
     try {
+      const { data: sessionData } = supabase
+        ? await supabase.auth.getSession()
+        : { data: { session: null } };
+      const accessToken = sessionData.session?.access_token;
+      const authHeaders = accessToken
+        ? {
+            Authorization: `Bearer ${accessToken}`,
+          }
+        : undefined;
+
       const formData = new FormData();
       formData.append('resume', file);
 
       const response = await fetch('/api/profile/parse-resume', {
         method: 'POST',
+        headers: authHeaders,
         body: formData,
       });
 
@@ -89,14 +101,22 @@ const ResumeUpload = forwardRef<ResumeUploadHandle, ResumeUploadProps>(function 
       try {
         const resumeSaveResponse = await fetch('/api/profile/resume', {
           method: 'POST',
+          headers: authHeaders,
           body: resumeFormData,
         });
+
+        const resumeSavePayload = await resumeSaveResponse.json().catch(() => ({}));
 
         if (!resumeSaveResponse.ok) {
           throw new Error('Resume upload failed while saving profile resume.');
         }
 
-        onResumeUploaded?.();
+        onResumeUploaded?.(
+          resumeSavePayload?.resume ?? {
+            name: file.name,
+            uploadDate: new Date().toISOString(),
+          }
+        );
       } catch (saveError) {
         console.error('Resume file save failed:', saveError);
       }

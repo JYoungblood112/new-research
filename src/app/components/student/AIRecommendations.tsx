@@ -7,6 +7,7 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import ApplyToResearchDialog from './ApplyToResearchDialog';
 import { AlertTriangle, ArrowRight, BadgeCheck, BrainCircuit, Compass, FileText, Sparkles } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 
 
 type RecommendationItem = {
@@ -28,7 +29,7 @@ type RecommendationItem = {
   recommendation: 'Strong Fit' | 'Good Fit' | 'Possible Fit' | 'Weak Fit' | null;
 };
 
-type RecommendationView = 'aligned' | 'outside';
+type RecommendationView = 'aligned' | 'all';
 
 const INTEREST_ALIASES: Record<string, string[]> = {
   ai: ['artificial intelligence', 'machine learning', 'deep learning', 'nlp', 'natural language processing', 'computer vision', 'recommender systems'],
@@ -79,26 +80,21 @@ function postingMatchesInterestTerms(posting: ResearchPosting, interestTerms: st
     return true;
   }
 
-  const postingText = normalizeText(
-    [
-      posting.category,
-      posting.title,
-      posting.overview,
-      posting.studentRoleDescription,
-      posting.studentGain,
-      posting.requiredQualifications,
-      posting.preferredQualifications,
-      posting.professorDepartment,
-    ].join(' ')
+  const postingMetadataTerms = [
+    posting.category,
+    posting.title,
+    posting.professorDepartment,
+    ...(Array.isArray(posting.researchAreas) ? posting.researchAreas : []),
+    ...(Array.isArray(posting.skillsNeeded) ? posting.skillsNeeded : []),
+    ...(Array.isArray(posting.professorResearchAreas) ? posting.professorResearchAreas : []),
+    ...(Array.isArray(posting.professorResearchInterests) ? posting.professorResearchInterests : []),
+  ]
+    .map((entry) => normalizeText(String(entry ?? '')))
+    .filter(Boolean);
+
+  return interestTerms.some((term) =>
+    postingMetadataTerms.some((metadataTerm) => metadataTerm === term || metadataTerm.includes(term) || term.includes(metadataTerm))
   );
-
-  return interestTerms.some((term) => {
-    if (term.length < 3) {
-      return postingText.split(' ').includes(term);
-    }
-
-    return postingText.includes(term);
-  });
 }
 
 function normalizeRecommendationItem(item: Record<string, any>): RecommendationItem {
@@ -141,6 +137,15 @@ async function readJsonResponse(response: Response) {
   }
 
   return payload;
+}
+
+async function getAuthHeaders() {
+  const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+  return data.session?.access_token
+    ? {
+        Authorization: `Bearer ${data.session.access_token}`,
+      }
+    : undefined;
 }
 
 export default function AIRecommendations() {
@@ -222,7 +227,7 @@ export default function AIRecommendations() {
 
   const recommendationGroups = useMemo(() => {
     const aligned: Array<{ posting: ResearchPosting; recommendation: RecommendationItem }> = [];
-    const outside: Array<{ posting: ResearchPosting; recommendation: RecommendationItem }> = [];
+    const all: Array<{ posting: ResearchPosting; recommendation: RecommendationItem }> = [];
 
     for (const recommendation of Array.from(scoredPostings.values())
       .filter((item) => !appliedPostingIds.has(item.postingId))
@@ -232,11 +237,14 @@ export default function AIRecommendations() {
         continue;
       }
 
-      const targetGroup = postingMatchesInterestTerms(posting, interestTerms) ? aligned : outside;
-      targetGroup.push({ posting, recommendation });
+      const entry = { posting, recommendation };
+      all.push(entry);
+      if (postingMatchesInterestTerms(posting, interestTerms)) {
+        aligned.push(entry);
+      }
     }
 
-    return { aligned, outside };
+    return { aligned, all };
   }, [scoredPostings, appliedPostingIds, postings, interestTerms]);
 
   const visiblePostings = useMemo(
@@ -244,7 +252,7 @@ export default function AIRecommendations() {
     [recommendationGroups, recommendationView]
   );
 
-  const selectedViewLabel = recommendationView === 'aligned' ? 'aligned with your interests' : 'outside your saved interests';
+  const selectedViewLabel = recommendationView === 'aligned' ? 'aligned with your interests' : 'across all published projects';
 
   const stopPolling = (postingId: string) => {
     const active = activePollsRef.current.get(postingId);
@@ -264,8 +272,10 @@ export default function AIRecommendations() {
 
     const intervalId = window.setInterval(async () => {
       try {
+        const headers = await getAuthHeaders();
         const res = await fetch(`/api/ai/recommendations/get-score?postingId=${encodeURIComponent(postingId)}`, {
           credentials: 'include',
+          headers,
         });
         const data = await readJsonResponse(res);
 
@@ -289,8 +299,10 @@ export default function AIRecommendations() {
 
   const fetchAndScorePosting = async (posting: ResearchPosting) => {
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch(`/api/ai/recommendations/score-one?postingId=${encodeURIComponent(posting.id)}`, {
         credentials: 'include',
+        headers,
       });
       const data = await readJsonResponse(res);
 
@@ -313,7 +325,8 @@ export default function AIRecommendations() {
 
   const loadPostingsFromServer = async () => {
     try {
-      const res = await fetch('/api/postings', { credentials: 'include' });
+      const headers = await getAuthHeaders();
+      const res = await fetch('/api/postings', { credentials: 'include', headers });
       const payload = await readJsonResponse(res);
       const serverPostings = Array.isArray(payload) ? payload : Array.isArray(payload?.postings) ? payload.postings : [];
       const merged = new Map<string, ResearchPosting>();
@@ -330,7 +343,25 @@ export default function AIRecommendations() {
         }
       }
 
-      return Array.from(merged.values()).filter((posting) => posting.status === 'published');
+      const availablePostings = Array.from(merged.values()).filter((posting) => posting.status === 'published');
+
+      if (availablePostings.length > 0) {
+        try {
+          await fetch('/api/postings/sync', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(headers ?? {}),
+            },
+            body: JSON.stringify({ postings: availablePostings }),
+          });
+        } catch {
+          // Scoring can still use any postings already known by the server.
+        }
+      }
+
+      return availablePostings;
     } catch (error) {
       setRecommendationError(error instanceof Error ? error.message : 'Unable to load server postings.');
       return postings.filter((posting) => posting.status === 'published');
@@ -461,7 +492,7 @@ export default function AIRecommendations() {
                   AI Recommendations
                 </CardTitle>
                 <CardDescription className="max-w-3xl text-sm text-muted-foreground">
-                  We compare your saved resume signals against every published research posting and rank matches inside and outside your research interests.
+                  We compare your saved resume signals against every published research posting and rank your best opportunities.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-3">
@@ -524,11 +555,11 @@ export default function AIRecommendations() {
                   </Button>
                   <Button
                     type="button"
-                    variant={recommendationView === 'outside' ? 'default' : 'ghost'}
-                    className={`h-9 rounded-lg px-3 text-sm ${recommendationView === 'outside' ? 'bg-[#c92e1f] text-white hover:bg-[#b3271b]' : 'text-[#4f4a46] hover:bg-white'}`}
-                    onClick={() => setRecommendationView('outside')}
+                    variant={recommendationView === 'all' ? 'default' : 'ghost'}
+                    className={`h-9 rounded-lg px-3 text-sm ${recommendationView === 'all' ? 'bg-[#c92e1f] text-white hover:bg-[#b3271b]' : 'text-[#4f4a46] hover:bg-white'}`}
+                    onClick={() => setRecommendationView('all')}
                   >
-                    Not aligned ({recommendationGroups.outside.length})
+                    All ({recommendationGroups.all.length})
                   </Button>
                 </div>
               </CardContent>
@@ -539,12 +570,12 @@ export default function AIRecommendations() {
                   <CardContent className="py-10 text-center">
                     <FileText className="mx-auto mb-3 h-10 w-10 text-gray-400" />
                     <p className="text-gray-600">
-                      No {recommendationView === 'aligned' ? 'aligned' : 'not aligned'} recommendations are ready yet.
+                      No {recommendationView === 'aligned' ? 'aligned' : 'overall'} recommendations are ready yet.
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {recommendationView === 'aligned'
                         ? 'Add or adjust research interests in your profile to broaden this view.'
-                        : 'Once scoring finishes, postings outside your saved interests will appear here.'}
+                        : 'Once scoring finishes, all ranked postings will appear here.'}
                     </p>
                   </CardContent>
                 </Card>

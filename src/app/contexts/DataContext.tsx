@@ -1,6 +1,13 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { listPublicProjects } from '../lib/researchPlatformQueries';
-import type { Json, ProjectCompensation, ProjectStatus } from '../lib/database.types';
+import { useAuth } from './AuthContext';
+import {
+  createApplication,
+  listMyApplications,
+  listProjectApplications,
+  listPublicProjects,
+  updateProjectApplicationStatus,
+} from '../lib/researchPlatformQueries';
+import type { ApplicationRow, ApplicationStatus, Json, ProjectCompensation, ProjectStatus } from '../lib/database.types';
 
 export interface ApplicationQuestion {
   question: string;
@@ -14,7 +21,11 @@ export interface ResearchPosting {
   professorEmail: string;
   professorBioUrl?: string;
   professorDepartment: string;
+  professorResearchAreas?: string[];
+  professorResearchInterests?: string[];
   category: string;
+  researchAreas: string[];
+  skillsNeeded: string[];
   title: string;
   overview: string;
   studentRoleDescription: string;
@@ -55,73 +66,19 @@ interface DataContextType {
   projectsError: string | null;
   refreshProjects: () => Promise<void>;
   applications: Application[];
+  applicationsLoading: boolean;
+  applicationsError: string | null;
+  refreshApplications: () => Promise<void>;
   addPosting: (posting: Omit<ResearchPosting, 'id' | 'createdAt'>) => void;
   updatePosting: (id: string, updates: Partial<ResearchPosting>) => void;
-  addApplication: (application: Omit<Application, 'id' | 'submittedAt'>) => void;
-  updateApplicationStatus: (id: string, status: Application['status']) => void;
+  addApplication: (application: Omit<Application, 'id' | 'submittedAt'>) => Promise<Application>;
+  updateApplicationStatus: (id: string, status: Application['status']) => Promise<void>;
   getPostingsByProfessor: (professorId: string) => ResearchPosting[];
   getApplicationsByPosting: (postingId: string) => Application[];
   getApplicationsByStudent: (studentId: string) => Application[];
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
-
-function buildSeedApplications(postings: ResearchPosting[]): Application[] {
-  const applicants = [
-    {
-      studentId: 'seed_student_jonathan',
-      studentName: 'Jonathan Youngblood',
-      studentEmail: 'jyounb2@andrew.cmu.edu',
-      studentMajor: 'AI + Business',
-      quickNote: 'I am excited to contribute to this project and deepen my research skills.',
-      status: 'Shortlisted' as const,
-      resumeName: 'jonathan_youngblood_resume.pdf',
-      submittedAt: '2026-05-21T14:00:00.000Z',
-    },
-    {
-      studentId: 'seed_student_sarah',
-      studentName: 'Sarah Chen',
-      studentEmail: 'schen2@andrew.cmu.edu',
-      studentMajor: 'Computer Science',
-      quickNote: 'Strong interest in model development and empirical evaluation.',
-      status: 'Interview' as const,
-      resumeName: 'sarah_chen_resume.pdf',
-      submittedAt: '2026-05-19T10:30:00.000Z',
-    },
-    {
-      studentId: 'seed_student_alex',
-      studentName: 'Alex Rivera',
-      studentEmail: 'arivera@andrew.cmu.edu',
-      studentMajor: 'Information Systems',
-      quickNote: 'Motivated to grow in research and contribute to project execution.',
-      status: 'Pending' as const,
-      resumeName: 'alex_rivera_resume.pdf',
-      submittedAt: '2026-05-18T09:15:00.000Z',
-    },
-  ];
-
-  return postings.slice(0, 9).map((posting, index) => {
-    const seed = applicants[index % applicants.length];
-    return {
-      id: `seed_app_${posting.id}`,
-      postingId: posting.id,
-      studentId: `${seed.studentId}_${posting.id}`,
-      studentName: seed.studentName,
-      studentEmail: seed.studentEmail,
-      studentMajor: seed.studentMajor,
-      resume: {
-        name: seed.resumeName,
-        uploadDate: seed.submittedAt,
-      },
-      answers: {
-        'Why are you interested in this research project?': seed.quickNote,
-      },
-      quickNote: seed.quickNote,
-      status: seed.status,
-      submittedAt: seed.submittedAt,
-    };
-  });
-}
 
 const requireProjectApproval = import.meta.env.VITE_REQUIRE_PROJECT_APPROVAL === 'true';
 
@@ -132,17 +89,25 @@ const PROFESSOR_BIO_URL_BY_EMAIL: Record<string, string> = {
 };
 
 function withProfessorBioUrl(posting: ResearchPosting): ResearchPosting {
+  const normalizedPosting = {
+    ...posting,
+    researchAreas: Array.isArray(posting.researchAreas) ? posting.researchAreas : [],
+    skillsNeeded: Array.isArray(posting.skillsNeeded) ? posting.skillsNeeded : [],
+    professorResearchAreas: Array.isArray(posting.professorResearchAreas) ? posting.professorResearchAreas : [],
+    professorResearchInterests: Array.isArray(posting.professorResearchInterests) ? posting.professorResearchInterests : [],
+  };
+
   if (posting.professorBioUrl?.trim()) {
-    return posting;
+    return normalizedPosting;
   }
 
   const mappedUrl = PROFESSOR_BIO_URL_BY_EMAIL[posting.professorEmail];
   if (mappedUrl) {
-    return { ...posting, professorBioUrl: mappedUrl };
+    return { ...normalizedPosting, professorBioUrl: mappedUrl };
   }
 
   return {
-    ...posting,
+    ...normalizedPosting,
     professorBioUrl: `https://www.google.com/search?q=${encodeURIComponent(
       `${posting.professorName} ${posting.professorDepartment}`
     )}`,
@@ -153,6 +118,17 @@ type SupabasePublicProject = Awaited<ReturnType<typeof listPublicProjects>>[numb
 
 function asString(value: unknown, fallback = '') {
   return typeof value === 'string' && value.trim() ? value : fallback;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 function asQuestionArray(value: Json): ApplicationQuestion[] {
@@ -200,7 +176,11 @@ function mapSupabaseProjectToPosting(project: SupabasePublicProject): ResearchPo
     professorEmail: asString(professor?.contact_email),
     professorBioUrl: professor?.bio_url ?? undefined,
     professorDepartment: asString(professor?.department, 'Research'),
+    professorResearchAreas: Array.isArray(professor?.research_areas) ? professor.research_areas : [],
+    professorResearchInterests: Array.isArray(professor?.research_interests) ? professor.research_interests : [],
     category: asString(project.category, 'Other'),
+    researchAreas: asStringArray(project.research_areas),
+    skillsNeeded: asStringArray(project.skills_needed),
     title: project.title,
     overview: asString(project.overview),
     studentRoleDescription: asString(project.student_role_description),
@@ -219,32 +199,53 @@ function mapSupabaseProjectToPosting(project: SupabasePublicProject): ResearchPo
   });
 }
 
+function asRecord(value: Json): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function asAnswerRecord(value: Json): Record<string, string> | undefined {
+  const record = asRecord(value);
+  const entries = Object.entries(record)
+    .filter(([, answer]) => typeof answer === 'string')
+    .map(([question, answer]) => [question, answer as string]);
+
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function asResume(value: Json): Application['resume'] {
+  const record = asRecord(value);
+  return {
+    name: asString(record.name, 'Resume.pdf'),
+    uploadDate: asString(record.uploadDate, new Date().toISOString()),
+  };
+}
+
+function mapSupabaseApplicationToApplication(row: ApplicationRow): Application {
+  const snapshot = asRecord(row.student_snapshot);
+
+  return {
+    id: row.id,
+    postingId: row.project_id,
+    studentId: row.student_id,
+    studentName: asString(snapshot.name, 'Student Applicant'),
+    studentEmail: asString(snapshot.email),
+    studentMajor: asString(snapshot.major, 'Undeclared'),
+    resume: asResume(row.resume),
+    answers: asAnswerRecord(row.answers),
+    quickNote: row.quick_note ?? '',
+    status: row.status,
+    submittedAt: row.submitted_at,
+  };
+}
+
 export function DataProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [postings, setPostings] = useState<ResearchPosting[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
-
-  const [applications, setApplications] = useState<Application[]>(() => {
-    const saved = localStorage.getItem('applications');
-    const seedApplications = buildSeedApplications(postings);
-
-    if (!saved) {
-      return seedApplications;
-    }
-
-    try {
-      const parsed = JSON.parse(saved) as Application[];
-      if (!Array.isArray(parsed)) {
-        return seedApplications;
-      }
-
-      const existingIds = new Set(parsed.map((application) => application.id));
-      const missingSeeds = seedApplications.filter((application) => !existingIds.has(application.id));
-      return [...parsed, ...missingSeeds];
-    } catch {
-      return seedApplications;
-    }
-  });
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [applicationsLoading, setApplicationsLoading] = useState(false);
+  const [applicationsError, setApplicationsError] = useState<string | null>(null);
 
   const refreshProjects = async () => {
     setProjectsLoading(true);
@@ -265,9 +266,43 @@ export function DataProvider({ children }: { children: ReactNode }) {
     void refreshProjects();
   }, []);
 
+  const refreshApplications = async () => {
+    if (!user) {
+      setApplications([]);
+      setApplicationsError(null);
+      setApplicationsLoading(false);
+      return;
+    }
+
+    setApplicationsLoading(true);
+    setApplicationsError(null);
+
+    try {
+      if (user.role === 'student') {
+        const rows = await listMyApplications(user.id);
+        setApplications(rows.map((row) => mapSupabaseApplicationToApplication(row as ApplicationRow)));
+        return;
+      }
+
+      if (user.role === 'professor') {
+        const ownedPostings = postings.filter((posting) => posting.professorId === user.id);
+        const rows = await Promise.all(ownedPostings.map((posting) => listProjectApplications(posting.id)));
+        setApplications(rows.flat().map((row) => mapSupabaseApplicationToApplication(row as ApplicationRow)));
+        return;
+      }
+
+      setApplications([]);
+    } catch (error) {
+      setApplicationsError(error instanceof Error ? error.message : 'Unable to load applications.');
+      setApplications([]);
+    } finally {
+      setApplicationsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    localStorage.setItem('applications', JSON.stringify(applications));
-  }, [applications]);
+    void refreshApplications();
+  }, [user?.id, user?.role, postings]);
 
   const addPosting = (posting: Omit<ResearchPosting, 'id' | 'createdAt'>) => {
     const newPosting = withProfessorBioUrl({
@@ -287,16 +322,27 @@ export function DataProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const addApplication = (application: Omit<Application, 'id' | 'submittedAt'>) => {
-    const newApplication: Application = {
-      ...application,
-      id: Math.random().toString(36).substr(2, 9),
-      submittedAt: new Date().toISOString(),
-    };
-    setApplications((prev) => [newApplication, ...prev]);
+  const addApplication = async (application: Omit<Application, 'id' | 'submittedAt'>) => {
+    const row = await createApplication({
+      project_id: application.postingId,
+      student_id: application.studentId,
+      answers: (application.answers ?? {}) as Json,
+      quick_note: application.quickNote,
+      resume: application.resume as Json,
+      status: application.status,
+      student_snapshot: {
+        name: application.studentName,
+        email: application.studentEmail,
+        major: application.studentMajor,
+      } as Json,
+    });
+    const savedApplication = mapSupabaseApplicationToApplication(row);
+    setApplications((prev) => [savedApplication, ...prev.filter((entry) => entry.id !== savedApplication.id)]);
+    return savedApplication;
   };
 
-  const updateApplicationStatus = (id: string, status: Application['status']) => {
+  const updateApplicationStatus = async (id: string, status: Application['status']) => {
+    await updateProjectApplicationStatus(id, status as ApplicationStatus);
     setApplications((prev) =>
       prev.map((app) => (app.id === id ? { ...app, status } : app))
     );
@@ -322,6 +368,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
         projectsError,
         refreshProjects,
         applications,
+        applicationsLoading,
+        applicationsError,
+        refreshApplications,
         addPosting,
         updatePosting,
         addApplication,

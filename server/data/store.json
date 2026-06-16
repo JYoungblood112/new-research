@@ -76,6 +76,13 @@
       "name": "CMU Student Demo",
       "role": "student",
       "createdAt": "2026-06-11T08:03:14.913Z"
+    },
+    {
+      "id": "u_v2vleyzoz",
+      "email": "debug-prof@andrew.cmu.edu",
+      "name": "Debug Professor",
+      "role": "professor",
+      "createdAt": "2026-06-16T02:32:21.306Z"
     }
   ],
   "studentProfiles": [
@@ -495,6 +502,21 @@
       "title": "rrrr",
       "contactEmail": "r@emdial.edu",
       "officeHours": "kl"
+    },
+    {
+      "id": "pp_ozjjdtg2a",
+      "userId": "u_v2vleyzoz",
+      "department": "",
+      "title": "",
+      "contactEmail": "debug-prof@andrew.cmu.edu",
+      "officeHours": "",
+      "bioUrl": "",
+      "researchAreas": [],
+      "professorWebsite": "",
+      "publicationsLink": "",
+      "researchInterests": [],
+      "researchSummary": "",
+      "photoBase64": ""
     }
   ],
   "postings": [
@@ -1137,6 +1159,35 @@
       "createdAt": "2026-05-22",
       "status": "published",
       "professorBioUrl": "https://hcii.cmu.edu/people/michael-rodriguez"
+    },
+    {
+      "id": "14a4441c-0e11-4ba8-87f0-c80490281803",
+      "professorId": "",
+      "professorName": "Research Professor",
+      "professorEmail": "",
+      "professorBioUrl": "https://www.google.com/search?q=Research%20Professor%20Research",
+      "professorDepartment": "Research",
+      "category": "Machine Learning",
+      "title": "Deep Learning for Medical Image Analysis",
+      "overview": "Develop deep learning architectures for automated diagnosis from radiological images.",
+      "studentRoleDescription": "Implement model pipelines, run experiments, and join weekly research syncs.",
+      "studentGain": "Research publication experience and mentorship in modern ML workflows.",
+      "requiredQualifications": "Strong Python and machine learning fundamentals.",
+      "preferredQualifications": "PyTorch or TensorFlow experience.",
+      "timeCommitmentExpected": "10-15 hours per week",
+      "startDate": "2026-08-25",
+      "duration": "1 semester",
+      "applicationDeadline": "2026-06-30",
+      "compensation": "stipend",
+      "questions": [
+        {
+          "question": "Describe your experience with deep learning frameworks",
+          "wordLimit": 150
+        }
+      ],
+      "quickNoteEnabled": false,
+      "createdAt": "2026-06-15T04:02:22.893721+00:00",
+      "status": "published"
     }
   ]
 }

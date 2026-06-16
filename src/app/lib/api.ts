@@ -11,21 +11,11 @@ export type StudentSetupProfile = {
   id?: string;
   userId?: string;
   name?: string;
-  phone?: string;
-  location?: string;
+  photoBase64?: string;
   linkedin?: string;
   github?: string;
   major?: string;
-  university?: string;
   degree?: string;
-  gpa?: string;
-  graduationDate?: string;
-  graduationType?: string;
-  jobTitle?: string;
-  employer?: string;
-  yearsOfExperience?: string;
-  workAuthorization?: string;
-  summary?: string;
   graduationYear?: string;
   linkedInUrl?: string;
   githubUrl?: string;
@@ -33,6 +23,7 @@ export type StudentSetupProfile = {
   interests?: string[];
   resume?: { name: string; uploadDate: string } | null;
   transcript?: { name: string; uploadDate: string } | null;
+  transcriptText?: string | null;
   coursework?: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
 };
 
@@ -44,10 +35,11 @@ export type ProfessorSetupProfile = {
   contactEmail?: string;
   officeHours?: string;
   bioUrl?: string;
-  researchAreas?: string;
+  researchAreas?: string[];
   professorWebsite?: string;
   publicationsLink?: string;
-  researchInterests?: string;
+  researchInterests?: string[];
+  researchSummary?: string;
   photoBase64?: string;
 };
 
@@ -116,21 +108,10 @@ export async function updateStudentSetup(payload: {
   name?: string;
   email?: string;
   photoBase64?: string;
-  phone?: string;
-  location?: string;
   linkedin?: string;
   github?: string;
   major?: string;
-  university?: string;
   degree?: string;
-  gpa?: string;
-  graduationDate?: string;
-  graduationType?: string;
-  jobTitle?: string;
-  employer?: string;
-  yearsOfExperience?: string;
-  workAuthorization?: string;
-  summary?: string;
   graduationYear?: string;
   linkedInUrl?: string;
   githubUrl?: string;
@@ -138,6 +119,7 @@ export async function updateStudentSetup(payload: {
   interests?: string[];
   resume?: { name: string; uploadDate: string } | null;
   transcript?: { name: string; uploadDate: string } | null;
+  transcriptText?: string | null;
   coursework?: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
 }): Promise<{ setup: SetupState }> {
   return request('/api/setup/student', {
@@ -153,10 +135,11 @@ export async function updateProfessorSetup(payload: {
   contactEmail?: string;
   officeHours?: string;
   bioUrl?: string;
-  researchAreas?: string;
+  researchAreas?: string[];
   professorWebsite?: string;
   publicationsLink?: string;
-  researchInterests?: string;
+  researchInterests?: string[];
+  researchSummary?: string;
   photoBase64?: string;
 }): Promise<{ setup: SetupState }> {
   return request('/api/setup/professor', {

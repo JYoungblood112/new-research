@@ -8,20 +8,9 @@ import { Button } from '../ui/button';
 import { Search, Calendar, Clock, BadgeDollarSign, SlidersHorizontal, ArrowUpDown, ExternalLink } from 'lucide-react';
 import ApplyToResearchDialog from './ApplyToResearchDialog';
 import { useNavigate } from 'react-router';
+import { RESEARCH_POSTING_CATEGORY_OPTIONS } from '../../lib/researchTaxonomy';
 
-const CATEGORIES = [
-  'All',
-  'Machine Learning',
-  'Human-Computer Interaction',
-  'Robotics',
-  'Computer Systems',
-  'Cybersecurity',
-  'Software Engineering',
-  'Natural Language Processing',
-  'Computer Vision',
-  'Computational Biology',
-  'Other',
-].sort((a, b) => a.localeCompare(b));
+const CATEGORIES = ['All', ...RESEARCH_POSTING_CATEGORY_OPTIONS] as const;
 
 const COMPENSATION_OPTIONS = ['All', 'course credit', 'stipend', 'tbd', 'volunteer'] as const;
 const COMPENSATION_LABELS: Record<(typeof COMPENSATION_OPTIONS)[number], string> = {
@@ -111,7 +100,9 @@ export default function BrowseResearch() {
       const matchesSearch =
         p.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.overview.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.studentRoleDescription.toLowerCase().includes(searchTerm.toLowerCase());
+        p.studentRoleDescription.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.researchAreas.some((area) => area.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        p.skillsNeeded.some((skill) => skill.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
       const matchesCompensation = selectedCompensation === 'All' || p.compensation === selectedCompensation;
       return matchesSearch && matchesCategory && matchesCompensation;
@@ -300,6 +291,20 @@ export default function BrowseResearch() {
 
               <CardContent className="space-y-4">
                 <p className="text-sm">{posting.overview}</p>
+                {posting.researchAreas.length > 0 || posting.skillsNeeded.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {posting.researchAreas.slice(0, 4).map((area) => (
+                      <Badge key={`area-${area}`} variant="secondary" className="rounded-full">
+                        {area}
+                      </Badge>
+                    ))}
+                    {posting.skillsNeeded.slice(0, 4).map((skill) => (
+                      <Badge key={`skill-${skill}`} className="rounded-full border border-[#d8d8d8] bg-white text-[#4f4a46] hover:bg-white">
+                        {skill}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
 
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2 text-gray-600">

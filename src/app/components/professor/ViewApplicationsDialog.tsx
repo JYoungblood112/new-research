@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useData } from '../../contexts/DataContext';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
@@ -18,7 +19,15 @@ export default function ViewApplicationsDialog({
   open,
   onOpenChange,
 }: ViewApplicationsDialogProps) {
-  const { postings, getApplicationsByPosting, updateApplicationStatus } = useData();
+  const {
+    postings,
+    getApplicationsByPosting,
+    updateApplicationStatus,
+    applicationsLoading,
+    applicationsError,
+    refreshApplications,
+  } = useData();
+  const [updatingApplicationId, setUpdatingApplicationId] = useState<string | null>(null);
   const posting = postings.find((p) => p.id === postingId);
   const applications = getApplicationsByPosting(postingId);
 
@@ -28,12 +37,19 @@ export default function ViewApplicationsDialog({
   const acceptedApps = applications.filter((a) => a.status === 'Accepted');
   const rejectedApps = applications.filter((a) => a.status === 'Rejected');
 
-  const handleStatusChange = (
+  const handleStatusChange = async (
     appId: string,
     status: 'Pending' | 'Shortlisted' | 'Interview' | 'Rejected' | 'Accepted'
   ) => {
-    updateApplicationStatus(appId, status);
-    toast.success(`Application ${status}`);
+    setUpdatingApplicationId(appId);
+    try {
+      await updateApplicationStatus(appId, status);
+      toast.success(`Application ${status}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to update application status.');
+    } finally {
+      setUpdatingApplicationId(null);
+    }
   };
 
   if (!posting) return null;
@@ -48,6 +64,26 @@ export default function ViewApplicationsDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {applicationsLoading ? (
+          <Card>
+            <CardContent className="space-y-3 py-10">
+              <div className="mx-auto h-4 w-44 animate-pulse rounded bg-[#efefef]" />
+              <div className="mx-auto h-4 w-72 max-w-full animate-pulse rounded bg-[#f4f4f4]" />
+            </CardContent>
+          </Card>
+        ) : applicationsError ? (
+          <Card>
+            <CardContent className="space-y-4 py-10 text-center">
+              <div>
+                <p className="font-medium text-[#111111]">Unable to load applications</p>
+                <p className="mt-1 text-sm text-gray-500">{applicationsError}</p>
+              </div>
+              <Button variant="outline" onClick={() => void refreshApplications()}>
+                Try again
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
         <Tabs defaultValue="pending" className="space-y-4">
           <TabsList>
             <TabsTrigger value="pending">
@@ -77,6 +113,7 @@ export default function ViewApplicationsDialog({
                   application={app}
                   posting={posting}
                   onStatusChange={handleStatusChange}
+                  updating={updatingApplicationId === app.id}
                 />
               ))
             )}
@@ -92,6 +129,7 @@ export default function ViewApplicationsDialog({
                   application={app}
                   posting={posting}
                   onStatusChange={handleStatusChange}
+                  updating={updatingApplicationId === app.id}
                 />
               ))
             )}
@@ -107,6 +145,7 @@ export default function ViewApplicationsDialog({
                   application={app}
                   posting={posting}
                   onStatusChange={handleStatusChange}
+                  updating={updatingApplicationId === app.id}
                 />
               ))
             )}
@@ -122,6 +161,7 @@ export default function ViewApplicationsDialog({
                   application={app}
                   posting={posting}
                   onStatusChange={handleStatusChange}
+                  updating={updatingApplicationId === app.id}
                 />
               ))
             )}
@@ -137,11 +177,13 @@ export default function ViewApplicationsDialog({
                   application={app}
                   posting={posting}
                   onStatusChange={handleStatusChange}
+                  updating={updatingApplicationId === app.id}
                 />
               ))
             )}
           </TabsContent>
         </Tabs>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -151,13 +193,15 @@ function ApplicationCard({
   application,
   posting,
   onStatusChange,
+  updating,
 }: {
   application: any;
   posting: any;
   onStatusChange: (
     id: string,
     status: 'Pending' | 'Shortlisted' | 'Interview' | 'Rejected' | 'Accepted'
-  ) => void;
+  ) => void | Promise<void>;
+  updating: boolean;
 }) {
   const statusConfig = {
     Pending: { color: 'bg-yellow-100 text-yellow-800', icon: Clock },
@@ -243,9 +287,10 @@ function ApplicationCard({
               key={nextStatus}
               variant={nextStatus === 'Rejected' ? 'destructive' : 'outline'}
               size="sm"
+              disabled={updating}
               onClick={() => onStatusChange(application.id, nextStatus)}
             >
-              {nextStatus}
+              {updating ? 'Updating...' : nextStatus}
             </Button>
           ))}
         </div>

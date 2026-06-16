@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useAuth } from '../../contexts/AuthContext';
 import { RESEARCH_SUBJECT_GROUPS } from '../../lib/researchTaxonomy';
+import { supabase } from '../../lib/supabase';
 import ResumeUpload, { type ResumeFields, type ResumeUploadHandle } from '../../../components/profile/ResumeUpload';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -173,6 +174,7 @@ export default function StudentProfile({
   const [skillInput, setSkillInput] = useState('');
   const [debouncedSkillInput, setDebouncedSkillInput] = useState('');
   const [coursework, setCoursework] = useState(studentProfile?.coursework || []);
+  const [uploadedResume, setUploadedResume] = useState(studentProfile?.resume ?? null);
   const [isUploadingTranscript, setIsUploadingTranscript] = useState(false);
   const [transcriptError, setTranscriptError] = useState('');
   const [photoBase64, setPhotoBase64] = useState<string | null>(studentProfile?.photoBase64 ?? null);
@@ -184,7 +186,7 @@ export default function StudentProfile({
   const trimmedDisplayName = displayName.trim();
   const trimmedDisplayEmail = displayEmail.trim();
   const trimmedMajor = major.trim();
-  const hasResume = Boolean(studentProfile?.resume) || hasUploadedResume;
+  const hasResume = Boolean(studentProfile?.resume) || Boolean(uploadedResume) || hasUploadedResume;
   const hasInvalidDisplayEmail = Boolean(trimmedDisplayEmail) && !isValidEmail(trimmedDisplayEmail);
   const isSetupMode = mode === 'setup';
   const isSetupFormReady =
@@ -257,6 +259,7 @@ export default function StudentProfile({
     setDraftInterests(studentProfile?.interests || []);
     setSkills(studentProfile?.skills || []);
     setCoursework(studentProfile?.coursework || []);
+    setUploadedResume(studentProfile?.resume ?? null);
     setHasUploadedResume(Boolean(studentProfile?.resume));
   }, [
     user?.name,
@@ -442,9 +445,18 @@ export default function StudentProfile({
     try {
       const formData = new FormData();
       formData.append('transcript', file);
+      const { data: sessionData } = supabase
+        ? await supabase.auth.getSession()
+        : { data: { session: null } };
+      const accessToken = sessionData.session?.access_token;
 
       const response = await fetch('/api/profile/transcript', {
         method: 'POST',
+        headers: accessToken
+          ? {
+              Authorization: `Bearer ${accessToken}`,
+            }
+          : undefined,
         body: formData,
       });
       const payload = await response.json().catch(() => ({}));
@@ -467,7 +479,7 @@ export default function StudentProfile({
 
   const handleRemoveTranscript = async () => {
     try {
-      await updateStudentProfile({ transcript: null, coursework: [] });
+      await updateStudentProfile({ transcript: null, transcriptText: null, coursework: [] });
       setCoursework([]);
       toast.success('Transcript removed.');
     } catch (error) {
@@ -511,6 +523,7 @@ export default function StudentProfile({
         githubUrl: githubUrl.trim() || undefined,
         interests: includeInterestsSection ? interests : undefined,
         skills,
+        resume: uploadedResume ?? studentProfile?.resume ?? undefined,
       });
       setShowValidationErrors(false);
       if (mode === 'setup') {
@@ -547,6 +560,7 @@ export default function StudentProfile({
     setCustomInterestInput('');
     setSkills(studentProfile?.skills || []);
     setCoursework(studentProfile?.coursework || []);
+    setUploadedResume(studentProfile?.resume ?? null);
     setSkillInput('');
     setDebouncedSkillInput('');
     setTranscriptError('');
@@ -1032,7 +1046,10 @@ export default function StudentProfile({
                 <ResumeUpload
                   ref={resumeUploadRef}
                   onAutofill={handleAutofill}
-                  onResumeUploaded={() => setHasUploadedResume(true)}
+                  onResumeUploaded={(resume) => {
+                    setUploadedResume(resume);
+                    setHasUploadedResume(true);
+                  }}
                 />
                 {missingResume ? <p className="mt-2 text-xs text-destructive">This field is required</p> : null}
 

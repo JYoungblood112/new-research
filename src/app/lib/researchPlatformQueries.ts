@@ -51,7 +51,7 @@ export async function listPublicProjects() {
   const client = requireSupabaseClient();
   const { data, error } = await client
     .from('projects')
-    .select('*, professors(department,title,contact_email,bio_url,research_areas,metadata)')
+    .select('*, professors(department,title,contact_email,bio_url,research_areas,research_interests,metadata)')
     .eq('status', 'published')
     .order('application_deadline', { ascending: true, nullsFirst: false });
   if (error) throw error;
@@ -104,7 +104,7 @@ export async function listProjectApplications(projectId: string) {
   const client = requireSupabaseClient();
   const { data, error } = await client
     .from('applications')
-    .select('*, students(major,degree,academic_year,gpa)')
+    .select('*, students(major,degree,academic_year)')
     .eq('project_id', projectId)
     .order('submitted_at', { ascending: false });
   if (error) throw error;
@@ -121,6 +121,21 @@ export async function createApplication(application: InsertRow<'applications'>) 
 export async function updateMyApplication(applicationId: string, updates: UpdateRow<'applications'>) {
   const client = requireSupabaseClient();
   const { data, error } = await client.from('applications').update(updates).eq('id', applicationId).select('*').single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateProjectApplicationStatus(
+  applicationId: string,
+  status: Database['public']['Enums']['application_status']
+) {
+  const client = requireSupabaseClient();
+  const { data, error } = await client
+    .from('applications')
+    .update({ status })
+    .eq('id', applicationId)
+    .select('*')
+    .single();
   if (error) throw error;
   return data;
 }

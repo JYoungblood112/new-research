@@ -7,6 +7,10 @@ import { Label } from '../../components/ui/label';
 import { Button } from '../../components/ui/button';
 import { ArrowLeft, Camera } from 'lucide-react';
 import { toast } from 'sonner';
+import ResearchMetadataPicker, {
+  normalizeResearchAreas,
+  normalizeResearchInterests,
+} from '../../components/professor/ResearchMetadataPicker';
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -27,10 +31,10 @@ export default function ProfessorProfilePage() {
           title?: string;
           contactEmail?: string;
           bioUrl?: string;
-          researchAreas?: string;
+          researchAreas?: string[];
           professorWebsite?: string;
           publicationsLink?: string;
-          researchInterests?: string;
+          researchInterests?: string[];
           photoBase64?: string;
         }
       | undefined) ?? {};
@@ -40,10 +44,10 @@ export default function ProfessorProfilePage() {
   const [title, setTitle] = useState(profile.title ?? '');
   const [contactEmail, setContactEmail] = useState(profile.contactEmail ?? user?.email ?? '');
   const [bioUrl, setBioUrl] = useState(profile.bioUrl ?? '');
-  const [researchAreas, setResearchAreas] = useState(profile.researchAreas ?? '');
+  const [researchAreas, setResearchAreas] = useState<string[]>(normalizeResearchAreas(profile.researchAreas));
   const [professorWebsite, setProfessorWebsite] = useState(profile.professorWebsite ?? '');
   const [publicationsLink, setPublicationsLink] = useState(profile.publicationsLink ?? '');
-  const [researchInterests, setResearchInterests] = useState(profile.researchInterests ?? '');
+  const [researchInterests, setResearchInterests] = useState<string[]>(normalizeResearchInterests(profile.researchInterests));
   const [photoBase64, setPhotoBase64] = useState(profile.photoBase64 ?? '');
   const [isSaving, setIsSaving] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
@@ -114,10 +118,10 @@ export default function ProfessorProfilePage() {
         title: trimmedTitle,
         contactEmail: trimmedContactEmail,
         bioUrl: trimmedBioUrl || undefined,
-        researchAreas: researchAreas.trim() || undefined,
+        researchAreas,
         professorWebsite: trimmedProfessorWebsite || undefined,
         publicationsLink: trimmedPublicationsLink || undefined,
-        researchInterests: researchInterests.trim() || undefined,
+        researchInterests,
         photoBase64: photoBase64 || undefined,
       });
       setShowValidationErrors(false);
@@ -291,13 +295,12 @@ export default function ProfessorProfilePage() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#575757]">Research Areas</Label>
-                  <Input
+                  <ResearchMetadataPicker
+                    label="Research Areas"
                     value={researchAreas}
-                    onChange={(e) => setResearchAreas(e.target.value)}
+                    onChange={setResearchAreas}
                     disabled={isSaving}
-                    placeholder="Machine Learning, NLP, Robotics"
-                    className="h-12 rounded-2xl border-[#d9d9d9] bg-white px-4 text-[#111111] shadow-none"
+                    placeholder="Search canonical fields"
                   />
                 </div>
                 <div className="space-y-2">
@@ -341,13 +344,13 @@ export default function ProfessorProfilePage() {
                   )}
                 </div>
                 <div className="space-y-2 md:col-span-2">
-                  <Label className="text-sm font-semibold text-[#575757]">Research Interests</Label>
-                  <Input
+                  <ResearchMetadataPicker
+                    label="Research Interests"
                     value={researchInterests}
-                    onChange={(e) => setResearchInterests(e.target.value)}
+                    onChange={setResearchInterests}
                     disabled={isSaving}
-                    placeholder="Responsible AI, Human-Centered ML, Scalable Inference"
-                    className="h-12 rounded-2xl border-[#d9d9d9] bg-white px-4 text-[#111111] shadow-none"
+                    allowCustom
+                    placeholder="Search topics or add a concise tag"
                   />
                 </div>
               </div>

@@ -1,14 +1,21 @@
 import express from 'express';
 import multer from 'multer';
 import pdfParse from 'pdf-parse';
+import { createClient } from '@supabase/supabase-js';
+import { config as loadDotenv } from 'dotenv';
+import WebSocket from 'ws';
 import { randomId, readStore, writeStore } from './store.js';
 import { getSessionUserId } from './sessionStore.js';
+
+loadDotenv({ path: '.env.local' });
 
 const OLLAMA_MODEL = 'llama3.2:1b';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
 const profileRouter = express.Router();
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const VALID_ACADEMIC_YEARS = ['Freshman', 'Sophomore', 'Junior', 'Senior', "Master's", 'PhD'];
 const TRANSCRIPT_COURSE_STOP_WORDS = new Set([
   'course',
@@ -514,6 +521,57 @@ function extractTranscriptCoursesHeuristically(text) {
   return courses.slice(0, 80);
 }
 
+function getBearerToken(req) {
+  const header = req.headers?.authorization;
+  if (typeof header !== 'string') {
+    return null;
+  }
+
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
+function createSupabaseUserClient(accessToken) {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Supabase is not configured on the server.');
+  }
+
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+    realtime: {
+      transport: WebSocket,
+    },
+  });
+}
+
+async function getSupabaseStudentFromRequest(req) {
+  const accessToken = getBearerToken(req);
+  if (!accessToken) {
+    return null;
+  }
+
+  const supabase = createSupabaseUserClient(accessToken);
+  const { data, error } = await supabase.auth.getUser(accessToken);
+  if (error || !data.user) {
+    return null;
+  }
+
+  const role = data.user.user_metadata?.role;
+  if (role && role !== 'student') {
+    return null;
+  }
+
+  return { supabase, user: data.user };
+}
+
 async function extractTextFromUploadedAcademicFile(file, label) {
   if (!file) {
     throw new Error(`${label} file is required`);
@@ -769,6 +827,38 @@ profileRouter.post('/resume', upload.single('resume'), async (req, res) => {
       return res.status(400).json({ error: 'resume file is required' });
     }
 
+    const supabaseSession = await getSupabaseStudentFromRequest(req);
+    if (supabaseSession) {
+      const uploadedAt = new Date().toISOString();
+      let resumeText = '';
+      try {
+        resumeText = (await extractTextFromUploadedAcademicFile(req.file, 'resume')).slice(0, 12000);
+      } catch (error) {
+        console.warn('[resume upload] Could not extract resume text for recommendations:', error instanceof Error ? error.message : String(error));
+      }
+
+      const resume = {
+        name: req.file.originalname,
+        uploadDate: uploadedAt,
+      };
+
+      const { error } = await supabaseSession.supabase
+        .from('students')
+        .upsert({
+          id: supabaseSession.user.id,
+          resume,
+          resume_text: resumeText || null,
+        })
+        .select('id')
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return res.json({ success: true, fileName: req.file.originalname, resume, resumeText });
+    }
+
     const token = req.cookies?.cmu_session;
     const sessionUserId = token ? getSessionUserId(token) : null;
     if (!sessionUserId) {
@@ -828,6 +918,36 @@ profileRouter.post('/transcript', upload.single('transcript'), async (req, res) 
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'transcript file is required' });
+    }
+
+    const supabaseSession = await getSupabaseStudentFromRequest(req);
+    if (supabaseSession) {
+      const parsed = await parseTranscriptBuffer(req.file);
+      const uploadedAt = new Date().toISOString();
+      const transcript = {
+        name: req.file.originalname,
+        uploadDate: uploadedAt,
+      };
+
+      const { error } = await supabaseSession.supabase
+        .from('students')
+        .upsert({
+          id: supabaseSession.user.id,
+          transcript,
+          transcript_text: parsed.transcriptText.slice(0, 12000),
+          coursework: parsed.coursework,
+        });
+
+      if (error) {
+        throw error;
+      }
+
+      return res.json({
+        success: true,
+        transcript,
+        transcriptText: parsed.transcriptText.slice(0, 12000),
+        coursework: parsed.coursework,
+      });
     }
 
     const token = req.cookies?.cmu_session;

@@ -1012,6 +1012,10 @@ function buildScoringPrompt(researchPosition, resumeText, githubData, linkedinDa
       id: researchPosition?.id ?? '',
       title: researchPosition?.title ?? '',
       category: researchPosition?.category ?? '',
+      research_areas: Array.isArray(researchPosition?.researchAreas) ? researchPosition.researchAreas : [],
+      skills_needed: Array.isArray(researchPosition?.skillsNeeded) ? researchPosition.skillsNeeded : [],
+      professor_research_areas: Array.isArray(researchPosition?.professorResearchAreas) ? researchPosition.professorResearchAreas : [],
+      professor_research_interests: Array.isArray(researchPosition?.professorResearchInterests) ? researchPosition.professorResearchInterests : [],
       overview: researchPosition?.overview ?? '',
       student_role: researchPosition?.studentRoleDescription ?? '',
       requirements: requirementItems,
@@ -1036,6 +1040,8 @@ Instructions:
 - Use "partial" when evidence is related but incomplete.
 - Use "none" when no direct evidence is present.
 - Required requirements matter more than preferred requirements.
+- Use overlap between student interests and research_areas/professor_research_areas/professor_research_interests as a positive research-fit signal.
+- Use skills_needed as structured skill requirements when assessing student skills and evidence.
 - Missing GitHub or LinkedIn is not a gap. Sparse or irrelevant GitHub/LinkedIn should receive 0 bonus.
 - External-source bonuses must be directly relevant to this posting.
 - Prefer exact evidence phrases from resume/profile/transcript/GitHub/LinkedIn.

@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useData } from '../../contexts/DataContext';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
+import { Badge } from '../../components/ui/badge';
 import { LogOut, ArrowLeft, ExternalLink } from 'lucide-react';
 import ApplyToResearchDialog from '../../components/student/ApplyToResearchDialog';
 
@@ -89,6 +90,20 @@ export default function StudentResearchDetailPage() {
               <div className="mb-0 rounded-lg border-b border-[#f0ece8] pb-4 transition-colors duration-150 hover:bg-[#faf6f3]">
                 <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-red-700">Basics</p>
                 <p className="text-[15px] leading-7 text-foreground/90">{posting.overview}</p>
+                {posting.researchAreas.length > 0 || posting.skillsNeeded.length > 0 ? (
+                  <div className="my-3 flex flex-wrap gap-2">
+                    {posting.researchAreas.map((area) => (
+                      <Badge key={`area-${area}`} variant="secondary" className="rounded-full">
+                        {area}
+                      </Badge>
+                    ))}
+                    {posting.skillsNeeded.map((skill) => (
+                      <Badge key={`skill-${skill}`} className="rounded-full border border-[#d8d8d8] bg-white text-[#4f4a46] hover:bg-white">
+                        {skill}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
                 <p className="mt-2">
                   <span className="font-medium">Student Role:</span> {posting.studentRoleDescription}
                 </p>
@@ -131,14 +146,18 @@ export default function StudentResearchDetailPage() {
               </div>
               <div className="rounded-lg pt-5 transition-colors duration-150 hover:bg-[#faf6f3]">
                 <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-red-700">Application Questions</p>
-                <ul className="list-inside list-disc space-y-1">
-                  {posting.questions.map((question, index) => (
-                    <li key={`${posting.id}-${index}`}>
-                      {question.question}
-                      {question.wordLimit ? ` (${question.wordLimit} words)` : ''}
-                    </li>
-                  ))}
-                </ul>
+                {posting.questions.length > 0 ? (
+                  <ul className="list-inside list-disc space-y-1">
+                    {posting.questions.map((question, index) => (
+                      <li key={`${posting.id}-${index}`}>
+                        {question.question}
+                        {question.wordLimit ? ` (${question.wordLimit} words)` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-muted-foreground">No custom questions for this opportunity.</p>
+                )}
               </div>
               <div className="mt-3 flex justify-end border-t border-[#e8e4e0] pt-5">
                 <Button

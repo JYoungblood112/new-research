@@ -86,7 +86,7 @@ create table if not exists public.professors (
   office_hours text,
   bio_url text,
   research_areas text[] not null default '{}',
-  research_interests text,
+  research_interests text[] not null default '{}',
   professor_website text,
   publications_link text,
   metadata jsonb not null default '{}'::jsonb,
@@ -96,6 +96,8 @@ create table if not exists public.professors (
 
 alter table public.projects add column if not exists professor_id uuid references public.professors(id) on delete cascade;
 alter table public.projects add column if not exists category text;
+alter table public.projects add column if not exists research_areas text[] not null default '{}';
+alter table public.projects add column if not exists skills_needed text[] not null default '{}';
 alter table public.projects add column if not exists overview text;
 alter table public.projects add column if not exists student_role_description text;
 alter table public.projects add column if not exists student_gain text;
@@ -198,9 +200,13 @@ create table if not exists public.recommendations (
 create index if not exists profiles_role_idx on public.profiles (role);
 create index if not exists students_major_idx on public.students (major);
 create index if not exists professors_department_idx on public.professors (department);
+create index if not exists professors_research_areas_idx on public.professors using gin (research_areas);
+create index if not exists professors_research_interests_idx on public.professors using gin (research_interests);
 create index if not exists projects_professor_id_idx on public.projects (professor_id);
 create index if not exists projects_status_idx on public.projects (status);
 create index if not exists projects_application_deadline_idx on public.projects (application_deadline);
+create index if not exists projects_research_areas_idx on public.projects using gin (research_areas);
+create index if not exists projects_skills_needed_idx on public.projects using gin (skills_needed);
 create index if not exists applications_student_id_idx on public.applications (student_id);
 create index if not exists applications_project_id_idx on public.applications (project_id);
 create index if not exists applications_status_idx on public.applications (status);

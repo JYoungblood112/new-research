@@ -16,21 +16,10 @@ type StudentProfileInput = {
   name?: string;
   email?: string;
   photoBase64?: string;
-  phone?: string;
-  location?: string;
   linkedin?: string;
   github?: string;
   major?: string;
-  university?: string;
   degree?: string;
-  gpa?: string;
-  graduationDate?: string;
-  graduationType?: string;
-  jobTitle?: string;
-  employer?: string;
-  yearsOfExperience?: string;
-  workAuthorization?: string;
-  summary?: string;
   graduationYear?: string;
   linkedInUrl?: string;
   githubUrl?: string;
@@ -38,6 +27,7 @@ type StudentProfileInput = {
   interests?: string[];
   resume?: { name: string; uploadDate: string } | null;
   transcript?: { name: string; uploadDate: string } | null;
+  transcriptText?: string | null;
   coursework?: Array<string | { courseNumber?: string; courseName?: string; semester?: string }>;
 };
 
@@ -48,10 +38,11 @@ type ProfessorProfileInput = {
   contactEmail?: string;
   officeHours?: string;
   bioUrl?: string;
-  researchAreas?: string;
+  researchAreas?: string[];
   professorWebsite?: string;
   publicationsLink?: string;
-  researchInterests?: string;
+  researchInterests?: string[];
+  researchSummary?: string;
   photoBase64?: string;
 };
 
@@ -96,6 +87,34 @@ function getStringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : undefined;
 }
 
+function coerceStringArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split(/[,;|\n\r]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function getUploadedFile(value: Json): { name: string; uploadDate: string } | null {
+  const record = asProfileObject(value);
+  const name = getString(record.name);
+  if (!name) {
+    return null;
+  }
+
+  return {
+    name,
+    uploadDate: getString(record.uploadDate) ?? new Date().toISOString(),
+  };
+}
+
 function studentRowToProfile(row: StudentRow | null, user: User): StudentSetupProfile | null {
   if (!row) return null;
   const metadata = asProfileObject(row.metadata);
@@ -104,28 +123,19 @@ function studentRowToProfile(row: StudentRow | null, user: User): StudentSetupPr
     id: row.id,
     userId: row.id,
     name: user.name,
-    phone: row.phone ?? undefined,
-    location: row.location ?? undefined,
+    photoBase64: getString(metadata.photoBase64),
     linkedin: row.linkedin_url ?? undefined,
     github: row.github_url ?? undefined,
     linkedInUrl: row.linkedin_url ?? undefined,
     githubUrl: row.github_url ?? undefined,
     major: row.major ?? undefined,
-    university: row.university ?? undefined,
     degree: row.degree ?? undefined,
-    gpa: row.gpa === null ? undefined : String(row.gpa),
-    graduationYear: row.graduation_year === null ? undefined : String(row.graduation_year),
-    graduationDate: getString(metadata.graduationDate),
-    graduationType: getString(metadata.graduationType),
-    jobTitle: getString(metadata.jobTitle),
-    employer: getString(metadata.employer),
-    yearsOfExperience: getString(metadata.yearsOfExperience),
-    workAuthorization: getString(metadata.workAuthorization),
-    summary: row.summary ?? undefined,
+    graduationYear: row.academic_year ?? undefined,
     skills: getStringArray(metadata.skills),
-    interests: getStringArray(metadata.interests),
-    resume: (row.resume && typeof row.resume === 'object' && !Array.isArray(row.resume) ? row.resume : null) as StudentSetupProfile['resume'],
-    transcript: (row.transcript && typeof row.transcript === 'object' && !Array.isArray(row.transcript) ? row.transcript : null) as StudentSetupProfile['transcript'],
+    interests: row.research_interests.length > 0 ? row.research_interests : getStringArray(metadata.interests),
+    resume: getUploadedFile(row.resume),
+    transcript: getUploadedFile(row.transcript),
+    transcriptText: row.transcript_text ?? undefined,
     coursework: Array.isArray(row.coursework) ? (row.coursework as StudentSetupProfile['coursework']) : undefined,
   };
 }
@@ -134,11 +144,11 @@ function studentSetupFromRow(row: StudentRow | null, user: User): SetupState {
   const profile = studentRowToProfile(row, user);
   const skills = profile?.skills ?? [];
   const interests = profile?.interests ?? [];
-  const basic = Boolean(profile?.major && profile.university && profile.degree && profile.graduationYear);
+  const basic = Boolean(profile?.major && profile.graduationYear);
   const resume = Boolean(profile?.resume);
 
   return {
-    completed: Boolean(basic && resume && skills.length > 0 && interests.length > 0),
+    completed: Boolean(basic && resume && interests.length > 0),
     profile,
     steps: {
       basic,
@@ -163,10 +173,11 @@ function professorRowToProfile(row: ProfessorRow | null, user: User): ProfessorS
     contactEmail: row.contact_email ?? undefined,
     officeHours: row.office_hours ?? undefined,
     bioUrl: row.bio_url ?? undefined,
-    researchAreas: row.research_areas.join(', '),
+    researchAreas: coerceStringArray(row.research_areas),
     professorWebsite: row.professor_website ?? undefined,
     publicationsLink: row.publications_link ?? undefined,
-    researchInterests: row.research_interests ?? undefined,
+    researchInterests: coerceStringArray(row.research_interests),
+    researchSummary: getString(metadata.researchSummary),
     photoBase64: getString(metadata.photoBase64),
   };
 }
@@ -174,10 +185,12 @@ function professorRowToProfile(row: ProfessorRow | null, user: User): ProfessorS
 function professorSetupFromRow(row: ProfessorRow | null, user: User): SetupState {
   const profile = professorRowToProfile(row, user);
   const contact = Boolean(profile?.contactEmail && profile.bioUrl);
-  const basic = Boolean(profile?.department && profile.title && profile.researchAreas);
+  const researchAreas = profile?.researchAreas ?? [];
+  const researchInterests = profile?.researchInterests ?? [];
+  const basic = Boolean(profile?.department && profile.title && researchAreas.length > 0);
 
   return {
-    completed: Boolean(basic && contact && profile?.researchInterests),
+    completed: Boolean(basic && contact && researchInterests.length > 0),
     profile,
     steps: {
       basic,
@@ -359,6 +372,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function updateStudentProfile(profile: StudentProfileInput): Promise<void> {
     if (!user || user.role !== 'student') throw new Error('Student role required.');
+    const currentProfile = setupState?.profile as StudentSetupProfile | null;
 
     if (profile.name?.trim()) {
       await upsertProfile({
@@ -370,32 +384,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const metadata = {
-      graduationDate: profile.graduationDate,
-      graduationType: profile.graduationType,
-      jobTitle: profile.jobTitle,
-      employer: profile.employer,
-      yearsOfExperience: profile.yearsOfExperience,
-      workAuthorization: profile.workAuthorization,
-      skills: profile.skills,
-      interests: profile.interests,
-      photoBase64: profile.photoBase64,
+      skills: profile.skills ?? currentProfile?.skills ?? [],
+      interests: profile.interests ?? currentProfile?.interests ?? [],
+      photoBase64: profile.photoBase64 ?? currentProfile?.photoBase64,
     };
 
     const updated = await upsertStudent({
       id: user.id,
-      major: profile.major,
-      university: profile.university,
-      degree: profile.degree,
-      gpa: profile.gpa ? Number(profile.gpa) : undefined,
-      graduation_year: profile.graduationYear ? Number.parseInt(profile.graduationYear, 10) : undefined,
-      phone: profile.phone,
-      location: profile.location,
-      linkedin_url: profile.linkedInUrl ?? profile.linkedin,
-      github_url: profile.githubUrl ?? profile.github,
-      summary: profile.summary,
-      resume: (profile.resume ?? {}) as Json,
-      transcript: (profile.transcript ?? {}) as Json,
-      coursework: (profile.coursework ?? []) as Json,
+      major: profile.major ?? currentProfile?.major,
+      degree: profile.degree ?? currentProfile?.degree,
+      academic_year: profile.graduationYear ?? currentProfile?.graduationYear,
+      linkedin_url: profile.linkedInUrl ?? profile.linkedin ?? currentProfile?.linkedInUrl ?? currentProfile?.linkedin,
+      github_url: profile.githubUrl ?? profile.github ?? currentProfile?.githubUrl ?? currentProfile?.github,
+      research_interests: profile.interests ?? currentProfile?.interests,
+      resume: (profile.resume !== undefined ? profile.resume : currentProfile?.resume ?? null) as Json,
+      transcript: (profile.transcript !== undefined ? profile.transcript : currentProfile?.transcript ?? null) as Json,
+      transcript_text: profile.transcriptText === null
+        ? null
+        : profile.transcriptText ?? currentProfile?.transcriptText,
+      coursework: (profile.coursework ?? currentProfile?.coursework ?? []) as Json,
       metadata: metadata as Json,
     });
     const nextUser = profile.name?.trim() ? { ...user, name: profile.name.trim() } : user;
@@ -414,25 +421,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       full_name: nextName,
     });
 
-    const researchAreas = (profile.researchAreas ?? '')
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean);
+    const currentProfile = setupState?.profile as ProfessorSetupProfile | null;
+    const metadata = {
+      photoBase64: profile.photoBase64 ?? currentProfile?.photoBase64,
+      researchSummary: profile.researchSummary ?? currentProfile?.researchSummary,
+    };
 
     const updated = await upsertProfessor({
       id: user.id,
-      department: profile.department,
-      title: profile.title,
-      contact_email: profile.contactEmail,
-      office_hours: profile.officeHours,
-      bio_url: profile.bioUrl,
-      research_areas: researchAreas,
-      professor_website: profile.professorWebsite,
-      publications_link: profile.publicationsLink,
-      research_interests: profile.researchInterests,
-      metadata: {
-        photoBase64: profile.photoBase64,
-      } as Json,
+      department: profile.department ?? currentProfile?.department,
+      title: profile.title ?? currentProfile?.title,
+      contact_email: profile.contactEmail ?? currentProfile?.contactEmail,
+      office_hours: profile.officeHours ?? currentProfile?.officeHours,
+      bio_url: profile.bioUrl ?? currentProfile?.bioUrl,
+      research_areas: profile.researchAreas ?? currentProfile?.researchAreas ?? [],
+      professor_website: profile.professorWebsite ?? currentProfile?.professorWebsite,
+      publications_link: profile.publicationsLink ?? currentProfile?.publicationsLink,
+      research_interests: profile.researchInterests ?? currentProfile?.researchInterests ?? [],
+      metadata: metadata as Json,
     });
     const nextUser = { ...user, name: nextName };
     setUser(nextUser);

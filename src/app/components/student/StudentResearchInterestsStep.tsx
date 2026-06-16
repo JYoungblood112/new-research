@@ -65,7 +65,7 @@ export default function StudentResearchInterestsStep({
   onBack: () => void;
   onContinue: () => void;
 }) {
-  const { setupState, updateStudentProfile } = useAuth();
+  const { setupState, updateStudentProfile, refreshSession } = useAuth();
   const currentInterests = (setupState?.profile as { interests?: string[] } | null)?.interests ?? [];
 
   const [subjectInput, setSubjectInput] = useState('');
@@ -275,6 +275,7 @@ export default function StudentResearchInterestsStep({
     setIsSaving(true);
     try {
       await updateStudentProfile({ interests: selectedInterests });
+      await refreshSession();
       toast.success('Research interests saved.');
       onContinue();
     } catch (error) {

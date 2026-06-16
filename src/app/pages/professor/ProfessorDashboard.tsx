@@ -50,6 +50,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import PostResearchDialog from '../../components/professor/PostResearchDialog';
 import ResearchImpactPipeline from '../../components/professor/ResearchImpactPipeline';
 import ViewApplicationsDialog from '../../components/professor/ViewApplicationsDialog';
+import ResearchMetadataPicker, {
+  normalizeResearchAreas,
+  normalizeResearchInterests,
+} from '../../components/professor/ResearchMetadataPicker';
 
 type SectionKey =
   | 'dashboard'
@@ -134,6 +138,16 @@ const TOP_MAJORS = [
 
 function normalizeInterestKey(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function estimatePostingInterestCount(posting: { category?: string; researchAreas?: string[] }, counts: Record<string, number>) {
+  const keys = new Set(
+    [posting.category, ...(Array.isArray(posting.researchAreas) ? posting.researchAreas : [])]
+      .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      .map(normalizeInterestKey)
+  );
+
+  return [...keys].reduce((total, key) => total + (counts[key] ?? 0), 0);
 }
 
 function computeMatchScore(application: Application) {
@@ -583,10 +597,10 @@ export default function ProfessorDashboard() {
           title?: string;
           contactEmail?: string;
           bioUrl?: string;
-          researchAreas?: string;
+          researchAreas?: string[];
           professorWebsite?: string;
           publicationsLink?: string;
-          researchInterests?: string;
+          researchInterests?: string[];
         }
       | undefined) ?? {};
 
@@ -596,10 +610,10 @@ export default function ProfessorDashboard() {
     title: professorProfile.title ?? '',
     contactEmail: professorProfile.contactEmail ?? user?.email ?? '',
     bioUrl: professorProfile.bioUrl ?? '',
-    researchAreas: professorProfile.researchAreas ?? '',
+    researchAreas: normalizeResearchAreas(professorProfile.researchAreas),
     professorWebsite: professorProfile.professorWebsite ?? '',
     publicationsLink: professorProfile.publicationsLink ?? '',
-    researchInterests: professorProfile.researchInterests ?? '',
+    researchInterests: normalizeResearchInterests(professorProfile.researchInterests),
   });
 
   const [labForm, setLabForm] = useState(createProfileFormState);
@@ -634,10 +648,10 @@ export default function ProfessorDashboard() {
       labForm.title !== saved.title ||
       labForm.contactEmail !== saved.contactEmail ||
       labForm.bioUrl !== saved.bioUrl ||
-      labForm.researchAreas !== saved.researchAreas ||
+      labForm.researchAreas.join('|') !== saved.researchAreas.join('|') ||
       labForm.professorWebsite !== saved.professorWebsite ||
       labForm.publicationsLink !== saved.publicationsLink ||
-      labForm.researchInterests !== saved.researchInterests
+      labForm.researchInterests.join('|') !== saved.researchInterests.join('|')
     );
   };
 
@@ -685,10 +699,10 @@ export default function ProfessorDashboard() {
         title: trimmedTitle,
         contactEmail: trimmedContactEmail,
         bioUrl: trimmedBioUrl || undefined,
-        researchAreas: labForm.researchAreas.trim() || undefined,
+        researchAreas: labForm.researchAreas,
         professorWebsite: trimmedProfessorWebsite || undefined,
         publicationsLink: trimmedPublicationsLink || undefined,
-        researchInterests: labForm.researchInterests.trim() || undefined,
+        researchInterests: labForm.researchInterests,
       });
       setShowProfileValidationErrors(false);
       if (showSuccessToast) {
@@ -1325,16 +1339,20 @@ export default function ProfessorDashboard() {
     );
   };
 
-  const applyBulkStatus = (nextStatus: Application['status']) => {
+  const applyBulkStatus = async (nextStatus: Application['status']) => {
     const targetIds = selectedApplicantIds.filter((id) => allVisibleApplicantIds.includes(id));
     if (targetIds.length === 0) {
       toast.error('Select at least one applicant first.');
       return;
     }
 
-    targetIds.forEach((id) => updateApplicationStatus(id, nextStatus));
-    toast.success(`${targetIds.length} applicants moved to ${nextStatus}.`);
-    setSelectedApplicantIds((current) => current.filter((id) => !targetIds.includes(id)));
+    try {
+      await Promise.all(targetIds.map((id) => updateApplicationStatus(id, nextStatus)));
+      toast.success(`${targetIds.length} applicants moved to ${nextStatus}.`);
+      setSelectedApplicantIds((current) => current.filter((id) => !targetIds.includes(id)));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to update selected applicants.');
+    }
   };
 
   useEffect(() => {
@@ -1612,7 +1630,7 @@ export default function ProfessorDashboard() {
                       <PostingCard
                         key={posting.id}
                         posting={posting}
-                        interestedCount={interestCounts[normalizeInterestKey(posting.category)] ?? 0}
+                        interestedCount={estimatePostingInterestCount(posting, interestCounts)}
                         onViewApplications={(postingId) => {
                           const title = postingById.get(postingId)?.title ?? '';
                           setApplicantSearch(title);
@@ -1631,6 +1649,8 @@ export default function ProfessorDashboard() {
                             professorBioUrl: postingToClone.professorBioUrl,
                             professorDepartment: postingToClone.professorDepartment,
                             category: postingToClone.category,
+                            researchAreas: postingToClone.researchAreas,
+                            skillsNeeded: postingToClone.skillsNeeded,
                             title: `${postingToClone.title} (Copy)`,
                             overview: postingToClone.overview,
                             studentRoleDescription: postingToClone.studentRoleDescription,
@@ -1666,7 +1686,7 @@ export default function ProfessorDashboard() {
                       <PostingCard
                         key={posting.id}
                         posting={posting}
-                        interestedCount={interestCounts[normalizeInterestKey(posting.category)] ?? 0}
+                        interestedCount={estimatePostingInterestCount(posting, interestCounts)}
                         onViewApplications={(postingId) => {
                           const title = postingById.get(postingId)?.title ?? '';
                           setApplicantSearch(title);
@@ -1685,6 +1705,8 @@ export default function ProfessorDashboard() {
                             professorBioUrl: postingToClone.professorBioUrl,
                             professorDepartment: postingToClone.professorDepartment,
                             category: postingToClone.category,
+                            researchAreas: postingToClone.researchAreas,
+                            skillsNeeded: postingToClone.skillsNeeded,
                             title: `${postingToClone.title} (Copy)`,
                             overview: postingToClone.overview,
                             studentRoleDescription: postingToClone.studentRoleDescription,
@@ -1720,7 +1742,7 @@ export default function ProfessorDashboard() {
                       <PostingCard
                         key={posting.id}
                         posting={posting}
-                        interestedCount={interestCounts[normalizeInterestKey(posting.category)] ?? 0}
+                        interestedCount={estimatePostingInterestCount(posting, interestCounts)}
                         onViewApplications={(postingId) => {
                           const title = postingById.get(postingId)?.title ?? '';
                           setApplicantSearch(title);
@@ -1739,6 +1761,8 @@ export default function ProfessorDashboard() {
                             professorBioUrl: postingToClone.professorBioUrl,
                             professorDepartment: postingToClone.professorDepartment,
                             category: postingToClone.category,
+                            researchAreas: postingToClone.researchAreas,
+                            skillsNeeded: postingToClone.skillsNeeded,
                             title: `${postingToClone.title} (Copy)`,
                             overview: postingToClone.overview,
                             studentRoleDescription: postingToClone.studentRoleDescription,
@@ -2167,12 +2191,12 @@ export default function ProfessorDashboard() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label>Research Areas</Label>
-                  <Input
+                  <ResearchMetadataPicker
+                    label="Research Areas"
                     value={labForm.researchAreas}
-                    onChange={(event) => setLabForm((current) => ({ ...current, researchAreas: event.target.value }))}
-                    placeholder="Machine Learning, NLP, Robotics"
-                    className="h-12 rounded-2xl border-[#d9d9d9] bg-white px-4 text-[#111111] shadow-none"
+                    onChange={(researchAreas) => setLabForm((current) => ({ ...current, researchAreas }))}
+                    disabled={isSavingProfile}
+                    placeholder="Search canonical fields"
                   />
                 </div>
                 <div className="space-y-2">
@@ -2214,12 +2238,13 @@ export default function ProfessorDashboard() {
                   )}
                 </div>
                 <div className="space-y-2 md:col-span-2">
-                  <Label>Research Interests</Label>
-                  <Input
+                  <ResearchMetadataPicker
+                    label="Research Interests"
                     value={labForm.researchInterests}
-                    onChange={(event) => setLabForm((current) => ({ ...current, researchInterests: event.target.value }))}
-                    placeholder="Responsible AI, Human-Centered ML, Scalable Inference"
-                    className="h-12 rounded-2xl border-[#d9d9d9] bg-white px-4 text-[#111111] shadow-none"
+                    onChange={(researchInterests) => setLabForm((current) => ({ ...current, researchInterests }))}
+                    disabled={isSavingProfile}
+                    allowCustom
+                    placeholder="Search topics or add a concise tag"
                   />
                 </div>
                 <div className="md:col-span-2 flex justify-between">
@@ -2998,6 +3023,20 @@ function PostingCard({
       </CardHeader>
       <CardContent className="space-y-4">
         <p className={`line-clamp-2 text-sm ${darkMode ? 'text-[#cfcfcf]' : 'text-[#333333]'}`}>{posting.overview}</p>
+        {posting.researchAreas?.length || posting.skillsNeeded?.length ? (
+          <div className="flex flex-wrap gap-2">
+            {(posting.researchAreas ?? []).slice(0, 4).map((area: string) => (
+              <Badge key={`area-${posting.id}-${area}`} variant="secondary" className="rounded-full">
+                {area}
+              </Badge>
+            ))}
+            {(posting.skillsNeeded ?? []).slice(0, 4).map((skill: string) => (
+              <Badge key={`skill-${posting.id}-${skill}`} className="rounded-full border border-[#d8d8d8] bg-white text-[#4f4a46] hover:bg-white">
+                {skill}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
         <div className={`flex flex-wrap gap-4 text-sm ${darkMode ? 'text-[#a5a5a5]' : 'text-[#6f6f6f]'}`}>
           <span>Location: Remote</span>
           <span>Commitment: {posting.timeCommitmentExpected}</span>

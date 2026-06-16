@@ -19,16 +19,11 @@ export type ProfileRow = {
 export type StudentRow = {
   id: string;
   major: string | null;
-  university: string | null;
   degree: string | null;
   academic_year: string | null;
-  gpa: number | null;
-  graduation_year: number | null;
-  phone: string | null;
-  location: string | null;
   linkedin_url: string | null;
   github_url: string | null;
-  summary: string | null;
+  research_interests: string[];
   resume_text: string | null;
   transcript_text: string | null;
   coursework: Json;
@@ -47,7 +42,7 @@ export type ProfessorRow = {
   office_hours: string | null;
   bio_url: string | null;
   research_areas: string[];
-  research_interests: string | null;
+  research_interests: string[];
   professor_website: string | null;
   publications_link: string | null;
   metadata: Json;
@@ -59,6 +54,8 @@ export type ProjectRow = {
   id: string;
   professor_id: string | null;
   category: string | null;
+  research_areas: string[];
+  skills_needed: string[];
   title: string;
   overview: string | null;
   student_role_description: string | null;
@@ -82,6 +79,7 @@ export type ApplicationRow = {
   id: string;
   project_id: string;
   student_id: string;
+  student_snapshot: Json;
   answers: Json;
   quick_note: string | null;
   resume: Json;

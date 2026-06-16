@@ -11,25 +11,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Switch } from '../ui/switch';
 import { PlusCircle, X } from 'lucide-react';
 import { toast } from 'sonner';
+import ResearchMetadataPicker, { normalizeResearchInterests } from './ResearchMetadataPicker';
+import {
+  getResearchAreasForPostingCategory,
+  RESEARCH_AREA_OPTIONS,
+  RESEARCH_POSTING_CATEGORY_OPTIONS,
+  RESEARCH_SKILL_OPTIONS,
+} from '../../lib/researchTaxonomy';
 
 interface PostResearchDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   postingToEdit?: ResearchPosting | null;
 }
-
-const CATEGORIES = [
-  'Computational Biology',
-  'Computer Systems',
-  'Computer Vision',
-  'Cybersecurity',
-  'Human-Computer Interaction',
-  'Machine Learning',
-  'Natural Language Processing',
-  'Other',
-  'Robotics',
-  'Software Engineering',
-];
 
 const COMPENSATION_OPTIONS: Array<ResearchPosting['compensation']> = [
   'stipend',
@@ -88,6 +82,8 @@ export default function PostResearchDialog({
   const professorProfile = (setupState?.profile as { department?: string; bioUrl?: string } | null) ?? null;
 
   const [category, setCategory] = useState(postingToEdit?.category ?? '');
+  const [researchAreas, setResearchAreas] = useState<string[]>(normalizeResearchInterests(postingToEdit?.researchAreas ?? []));
+  const [skillsNeeded, setSkillsNeeded] = useState<string[]>(normalizeResearchInterests(postingToEdit?.skillsNeeded ?? []));
   const [title, setTitle] = useState(postingToEdit?.title ?? '');
   const [overview, setOverview] = useState(postingToEdit?.overview ?? '');
   const [professorBioUrl, setProfessorBioUrl] = useState(postingToEdit?.professorBioUrl ?? professorProfile?.bioUrl ?? '');
@@ -122,9 +118,14 @@ export default function PostResearchDialog({
       })()
     : undefined;
 
-  const predictedInterestedStudents = category
-    ? interestCounts[category.trim().toLowerCase().replace(/\s+/g, ' ')] ?? 0
-    : 0;
+  const selectedInterestTerms = [category, ...researchAreas]
+    .map((term) => term.trim().toLowerCase().replace(/\s+/g, ' '))
+    .filter(Boolean);
+  const predictedInterestedStudents = selectedInterestTerms.reduce(
+    (total, term) => total + (interestCounts[term] ?? 0),
+    0
+  );
+  const researchAreaOptions = category ? getResearchAreasForPostingCategory(category) : RESEARCH_AREA_OPTIONS;
 
   useEffect(() => {
     if (!open) {
@@ -134,6 +135,8 @@ export default function PostResearchDialog({
     if (postingToEdit) {
       setStep(1);
       setCategory(postingToEdit.category ?? '');
+      setResearchAreas(normalizeResearchInterests(postingToEdit.researchAreas ?? []));
+      setSkillsNeeded(normalizeResearchInterests(postingToEdit.skillsNeeded ?? []));
       setTitle(postingToEdit.title ?? '');
       setOverview(postingToEdit.overview ?? '');
       setProfessorBioUrl(postingToEdit.professorBioUrl ?? professorProfile?.bioUrl ?? '');
@@ -280,8 +283,8 @@ export default function PostResearchDialog({
     }
 
     if (stepToValidate === 4) {
-      if (questions.length < 1 || questions.length > 4) {
-        toast.error('Please include between 1 and 4 application questions.');
+      if (questions.length > 4) {
+        toast.error('Please include no more than 4 application questions.');
         return false;
       }
 
@@ -316,6 +319,8 @@ export default function PostResearchDialog({
       professorBioUrl: toSafeOptionalHttpUrl(professorBioUrl),
       professorDepartment: professorProfile?.department ?? 'Unknown Department',
       category,
+      researchAreas,
+      skillsNeeded,
       title,
       overview,
       studentRoleDescription,
@@ -347,6 +352,8 @@ export default function PostResearchDialog({
   const resetForm = () => {
     setStep(1);
     setCategory('');
+    setResearchAreas([]);
+    setSkillsNeeded([]);
     setTitle('');
     setOverview('');
     setProfessorBioUrl(professorProfile?.bioUrl ?? '');
@@ -379,17 +386,17 @@ export default function PostResearchDialog({
           {step === 1 && (
             <>
               <div className="rounded-xl border border-[#ecd6cc] bg-[#fff5ef] px-4 py-3 text-sm text-[#8a4d3a]">
-                <span className="font-semibold">{predictedInterestedStudents}</span> students will most likely be interested in this project.
+                <span className="font-semibold">{predictedInterestedStudents}</span> student interest signals overlap with this category and research area selection.
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="category">Category *</Label>
+                <Label htmlFor="category">Category / Broad Field *</Label>
                 <Select value={category} onValueChange={setCategory}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a category" />
+                    <SelectValue placeholder="Select a broad research field" />
                   </SelectTrigger>
                   <SelectContent>
-                    {CATEGORIES.map((cat) => (
+                    {RESEARCH_POSTING_CATEGORY_OPTIONS.map((cat) => (
                       <SelectItem key={cat} value={cat}>
                         {cat}
                       </SelectItem>
@@ -397,6 +404,24 @@ export default function PostResearchDialog({
                   </SelectContent>
                 </Select>
               </div>
+
+              <ResearchMetadataPicker
+                label="Research Areas"
+                value={researchAreas}
+                onChange={setResearchAreas}
+                options={researchAreaOptions}
+                allowCustom
+                placeholder={category ? `Search ${category} areas` : 'Select a category first or search all areas'}
+              />
+
+              <ResearchMetadataPicker
+                label="Skills Needed"
+                value={skillsNeeded}
+                onChange={setSkillsNeeded}
+                options={RESEARCH_SKILL_OPTIONS}
+                allowCustom
+                placeholder="Search skills or add a custom skill"
+              />
 
               <div className="space-y-2">
                 <Label htmlFor="title">Project Title *</Label>
@@ -514,7 +539,7 @@ export default function PostResearchDialog({
                 <Switch checked={quickNoteEnabled} onCheckedChange={setQuickNoteEnabled} />
               </div>
 
-              <Label>Application Questions * (up to 4)</Label>
+              <Label>Application Questions (optional, up to 4)</Label>
               <div className="space-y-2">
                 {questions.map((q, index) => (
                   <div key={index} className="flex items-center gap-2">
@@ -527,6 +552,11 @@ export default function PostResearchDialog({
                     </Button>
                   </div>
                 ))}
+                {questions.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-[#d8d8d8] bg-[#fafafa] p-3 text-sm text-[#6f6f6f]">
+                    No custom questions added. Students can still apply using the standard application flow.
+                  </p>
+                ) : null}
                 <div className="space-y-2">
                   <Input
                     value={currentQuestion}

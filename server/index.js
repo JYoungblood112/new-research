@@ -2,6 +2,11 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import { lookup } from 'node:dns/promises';
+import net from 'node:net';
+import { createClient } from '@supabase/supabase-js';
+import { config as loadDotenv } from 'dotenv';
+import WebSocket from 'ws';
 import { readStore, writeStore, randomId } from './store.js';
 import {
   getOllamaRecommendations,
@@ -19,6 +24,8 @@ import { profileRouter } from './profile.js';
 import { validateCmuEmail } from './sso.js';
 import { deleteSession, getSessionUserId, pruneExpiredSessions, refreshSession, setSession } from './sessionStore.js';
 
+loadDotenv({ path: '.env.local' });
+
 const app = express();
 const port = Number(process.env.PORT ?? 4000);
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
@@ -26,6 +33,12 @@ const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 8;
 const recommendationCache = new Map();
 const externalDataCache = new Map();
 const pendingRecommendationJobs = new Set();
+const professorProfileImportCache = new Map();
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'qwen2.5:7b';
+const PROFESSOR_IMPORT_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 
 app.use(
   cors({
@@ -82,24 +95,158 @@ function getSetupState(store, user) {
   }
 
   const profile = store.professorProfiles.find((p) => p.userId === user.id) ?? null;
+  const researchAreas = normalizeResearchList(profile?.researchAreas, { limit: 12 });
+  const researchInterests = cleanResearchInterestTags(profile?.researchInterests);
   const completed =
     !!profile &&
     !!user.name?.trim() &&
     !!profile.department?.trim() &&
     !!profile.title?.trim() &&
-    !!profile.contactEmail?.trim();
+    !!profile.contactEmail?.trim() &&
+    researchAreas.length > 0 &&
+    researchInterests.length > 0;
 
   return {
     completed,
-    profile,
+    profile: profile ? { ...profile, researchAreas, researchInterests } : null,
     steps: {
-      basic: !!user?.name?.trim() && !!profile?.department?.trim() && !!profile?.title?.trim(),
+      basic: !!user?.name?.trim() && !!profile?.department?.trim() && !!profile?.title?.trim() && researchAreas.length > 0,
       contact: !!profile?.contactEmail?.trim(),
     },
   };
 }
 
-function authRequired(req, res, next) {
+function getBearerToken(req) {
+  const header = req.headers?.authorization;
+  if (typeof header !== 'string') {
+    return null;
+  }
+
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
+function createSupabaseUserClient(accessToken) {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Supabase is not configured on the server.');
+  }
+
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+    realtime: {
+      transport: WebSocket,
+    },
+  });
+}
+
+function asObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function getUploadedFile(value) {
+  const record = asObject(value);
+  return typeof record.name === 'string' && record.name.trim()
+    ? {
+        name: record.name,
+        uploadDate: typeof record.uploadDate === 'string' ? record.uploadDate : new Date().toISOString(),
+      }
+    : null;
+}
+
+async function getSupabaseUserFromRequest(req) {
+  const accessToken = getBearerToken(req);
+  if (!accessToken) {
+    return null;
+  }
+
+  const supabase = createSupabaseUserClient(accessToken);
+  const { data, error } = await supabase.auth.getUser(accessToken);
+  if (error || !data.user?.email) {
+    return null;
+  }
+
+  const { data: profileRow, error: profileError } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', data.user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    throw profileError;
+  }
+
+  const role = profileRow?.role ?? data.user.user_metadata?.role ?? 'student';
+  const user = {
+    id: data.user.id,
+    email: data.user.email,
+    name: profileRow?.full_name ?? data.user.user_metadata?.full_name ?? data.user.email,
+    role,
+  };
+
+  let studentProfile = null;
+  if (role === 'student') {
+    const { data: studentRow, error: studentError } = await supabase
+      .from('students')
+      .select('*')
+      .eq('id', data.user.id)
+      .maybeSingle();
+
+    if (studentError) {
+      throw studentError;
+    }
+
+    if (studentRow) {
+      const metadata = asObject(studentRow.metadata);
+      studentProfile = {
+        id: studentRow.id,
+        userId: studentRow.id,
+        name: user.name,
+        major: studentRow.major ?? '',
+        graduationYear: studentRow.academic_year ?? '',
+        degree: studentRow.degree ?? '',
+        github: studentRow.github_url ?? '',
+        githubUrl: studentRow.github_url ?? '',
+        linkedin: studentRow.linkedin_url ?? '',
+        linkedInUrl: studentRow.linkedin_url ?? '',
+        skills: Array.isArray(metadata.skills) ? metadata.skills.filter((entry) => typeof entry === 'string') : [],
+        interests: Array.isArray(studentRow.research_interests)
+          ? studentRow.research_interests
+          : Array.isArray(metadata.interests)
+            ? metadata.interests.filter((entry) => typeof entry === 'string')
+            : [],
+        resume: getUploadedFile(studentRow.resume),
+        resumeText: studentRow.resume_text ?? '',
+        transcript: getUploadedFile(studentRow.transcript),
+        transcriptText: studentRow.transcript_text ?? '',
+        coursework: Array.isArray(studentRow.coursework) ? studentRow.coursework : [],
+      };
+    }
+  }
+
+  return { user, studentProfile };
+}
+
+async function authRequired(req, res, next) {
+  try {
+    const supabaseSession = await getSupabaseUserFromRequest(req);
+    if (supabaseSession) {
+      req.user = supabaseSession.user;
+      req.sessionUserId = supabaseSession.user.id;
+      req.studentProfile = supabaseSession.studentProfile;
+      return next();
+    }
+  } catch (error) {
+    return next(error);
+  }
+
   const token = req.cookies.cmu_session;
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -190,6 +337,8 @@ function getRecommendationPostingFingerprint(posting) {
     id: posting?.id ?? '',
     title: posting?.title ?? '',
     category: posting?.category ?? '',
+    researchAreas: Array.isArray(posting?.researchAreas) ? posting.researchAreas : [],
+    skillsNeeded: Array.isArray(posting?.skillsNeeded) ? posting.skillsNeeded : [],
     professorName: posting?.professorName ?? '',
     professorDepartment: posting?.professorDepartment ?? '',
     overview: posting?.overview ?? '',
@@ -296,6 +445,8 @@ function normalizePostingPayload(posting) {
   return {
     ...posting,
     id,
+    researchAreas: normalizeResearchList(posting.researchAreas, { limit: 12 }),
+    skillsNeeded: normalizeResearchList(posting.skillsNeeded, { limit: 18 }),
   };
 }
 
@@ -399,6 +550,530 @@ function normalizeSkills(skills) {
     .filter((skill) => typeof skill === 'string')
     .map((skill) => skill.trim())
     .filter(Boolean);
+}
+
+function isPrivateIp(address) {
+  const version = net.isIP(address);
+  if (version === 4) {
+    const parts = address.split('.').map((part) => Number(part));
+    const [a, b] = parts;
+    return (
+      a === 10 ||
+      a === 127 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254) ||
+      a === 0
+    );
+  }
+
+  if (version === 6) {
+    const normalized = address.toLowerCase();
+    return (
+      normalized === '::1' ||
+      normalized === '::' ||
+      normalized.startsWith('fc') ||
+      normalized.startsWith('fd') ||
+      normalized.startsWith('fe80:')
+    );
+  }
+
+  return false;
+}
+
+async function sanitizeImportUrl(rawUrl) {
+  if (typeof rawUrl !== 'string' || !rawUrl.trim()) {
+    throw Object.assign(new Error('URL is required.'), { status: 400 });
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(rawUrl.trim());
+  } catch {
+    throw Object.assign(new Error('Enter a valid URL.'), { status: 400 });
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw Object.assign(new Error('URL must start with http:// or https://.'), { status: 400 });
+  }
+
+  if (parsed.username || parsed.password) {
+    throw Object.assign(new Error('URL credentials are not allowed.'), { status: 400 });
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname === '0.0.0.0' ||
+    hostname === '::1'
+  ) {
+    throw Object.assign(new Error('Local URLs are not allowed.'), { status: 400 });
+  }
+
+  const addresses = await lookup(hostname, { all: true, verbatim: true });
+  if (addresses.length === 0 || addresses.some((entry) => isPrivateIp(entry.address))) {
+    throw Object.assign(new Error('Private or local network URLs are not allowed.'), { status: 400 });
+  }
+
+  return parsed;
+}
+
+async function fetchImportUrl(rawUrl, redirectCount = 0) {
+  if (redirectCount > 3) {
+    throw Object.assign(new Error('Too many redirects.'), { status: 400 });
+  }
+
+  const parsed = await sanitizeImportUrl(rawUrl);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const response = await fetch(parsed.href, {
+      redirect: 'manual',
+      signal: controller.signal,
+      headers: {
+        Accept: 'text/html,application/xhtml+xml,text/plain;q=0.8,*/*;q=0.5',
+        'User-Agent': 'CMUResearchPortalProfileImporter/1.0',
+      },
+    });
+
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get('location');
+      if (!location) {
+        throw Object.assign(new Error('Redirect response did not include a location.'), { status: 400 });
+      }
+
+      return fetchImportUrl(new URL(location, parsed.href).href, redirectCount + 1);
+    }
+
+    if (!response.ok) {
+      throw Object.assign(new Error(`Could not fetch page (${response.status}).`), { status: 400 });
+    }
+
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!/text\/html|application\/xhtml\+xml|text\/plain/i.test(contentType)) {
+      throw Object.assign(new Error('URL must point to a readable web page.'), { status: 400 });
+    }
+
+    const text = await response.text();
+    return {
+      finalUrl: parsed.href,
+      html: text.slice(0, 2_000_000),
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw Object.assign(new Error('Import timed out while fetching the page.'), { status: 408 });
+    }
+    if (error instanceof TypeError && /fetch failed/i.test(error.message)) {
+      const causeCode = typeof error.cause?.code === 'string' ? ` (${error.cause.code})` : '';
+      throw Object.assign(
+        new Error(`Could not fetch the faculty page from the server${causeCode}. Try opening the page in your browser, then retry or paste a different faculty/lab page URL.`),
+        { status: 502 }
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function decodeHtmlEntities(value) {
+  return String(value ?? '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+}
+
+function extractMetaContent(html, names) {
+  for (const name of names) {
+    const pattern = new RegExp(`<meta[^>]+(?:name|property)=["']${name}["'][^>]+content=["']([^"']+)["'][^>]*>`, 'i');
+    const reversePattern = new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']${name}["'][^>]*>`, 'i');
+    const match = html.match(pattern) ?? html.match(reversePattern);
+    if (match?.[1]) {
+      return decodeHtmlEntities(match[1]).trim();
+    }
+  }
+
+  return '';
+}
+
+function htmlToReadableText(html) {
+  return decodeHtmlEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|li|h1|h2|h3|h4|tr)>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+  ).trim();
+}
+
+function uniqueStrings(values) {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function extractFirstEmail(text, html) {
+  const mailto = html.match(/mailto:([^"'>?\s]+)/i)?.[1];
+  if (mailto) {
+    return decodeURIComponent(mailto).trim();
+  }
+
+  return text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? '';
+}
+
+function field(value = '', confidence = 0) {
+  return {
+    value: Array.isArray(value) ? value : typeof value === 'string' ? value.trim() : '',
+    confidence: Math.max(0, Math.min(1, Number(confidence) || 0)),
+  };
+}
+
+function cleanExtractedValue(value, maxLength = 600) {
+  return decodeHtmlEntities(String(value ?? ''))
+    .replace(/\s+/g, ' ')
+    .replace(/[<>]/g, '')
+    .trim()
+    .slice(0, maxLength);
+}
+
+function titleCaseResearchTag(value) {
+  const smallWords = new Set(['and', 'or', 'of', 'in', 'for', 'to', 'with', 'the', 'a', 'an']);
+  return value
+    .split(/\s+/)
+    .map((word, index) => {
+      if (/^[A-Z0-9-]{2,}$/.test(word)) return word;
+      const lower = word.toLowerCase();
+      if (index > 0 && smallWords.has(lower)) return lower;
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(' ');
+}
+
+function cleanResearchFragment(value, { allowLong = false } = {}) {
+  const fillerPatterns = [
+    /\bpeople are actively working in\b/gi,
+    /\binterests encompass\b/gi,
+    /\bresearch interests include\b/gi,
+    /\bresearch areas include\b/gi,
+    /\bmy research interests include\b/gi,
+    /\bmy research focuses on\b/gi,
+    /\bresearch focuses on\b/gi,
+    /\bworks on\b/gi,
+    /\bworking on\b/gi,
+    /\bacross the department\b/gi,
+    /\binclude\b/gi,
+  ];
+
+  let cleaned = decodeHtmlEntities(String(value ?? ''))
+    .replace(/[•·●]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s:;,.|\-–—]+|[\s:;,.|\-–—]+$/g, '')
+    .trim();
+
+  for (const pattern of fillerPatterns) {
+    cleaned = cleaned.replace(pattern, ' ');
+  }
+
+  cleaned = cleaned
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s:;,.|\-–—]+|[\s:;,.|\-–—]+$/g, '')
+    .trim();
+
+  if (cleaned.length < 3) return '';
+  if (!allowLong && cleaned.length > 80) return '';
+  if (/^(research|interests?|areas?|expertise|focus)$/i.test(cleaned)) return '';
+
+  return allowLong ? cleaned : titleCaseResearchTag(cleaned);
+}
+
+function extractHeadings(html) {
+  const headings = [];
+  const pattern = /<h([1-3])[^>]*>([\s\S]*?)<\/h\1>/gi;
+  let match;
+  while ((match = pattern.exec(html))) {
+    const text = cleanExtractedValue(match[2].replace(/<[^>]+>/g, ' '), 180);
+    if (text) {
+      headings.push({ level: Number(match[1]), text });
+    }
+  }
+  return headings.slice(0, 40);
+}
+
+function extractLinks(html, finalUrl) {
+  const links = [];
+  const pattern = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = pattern.exec(html))) {
+    try {
+      const href = new URL(decodeHtmlEntities(match[1]), finalUrl).href;
+      const label = cleanExtractedValue(match[2].replace(/<[^>]+>/g, ' '), 160);
+      links.push({ href, label });
+    } catch {
+      // Ignore malformed links found in the imported page.
+    }
+  }
+  return links.slice(0, 160);
+}
+
+function extractSection(text, labels) {
+  const escaped = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const nextHeading = '(?:Research Areas|Areas of Interest|Research Focus|Expertise|Research Interests|Interests|Current Research|Publications|Teaching|Education|Biography|Bio|Contact)';
+  const pattern = new RegExp(`(?:${escaped})\\s*[:\\-]?\\s+([\\s\\S]{20,900}?)(?=\\s+${nextHeading}\\b|$)`, 'i');
+  return cleanExtractedValue(text.match(pattern)?.[1] ?? '', 700);
+}
+
+function splitAreas(value) {
+  return uniqueStrings(
+    cleanExtractedValue(value, 1200)
+      .split(/[,;|\n\r]+|(?:\s+-\s+)|(?:\s+•\s+)|(?:\s+and\s+)/i)
+      .map((entry) => cleanResearchFragment(entry))
+      .filter(Boolean)
+  ).slice(0, 12);
+}
+
+function normalizeResearchList(value, { allowLong = false, limit = 12 } = {}) {
+  const input = Array.isArray(value) ? value.join('\n') : value;
+  return uniqueStrings(
+    cleanExtractedValue(input, 1600)
+      .split(/[,;|\n\r]+|(?:\s+-\s+)|(?:\s+•\s+)/i)
+      .map((entry) => cleanResearchFragment(entry, { allowLong }))
+      .filter(Boolean)
+      .filter((entry) => !/\b(?:education|award|honou?r|publication|selected publications|cv|curriculum vitae|contacts?|key contacts?|phone|email|office|staff)\b/i.test(entry))
+  ).slice(0, limit);
+}
+
+function cleanResearchInterestText(value) {
+  const cleaned = cleanExtractedValue(value, 900)
+    .split(/[\n\r]+|[;|]+/)
+    .map((entry) => cleanResearchFragment(entry, { allowLong: true }))
+    .filter(Boolean)
+    .join('\n');
+
+  return cleaned.length > 900 ? `${cleaned.slice(0, 897).trim()}...` : cleaned;
+}
+
+function cleanResearchInterestTags(value) {
+  return normalizeResearchList(value, { allowLong: false, limit: 18 })
+    .map((entry) => entry.replace(/\.$/, '').trim())
+    .filter((entry) => entry.length >= 2 && entry.length <= 80);
+}
+
+function extractTitle(text) {
+  return text.match(/\b(Assistant Professor|Associate Professor|Full Professor|Distinguished Professor|Teaching Professor|Research Professor|Adjunct Professor|Professor|Research Scientist|Senior Research Scientist|Lecturer|Senior Lecturer|Postdoctoral Fellow|Postdoctoral Researcher|Principal Investigator|PI)\b/i)?.[0] ?? '';
+}
+
+function inferDepartmentFromUrl(finalUrl) {
+  const { hostname, pathname } = new URL(finalUrl);
+  const target = `${hostname.toLowerCase()}${pathname.toLowerCase()}`;
+  const mappings = [
+    { pattern: /(^|\.)csd\.cs\.cmu\.edu\b|\/csd\b/, value: 'Computer Science Department' },
+    { pattern: /(^|\.)lti\.cs\.cmu\.edu\b|\/lti\b/, value: 'Language Technologies Institute' },
+    { pattern: /(^|\.)ri\.cmu\.edu\b|\/robotics\b|\/ri\b/, value: 'Robotics Institute' },
+    { pattern: /(^|\.)ml\.cmu\.edu\b|\/machine-learning\b|\/ml\b/, value: 'Machine Learning Department' },
+    { pattern: /(^|\.)hcii\.cmu\.edu\b|\/hcii\b/, value: 'Human-Computer Interaction Institute' },
+    { pattern: /(^|\.)ece\.cmu\.edu\b|\/ece\b/, value: 'Electrical and Computer Engineering' },
+    { pattern: /(^|\.)tepper\.cmu\.edu\b|\/tepper\b/, value: 'Tepper School of Business' },
+    { pattern: /(^|\.)cs\.cmu\.edu\b|\/cs\b/, value: 'School of Computer Science' },
+  ];
+
+  return mappings.find((mapping) => mapping.pattern.test(target))?.value ?? '';
+}
+
+function extractDepartment(text) {
+  const nearbyPattern = /\b(?:Department of|School of|Institute(?: for| of)?|College of|Faculty in|Affiliated with)\s+[A-Z][A-Za-z&,\-/\s]{3,90}/i;
+  const nearby = text.match(nearbyPattern)?.[0] ?? '';
+  return cleanExtractedValue(nearby.replace(/\s+(?:Home|People|Faculty|Research|Contact)\b.*$/i, ''), 140);
+}
+
+function extractPublicationUrl(links) {
+  return links.find((link) => /scholar\.google\.com|dblp\.org|pubmed|publications?|papers?|semanticsscholar/i.test(link.href) || /google scholar|publications?|papers?/i.test(link.label))?.href ?? '';
+}
+
+function extractWebsiteUrl(links, finalUrl) {
+  const personal = links.find((link) => /personal|website|homepage|lab|group/i.test(link.label) && !/mailto:/i.test(link.href));
+  return personal?.href ?? finalUrl;
+}
+
+function buildRuleExtraction({ html, finalUrl }) {
+  const titleTag = decodeHtmlEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '').trim();
+  const metaTitle = extractMetaContent(html, ['og:title', 'twitter:title']);
+  const description = extractMetaContent(html, ['description', 'og:description', 'twitter:description']);
+  const headings = extractHeadings(html);
+  const links = extractLinks(html, finalUrl);
+  const text = htmlToReadableText(html);
+  const compactText = text.slice(0, 20000);
+  const combinedTitle = metaTitle || titleTag;
+  const titleParts = combinedTitle.split(/\s[-|]\s/).map((part) => part.trim()).filter(Boolean);
+  const h1 = headings.find((heading) => heading.level === 1)?.text ?? '';
+  const nameCandidate =
+    h1 && !/\b(home|people|faculty|profile|research|department|university|lab|publications)\b/i.test(h1)
+      ? h1
+      : titleParts.find((part) => /\b(professor|faculty|lab|research|department|university|college|school|publications)\b/i.test(part) === false) ??
+        compactText.match(/(?:Professor|Dr\.)\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,3})/)?.[1] ??
+        '';
+  const title = extractTitle(compactText);
+  const inferredDepartment = inferDepartmentFromUrl(finalUrl);
+  const department = inferredDepartment || extractDepartment(compactText);
+  const areasSection = extractSection(compactText, ['Research Areas', 'Areas of Interest', 'Research Focus', 'Expertise']);
+  const interestsSection = extractSection(compactText, ['Research Interests', 'Interests', 'Current Research']);
+  const keywordMatches = compactText.match(
+    /\b(machine learning|artificial intelligence|robotics|computer vision|natural language processing|human-computer interaction|security|systems|data science|bioinformatics|computational biology|software engineering|theory|algorithms|databases|graphics|education technology|economics|public policy|neuroscience|psychology|human centered computing|computational social science)\b/gi
+  ) ?? [];
+  const researchAreas = splitAreas(areasSection).length > 0
+    ? splitAreas(areasSection)
+    : uniqueStrings(keywordMatches.map((match) => match.replace(/\s+/g, ' '))).slice(0, 8);
+  const researchInterests = cleanResearchInterestTags(interestsSection || description);
+
+  return {
+    fields: {
+      name: field(cleanExtractedValue(nameCandidate, 120), h1 || titleParts.length ? 0.85 : nameCandidate ? 0.65 : 0),
+      title: field(cleanExtractedValue(title, 120), title ? 0.9 : 0),
+      department: field(cleanExtractedValue(department, 140), inferredDepartment ? 0.95 : department ? 0.82 : 0),
+      contactEmail: field(extractFirstEmail(compactText, html), extractFirstEmail(compactText, html) ? 0.95 : 0),
+      bioUrl: field(finalUrl, 1),
+      websiteUrl: field(extractWebsiteUrl(links, finalUrl), 0.85),
+      publicationsUrl: field(extractPublicationUrl(links), extractPublicationUrl(links) ? 0.9 : 0),
+      researchAreas: field(researchAreas, researchAreas.length > 0 ? (splitAreas(areasSection).length > 0 ? 0.85 : 0.65) : 0),
+      researchInterests: field(researchInterests, researchInterests.length > 0 ? (interestsSection ? 0.85 : 0.55) : 0),
+      summary: field(cleanExtractedValue(description, 280), description ? 0.45 : 0),
+    },
+    page: {
+      title: cleanExtractedValue(combinedTitle, 180),
+      description: cleanExtractedValue(description, 300),
+      headings,
+      links,
+      text: compactText,
+    },
+  };
+}
+
+function needsOllamaFallback(fields) {
+  return ['department', 'researchAreas', 'researchInterests', 'summary'].some((key) => {
+    const value = fields[key]?.value;
+    const isEmpty = Array.isArray(value) ? value.length === 0 : !value;
+    return isEmpty || fields[key].confidence < 0.8;
+  });
+}
+
+function parseJsonObject(text) {
+  const cleaned = String(text ?? '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  const candidate = cleaned.match(/\{[\s\S]*\}/)?.[0] ?? cleaned;
+  return JSON.parse(candidate);
+}
+
+async function extractProfessorProfileWithOllama(pageText) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(`${OLLAMA_BASE_URL.replace(/\/$/, '')}/api/generate`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        stream: false,
+        prompt: `Extract current professor research metadata from this cleaned webpage text.
+Return strict raw JSON only, no markdown:
+{
+  "department": "",
+  "researchAreas": [],
+  "researchInterests": [],
+  "summary": ""
+}
+
+Rules:
+- Use only evidence in the text.
+- Use empty strings or empty arrays when unknown.
+- Do not return biography text.
+- Exclude education history, awards, honors, CV sections, contact information, and publication lists.
+- Prioritize current research topics, lab focus, active methods, and domains.
+- researchAreas must be broad field labels.
+- researchInterests must be concise tag phrases, not paragraphs.
+- summary must be one concise sentence about current research focus, not a biography.
+
+Webpage text:
+${pageText.slice(0, 9000)}`,
+      }),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = await response.json();
+    const parsed = parseJsonObject(payload?.response);
+    return {
+      department: typeof parsed?.department === 'string' ? cleanExtractedValue(parsed.department, 140) : '',
+      researchAreas: normalizeResearchList(parsed?.researchAreas, { limit: 8 }),
+      researchInterests: cleanResearchInterestTags(parsed?.researchInterests),
+      summary: typeof parsed?.summary === 'string' ? cleanExtractedValue(parsed.summary, 280) : '',
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function mergeProfessorImport(ruleExtraction, ollamaExtraction, sourceUrl) {
+  const fields = { ...ruleExtraction.fields };
+  let usedOllama = false;
+
+  if (ollamaExtraction) {
+    for (const key of ['department', 'researchAreas', 'researchInterests', 'summary']) {
+      const ollamaValue = key === 'researchAreas'
+        ? normalizeResearchList(ollamaExtraction[key], { limit: 8 })
+        : key === 'researchInterests'
+          ? cleanResearchInterestTags(ollamaExtraction[key])
+          : cleanExtractedValue(ollamaExtraction[key] ?? '', key === 'summary' ? 280 : 180);
+      const isEmpty = Array.isArray(ollamaValue) ? ollamaValue.length === 0 : !ollamaValue;
+      if (isEmpty) continue;
+      if (!fields[key]?.value || fields[key].confidence <= 0.8) {
+        fields[key] = field(ollamaValue, 0.72);
+        usedOllama = true;
+      }
+    }
+  }
+
+  return {
+    name: fields.name.value,
+    title: fields.title.value,
+    department: fields.department.value,
+    contactEmail: fields.contactEmail.value,
+    bioUrl: fields.bioUrl.value,
+    websiteUrl: fields.websiteUrl.value,
+    publicationsUrl: fields.publicationsUrl.value,
+    researchAreas: normalizeResearchList(fields.researchAreas.value, { limit: 8 }),
+    researchInterests: cleanResearchInterestTags(fields.researchInterests.value),
+    summary: cleanExtractedValue(fields.summary?.value ?? '', 280),
+    sourceUrl,
+    extractionMethod: usedOllama ? 'rules+ollama' : 'rules',
+    confidence: Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, value.confidence])),
+  };
+}
+
+async function importProfessorProfile(rawUrl) {
+  const sanitizedUrl = (await sanitizeImportUrl(rawUrl)).href;
+  const cacheKey = sanitizedUrl.toLowerCase();
+  const cached = professorProfileImportCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < PROFESSOR_IMPORT_CACHE_TTL_MS) {
+    return { ...cached.result, cached: true };
+  }
+
+  const fetched = await fetchImportUrl(sanitizedUrl);
+  const ruleExtraction = buildRuleExtraction(fetched);
+  const ollamaExtraction = needsOllamaFallback(ruleExtraction.fields)
+    ? await extractProfessorProfileWithOllama(ruleExtraction.page.text)
+    : null;
+  const result = mergeProfessorImport(ruleExtraction, ollamaExtraction, fetched.finalUrl);
+  professorProfileImportCache.set(cacheKey, { cachedAt: Date.now(), result });
+  return result;
 }
 
 function getRequestId() {
@@ -533,10 +1208,11 @@ app.post('/api/auth/stub-sso', (req, res) => {
         contactEmail: user.email,
         officeHours: '',
         bioUrl: '',
-        researchAreas: '',
+        researchAreas: [],
         professorWebsite: '',
         publicationsLink: '',
-        researchInterests: '',
+        researchInterests: [],
+        researchSummary: '',
         photoBase64: '',
       });
     }
@@ -661,7 +1337,9 @@ app.put('/api/setup/professor', authRequired, (req, res) => {
         ? next.office
         : profile.officeHours;
   profile.bioUrl = typeof next.bioUrl === 'string' ? next.bioUrl : profile.bioUrl;
-  profile.researchAreas = typeof next.researchAreas === 'string' ? next.researchAreas : profile.researchAreas;
+  profile.researchAreas = Array.isArray(next.researchAreas) || typeof next.researchAreas === 'string'
+    ? normalizeResearchList(next.researchAreas, { limit: 12 })
+    : normalizeResearchList(profile.researchAreas, { limit: 12 });
   profile.professorWebsite =
     typeof next.professorWebsite === 'string'
       ? next.professorWebsite
@@ -674,8 +1352,11 @@ app.put('/api/setup/professor', authRequired, (req, res) => {
       : typeof next.recruitingStatus === 'string'
         ? next.recruitingStatus
         : profile.publicationsLink;
-  profile.researchInterests =
-    typeof next.researchInterests === 'string' ? next.researchInterests : profile.researchInterests;
+  profile.researchInterests = Array.isArray(next.researchInterests) || typeof next.researchInterests === 'string'
+    ? cleanResearchInterestTags(next.researchInterests)
+    : cleanResearchInterestTags(profile.researchInterests);
+  profile.researchSummary =
+    typeof next.researchSummary === 'string' ? cleanExtractedValue(next.researchSummary, 280) : profile.researchSummary;
   profile.photoBase64 = typeof next.photoBase64 === 'string' ? next.photoBase64 : profile.photoBase64;
 
   writeStore(store);
@@ -727,6 +1408,20 @@ app.get('/api/insights/student-interest-counts', authRequired, (req, res) => {
   });
 });
 
+app.post('/api/import-professor-profile', authRequired, async (req, res, next) => {
+  try {
+    if (!req.user || req.user.role !== 'professor') {
+      return res.status(403).json({ error: 'Professor role required.' });
+    }
+
+    const { url } = req.body ?? {};
+    const profile = await importProfessorProfile(url);
+    return res.json(profile);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 app.post('/api/ai/parse-resume', authRequired, async (req, res) => {
   const { resumeBase64, fileName, mode } = req.body ?? {};
 
@@ -772,7 +1467,7 @@ app.get('/api/ai/recommendations/score-one', authRequired, async (req, res) => {
   }
 
   const store = readStore();
-  const profile = getStudentProfile(store, studentId);
+  const profile = req.studentProfile ?? getStudentProfile(store, studentId);
   if (!profile) {
     return res.status(404).json({ error: 'Student profile not found.' });
   }
@@ -807,7 +1502,7 @@ app.get('/api/ai/recommendations/get-score', authRequired, (req, res) => {
   }
 
   const store = readStore();
-  const profile = getStudentProfile(store, studentId);
+  const profile = req.studentProfile ?? getStudentProfile(store, studentId);
   if (!profile) {
     return res.status(404).json({ error: 'Student profile not found.' });
   }

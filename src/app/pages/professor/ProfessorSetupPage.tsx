@@ -5,8 +5,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../..
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Button } from '../../components/ui/button';
-import { Camera } from 'lucide-react';
+import { Camera, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '../../lib/supabase';
+import ResearchMetadataPicker, {
+  normalizeResearchAreas,
+  normalizeResearchInterests,
+} from '../../components/professor/ResearchMetadataPicker';
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -15,6 +20,20 @@ function isValidEmail(value: string) {
 function isValidUrl(value: string) {
   return /^https?:\/\//i.test(value);
 }
+
+type ImportedProfessorProfile = {
+  name?: string;
+  title?: string;
+  department?: string;
+  contactEmail?: string;
+  bioUrl?: string;
+  websiteUrl?: string;
+  publicationsUrl?: string;
+  researchAreas?: string[];
+  researchInterests?: string[];
+  summary?: string;
+  extractionMethod?: 'rules' | 'rules+ollama';
+};
 
 export default function ProfessorSetupPage() {
   const { user, setupState, updateProfessorProfile } = useAuth();
@@ -27,10 +46,11 @@ export default function ProfessorSetupPage() {
           title?: string;
           contactEmail?: string;
           bioUrl?: string;
-          researchAreas?: string;
+          researchAreas?: string[];
           professorWebsite?: string;
           publicationsLink?: string;
-          researchInterests?: string;
+          researchInterests?: string[];
+          researchSummary?: string;
           photoBase64?: string;
         }
       | undefined) ?? {};
@@ -40,12 +60,18 @@ export default function ProfessorSetupPage() {
   const [title, setTitle] = useState(profile.title ?? '');
   const [contactEmail, setContactEmail] = useState(profile.contactEmail ?? user?.email ?? '');
   const [bioUrl, setBioUrl] = useState(profile.bioUrl ?? '');
-  const [researchAreas, setResearchAreas] = useState(profile.researchAreas ?? '');
+  const [researchAreas, setResearchAreas] = useState<string[]>(normalizeResearchAreas(profile.researchAreas));
   const [professorWebsite, setProfessorWebsite] = useState(profile.professorWebsite ?? '');
   const [publicationsLink, setPublicationsLink] = useState(profile.publicationsLink ?? '');
-  const [researchInterests, setResearchInterests] = useState(profile.researchInterests ?? '');
+  const [researchInterests, setResearchInterests] = useState<string[]>(normalizeResearchInterests(profile.researchInterests));
+  const [researchSummary, setResearchSummary] = useState(profile.researchSummary ?? '');
   const [photoBase64, setPhotoBase64] = useState(profile.photoBase64 ?? '');
   const [isSaving, setIsSaving] = useState(false);
+  const [importUrl, setImportUrl] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [importSuccess, setImportSuccess] = useState('');
+  const [hasImportedProfile, setHasImportedProfile] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const trimmedDisplayName = displayName.trim();
   const trimmedDepartment = department.trim();
@@ -62,6 +88,8 @@ export default function ProfessorSetupPage() {
   const hasInvalidBioUrl = Boolean(trimmedBioUrl) && !isValidUrl(trimmedBioUrl);
   const hasInvalidProfessorWebsite = Boolean(trimmedProfessorWebsite) && !isValidUrl(trimmedProfessorWebsite);
   const hasInvalidPublicationsLink = Boolean(trimmedPublicationsLink) && !isValidUrl(trimmedPublicationsLink);
+  const trimmedImportUrl = importUrl.trim();
+  const hasInvalidImportUrl = Boolean(trimmedImportUrl) && !isValidUrl(trimmedImportUrl);
   const initials = (() => {
     const parts = displayName
       .trim()
@@ -76,6 +104,8 @@ export default function ProfessorSetupPage() {
     const lastInitial = parts.length > 1 ? parts[parts.length - 1][0]?.toUpperCase() ?? '' : '';
     return `${firstInitial}${lastInitial}`;
   })();
+  const missingResearchAreas = showValidationErrors && researchAreas.length === 0;
+  const missingResearchInterests = showValidationErrors && researchInterests.length === 0;
 
   useEffect(() => {
     if (setupState?.completed) {
@@ -83,10 +113,97 @@ export default function ProfessorSetupPage() {
     }
   }, [navigate, setupState?.completed]);
 
+  const applyImportedProfile = (imported: ImportedProfessorProfile) => {
+    const textUpdates = [
+      { current: displayName, value: imported.name, apply: setDisplayName },
+      { current: department, value: imported.department, apply: setDepartment },
+      { current: title, value: imported.title, apply: setTitle },
+      { current: contactEmail, value: imported.contactEmail, apply: setContactEmail },
+      { current: bioUrl, value: imported.bioUrl, apply: setBioUrl },
+      { current: professorWebsite, value: imported.websiteUrl, apply: setProfessorWebsite },
+      { current: publicationsLink, value: imported.publicationsUrl, apply: setPublicationsLink },
+    ];
+    const importedAreas = normalizeResearchAreas(imported.researchAreas);
+    const importedInterests = normalizeResearchInterests(imported.researchInterests);
+    const wouldReplaceExisting = textUpdates.some(
+      ({ current, value }) => current.trim() && value?.trim() && current.trim() !== value.trim()
+    ) || (researchAreas.length > 0 && importedAreas.length > 0) || (researchInterests.length > 0 && importedInterests.length > 0);
+    const replaceExisting =
+      wouldReplaceExisting && window.confirm('Replace current fields with imported profile?');
+
+    for (const { current, value, apply } of textUpdates) {
+      const trimmedValue = value?.trim();
+      if (!trimmedValue) continue;
+      if (replaceExisting || !current.trim()) {
+        apply(trimmedValue);
+      }
+    }
+
+    if (importedAreas.length > 0 && (replaceExisting || researchAreas.length === 0)) {
+      setResearchAreas(importedAreas);
+    }
+    if (importedInterests.length > 0 && (replaceExisting || researchInterests.length === 0)) {
+      setResearchInterests(importedInterests);
+    }
+    if (imported.summary?.trim() && (replaceExisting || !researchSummary.trim())) {
+      setResearchSummary(imported.summary.trim());
+    }
+
+    setHasImportedProfile(true);
+  };
+
+  const handleImportProfessorProfile = async () => {
+    setImportError('');
+    setImportSuccess('');
+
+    if (!trimmedImportUrl) {
+      setImportError('Paste a professor website, lab page, Google Scholar page, or university bio URL.');
+      return;
+    }
+
+    if (hasInvalidImportUrl) {
+      setImportError('URL must start with http:// or https://');
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+      const accessToken = data.session?.access_token;
+      const response = await fetch('/api/import-professor-profile', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({ url: trimmedImportUrl }),
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Unable to import profile from that URL.');
+      }
+
+      applyImportedProfile(payload);
+      setImportSuccess('Imported from website. Please review before saving.');
+      toast.success('Profile details imported.');
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : '';
+      const message = /failed to fetch/i.test(rawMessage)
+        ? 'Could not reach the local API server. Make sure the full-stack dev server is running and open the app at http://localhost:5173.'
+        : rawMessage || 'Unable to import profile from that URL.';
+      setImportError(message);
+      toast.error(message);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const handleCompleteSetup = async () => {
     setShowValidationErrors(true);
 
-    if (!trimmedDisplayName || !trimmedDepartment || !trimmedTitle || !trimmedContactEmail) {
+    if (!trimmedDisplayName || !trimmedDepartment || !trimmedTitle || !trimmedContactEmail || researchAreas.length === 0 || researchInterests.length === 0) {
       toast.error('Please complete all fields before continuing.');
       return;
     }
@@ -119,10 +236,11 @@ export default function ProfessorSetupPage() {
         title: trimmedTitle,
         contactEmail: trimmedContactEmail,
         bioUrl: trimmedBioUrl || undefined,
-        researchAreas: researchAreas.trim() || undefined,
+        researchAreas,
         professorWebsite: trimmedProfessorWebsite || undefined,
         publicationsLink: trimmedPublicationsLink || undefined,
-        researchInterests: researchInterests.trim() || undefined,
+        researchInterests,
+        researchSummary: researchSummary.trim() || undefined,
         photoBase64: photoBase64 || undefined,
       });
       setShowValidationErrors(false);
@@ -205,6 +323,57 @@ export default function ProfessorSetupPage() {
                 }}
                 className="hidden"
               />
+
+              <div className="mt-7 rounded-2xl border border-[#ead8ce] bg-[#fcfbfa] p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                  <div className="flex-1 space-y-2">
+                    <Label className="text-sm font-semibold text-[#575757]">Import from Website</Label>
+                    <Input
+                      value={importUrl}
+                      onChange={(event) => {
+                        setImportUrl(event.target.value);
+                        setImportError('');
+                        setImportSuccess('');
+                      }}
+                      disabled={isSaving || isImporting}
+                      placeholder="https://www.cs.cmu.edu/people/faculty-profile"
+                      aria-invalid={hasInvalidImportUrl || Boolean(importError)}
+                      className={`h-12 rounded-2xl bg-white px-4 text-[#111111] shadow-none ${
+                        hasInvalidImportUrl || importError
+                          ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
+                          : 'border-[#d9d9d9]'
+                      }`}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleImportProfessorProfile}
+                    disabled={isSaving || isImporting}
+                    className="h-12 rounded-2xl bg-red-700 px-5 text-white hover:bg-red-800"
+                  >
+                    {isImporting ? (
+                      <>
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                        Importing
+                      </>
+                    ) : (
+                      'Import'
+                    )}
+                  </Button>
+                </div>
+                <p className="mt-2 text-xs text-[#7a7a7a]">
+                  Paste a professor website, lab page, Google Scholar page, or university bio URL. Imported data is not saved until you click Complete Setup.
+                </p>
+                {hasInvalidImportUrl ? <p className="mt-2 text-xs text-destructive">URL must start with http:// or https://</p> : null}
+                {importError ? <p className="mt-2 text-xs text-destructive" role="alert">{importError}</p> : null}
+                {importSuccess ? <p className="mt-2 text-xs text-emerald-700" role="status">{importSuccess}</p> : null}
+              </div>
+
+              {hasImportedProfile ? (
+                <div className="mt-4 rounded-2xl border border-[#ead8ce] bg-[#fff8f5] px-4 py-3 text-sm text-[#8a4d3a]">
+                  Imported from website. Please review before saving.
+                </div>
+              ) : null}
 
               <div className="mt-7 grid grid-cols-1 gap-5 md:grid-cols-2">
                 <div className="space-y-2">
@@ -297,14 +466,14 @@ export default function ProfessorSetupPage() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#575757]">Research Areas</Label>
-                  <Input
+                  <ResearchMetadataPicker
+                    label="Research Areas"
                     value={researchAreas}
-                    onChange={(e) => setResearchAreas(e.target.value)}
+                    onChange={setResearchAreas}
                     disabled={isSaving}
-                    placeholder="Machine Learning, NLP, Robotics"
-                    className="h-12 rounded-2xl border-[#d9d9d9] bg-white px-4 text-[#111111] shadow-none"
+                    placeholder="Search canonical fields"
                   />
+                  {missingResearchAreas && <p className="mt-2 text-xs text-destructive">Select at least one research area</p>}
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold text-[#575757]">Professor's Website</Label>
@@ -347,14 +516,15 @@ export default function ProfessorSetupPage() {
                   )}
                 </div>
                 <div className="space-y-2 md:col-span-2">
-                  <Label className="text-sm font-semibold text-[#575757]">Research Interests</Label>
-                  <Input
+                  <ResearchMetadataPicker
+                    label="Research Interests"
                     value={researchInterests}
-                    onChange={(e) => setResearchInterests(e.target.value)}
+                    onChange={setResearchInterests}
                     disabled={isSaving}
-                    placeholder="Responsible AI, Human-Centered ML, Scalable Inference"
-                    className="h-12 rounded-2xl border-[#d9d9d9] bg-white px-4 text-[#111111] shadow-none"
+                    allowCustom
+                    placeholder="Search topics or add a concise tag"
                   />
+                  {missingResearchInterests && <p className="mt-2 text-xs text-destructive">Add at least one research interest</p>}
                 </div>
               </div>
 

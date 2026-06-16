@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { useAuth, type UserRole } from '../contexts/AuthContext';
@@ -8,6 +8,39 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 
 type AuthMode = 'login' | 'signup';
+
+type SavedLogin = {
+  email: string;
+  password: string;
+  role: UserRole;
+  savedAt: string;
+};
+
+const SAVED_LOGINS_STORAGE_KEY = 'cmu_research_saved_logins';
+
+function readSavedLogins(): SavedLogin[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SAVED_LOGINS_STORAGE_KEY) ?? '[]');
+    return Array.isArray(parsed)
+      ? parsed.filter(
+          (entry): entry is SavedLogin =>
+            typeof entry?.email === 'string' &&
+            typeof entry?.password === 'string' &&
+            ['student', 'professor', 'recruiter', 'dean'].includes(entry?.role)
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSavedLogins(logins: SavedLogin[]) {
+  window.localStorage.setItem(SAVED_LOGINS_STORAGE_KEY, JSON.stringify(logins));
+}
 
 function getDashboardPath(role: UserRole, setupCompleted: boolean) {
   if (role === 'student') {
@@ -35,6 +68,8 @@ export default function SsoPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberLogin, setRememberLogin] = useState(false);
+  const [savedLogins, setSavedLogins] = useState<SavedLogin[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmationNotice, setConfirmationNotice] = useState<string | null>(null);
@@ -46,6 +81,62 @@ export default function SsoPage() {
     if (role === 'dean') return 'Dean Login';
     return 'CMU Research Portal';
   }, [role]);
+
+  const savedLoginsForRole = useMemo(
+    () => savedLogins.filter((login) => login.role === role),
+    [role, savedLogins]
+  );
+
+  useEffect(() => {
+    setSavedLogins(readSavedLogins());
+  }, []);
+
+  const saveCurrentLogin = () => {
+    if (!role || !email.trim() || !password) {
+      return;
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const nextLogin: SavedLogin = {
+      email: normalizedEmail,
+      password,
+      role,
+      savedAt: new Date().toISOString(),
+    };
+    const nextLogins = [
+      nextLogin,
+      ...savedLogins.filter(
+        (login) => !(login.role === role && login.email.toLowerCase() === normalizedEmail)
+      ),
+    ].slice(0, 8);
+
+    writeSavedLogins(nextLogins);
+    setSavedLogins(nextLogins);
+  };
+
+  const removeSavedLogin = (loginToRemove: SavedLogin) => {
+    const nextLogins = savedLogins.filter(
+      (login) =>
+        !(
+          login.role === loginToRemove.role &&
+          login.email.toLowerCase() === loginToRemove.email.toLowerCase()
+        )
+    );
+    writeSavedLogins(nextLogins);
+    setSavedLogins(nextLogins);
+    if (email.toLowerCase() === loginToRemove.email.toLowerCase() && password === loginToRemove.password) {
+      setRememberLogin(false);
+    }
+  };
+
+  const selectSavedLogin = (savedLogin: SavedLogin) => {
+    setMode('login');
+    setEmail(savedLogin.email);
+    setPassword(savedLogin.password);
+    setRememberLogin(true);
+    setError(null);
+    setConfirmationNotice(null);
+  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -95,6 +186,9 @@ export default function SsoPage() {
       }
 
       const result = await login(email.trim(), password, role);
+      if (rememberLogin) {
+        saveCurrentLogin();
+      }
       navigate(getDashboardPath(result.user.role, result.setup.completed), { replace: true });
     } catch (authError) {
       setError(authError instanceof Error ? authError.message : 'Authentication failed.');
@@ -143,6 +237,37 @@ export default function SsoPage() {
           </div>
 
           <form className="space-y-4" onSubmit={handleSubmit}>
+            {mode === 'login' && savedLoginsForRole.length > 0 ? (
+              <div className="space-y-2 rounded-xl border bg-gray-50 p-3">
+                <p className="text-sm font-medium text-gray-700">Saved logins</p>
+                <div className="space-y-2">
+                  {savedLoginsForRole.map((savedLogin) => (
+                    <div
+                      key={`${savedLogin.role}-${savedLogin.email}`}
+                      className="flex items-center gap-2 rounded-lg border bg-white p-2"
+                    >
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 text-left"
+                        onClick={() => selectSavedLogin(savedLogin)}
+                      >
+                        <span className="block truncate text-sm font-medium text-gray-900">{savedLogin.email}</span>
+                        <span className="text-xs text-gray-500">Click to fill login</span>
+                      </button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-8 px-2 text-xs text-gray-500 hover:text-red-700"
+                        onClick={() => removeSavedLogin(savedLogin)}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             {mode === 'signup' ? (
               <div className="space-y-2">
                 <Label htmlFor="name">Full name</Label>
@@ -179,6 +304,20 @@ export default function SsoPage() {
                 autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               />
             </div>
+
+            {mode === 'login' ? (
+              <label className="flex items-start gap-2 rounded-lg border bg-gray-50 p-3 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={rememberLogin}
+                  onChange={(event) => setRememberLogin(event.target.checked)}
+                />
+                <span>
+                  Save this login on this device so it can be selected next time.
+                </span>
+              </label>
+            ) : null}
 
             {error ? (
               <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">

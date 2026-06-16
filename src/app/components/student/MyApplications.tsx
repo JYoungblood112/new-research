@@ -2,6 +2,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useData } from '../../contexts/DataContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
 import { Calendar, CheckCircle, Clock, XCircle, FileText } from 'lucide-react';
 
 const STATUS_CONFIG = {
@@ -39,8 +40,35 @@ const STATUS_CONFIG = {
 
 export default function MyApplications() {
   const { user } = useAuth();
-  const { getApplicationsByStudent, postings } = useData();
-  const applications = getApplicationsByStudent(user!.id);
+  const { getApplicationsByStudent, postings, applicationsLoading, applicationsError, refreshApplications } = useData();
+  const applications = getApplicationsByStudent(user?.id ?? '');
+
+  if (applicationsLoading) {
+    return (
+      <Card>
+        <CardContent className="space-y-3 py-12">
+          <div className="mx-auto h-4 w-44 animate-pulse rounded bg-[#efefef]" />
+          <div className="mx-auto h-4 w-72 max-w-full animate-pulse rounded bg-[#f4f4f4]" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (applicationsError) {
+    return (
+      <Card>
+        <CardContent className="space-y-4 py-12 text-center">
+          <div>
+            <p className="font-medium text-[#111111]">Unable to load applications</p>
+            <p className="mt-1 text-sm text-gray-500">{applicationsError}</p>
+          </div>
+          <Button variant="outline" onClick={() => void refreshApplications()}>
+            Try again
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (applications.length === 0) {
     return (

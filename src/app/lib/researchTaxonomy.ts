@@ -9,6 +9,173 @@ export const RESEARCH_SUBJECT_GROUPS: ResearchSubjectGroup[] = PDF_RESEARCH_SUBJ
   subjects: [...group.subjects].sort((a, b) => a.localeCompare(b)),
 }));
 
+export type ResearchPostingCategoryGroup = {
+  category: string;
+  subcategories: string[];
+};
+
+export const RESEARCH_POSTING_TAXONOMY: ResearchPostingCategoryGroup[] = [
+  {
+    category: 'Computer Science',
+    subcategories: [
+      'Artificial Intelligence',
+      'Machine Learning',
+      'Cybersecurity',
+      'Software Engineering',
+      'Human-Computer Interaction',
+      'Systems',
+      'Databases',
+      'Theory',
+      'Robotics',
+      'Computer Vision',
+      'Natural Language Processing',
+      'Distributed Systems',
+      'Programming Languages',
+    ],
+  },
+  {
+    category: 'Engineering',
+    subcategories: [
+      'Mechanical Engineering',
+      'Electrical Engineering',
+      'Civil Engineering',
+      'Biomedical Engineering',
+      'Chemical Engineering',
+      'Materials Science',
+      'Aerospace Engineering',
+      'Industrial Engineering',
+      'Environmental Engineering',
+    ],
+  },
+  {
+    category: 'Biology',
+    subcategories: ['Molecular Biology', 'Genetics', 'Cell Biology', 'Ecology', 'Microbiology', 'Evolutionary Biology', 'Systems Biology'],
+  },
+  {
+    category: 'Chemistry',
+    subcategories: ['Organic Chemistry', 'Inorganic Chemistry', 'Physical Chemistry', 'Analytical Chemistry', 'Biochemistry', 'Materials Chemistry'],
+  },
+  {
+    category: 'Physics',
+    subcategories: ['Condensed Matter Physics', 'Particle Physics', 'Quantum Physics', 'Astrophysics', 'Biophysics', 'Plasma Physics'],
+  },
+  {
+    category: 'Mathematics',
+    subcategories: ['Algebra', 'Analysis', 'Applied Mathematics', 'Topology', 'Optimization', 'Discrete Mathematics', 'Graph Theory'],
+  },
+  {
+    category: 'Medicine & Health',
+    subcategories: ['Public Health', 'Clinical Research', 'Epidemiology', 'Health Policy', 'Bioinformatics', 'Global Health', 'Medical Imaging'],
+  },
+  {
+    category: 'Neuroscience',
+    subcategories: ['Cognitive Neuroscience', 'Computational Neuroscience', 'Neuroimaging', 'Systems Neuroscience', 'Behavioral Neuroscience'],
+  },
+  {
+    category: 'Psychology',
+    subcategories: ['Cognitive Psychology', 'Clinical Psychology', 'Developmental Psychology', 'Social Psychology', 'Behavioral Science'],
+  },
+  {
+    category: 'Economics',
+    subcategories: ['Microeconomics', 'Macroeconomics', 'Econometrics', 'Behavioral Economics', 'Development Economics', 'Labor Economics'],
+  },
+  {
+    category: 'Business',
+    subcategories: ['Entrepreneurship', 'Marketing', 'Operations', 'Strategy', 'Organizational Behavior', 'Accounting', 'Management'],
+  },
+  {
+    category: 'Finance',
+    subcategories: ['Corporate Finance', 'Asset Pricing', 'Financial Markets', 'Risk Management', 'FinTech', 'Behavioral Finance'],
+  },
+  {
+    category: 'Public Policy',
+    subcategories: ['Policy Analysis', 'Urban Policy', 'Health Policy', 'Education Policy', 'Technology Policy', 'Social Policy'],
+  },
+  {
+    category: 'Political Science',
+    subcategories: ['Comparative Politics', 'International Relations', 'Political Theory', 'Security Studies', 'Public Administration'],
+  },
+  {
+    category: 'Sociology',
+    subcategories: ['Social Inequality', 'Urban Sociology', 'Medical Sociology', 'Organizations', 'Demography', 'Social Networks'],
+  },
+  {
+    category: 'Education',
+    subcategories: ['STEM Education', 'Learning Sciences', 'Educational Technology', 'Higher Education', 'Curriculum Design', 'Assessment'],
+  },
+  {
+    category: 'Environmental Science',
+    subcategories: ['Climate Science', 'Sustainability', 'Conservation', 'Environmental Policy', 'Remote Sensing', 'Hydrology'],
+  },
+  {
+    category: 'Data Science',
+    subcategories: ['Data Mining', 'Big Data', 'Data Visualization', 'Data Engineering', 'Applied Machine Learning', 'Responsible AI'],
+  },
+  {
+    category: 'Statistics',
+    subcategories: ['Statistical Learning', 'Bayesian Statistics', 'Causal Inference', 'Biostatistics', 'Experimental Design', 'Time Series'],
+  },
+  {
+    category: 'Humanities',
+    subcategories: ['History', 'Philosophy', 'Literature', 'Digital Humanities', 'Religious Studies', 'Cultural Studies'],
+  },
+  {
+    category: 'Law',
+    subcategories: ['Constitutional Law', 'Intellectual Property', 'Cyber Law', 'Health Law', 'Environmental Law', 'Human Rights Law'],
+  },
+  {
+    category: 'Design',
+    subcategories: ['Design Research', 'Interaction Design', 'Service Design', 'Product Design', 'Design Strategy', 'Accessibility'],
+  },
+  {
+    category: 'Architecture',
+    subcategories: ['Urban Planning', 'Sustainable Architecture', 'Housing Studies', 'Smart Cities', 'Urban Design', 'Landscape Architecture'],
+  },
+  {
+    category: 'Communications',
+    subcategories: ['Digital Media', 'Journalism', 'Science Communication', 'Health Communication', 'Organizational Communication'],
+  },
+  {
+    category: 'Interdisciplinary Research',
+    subcategories: ['Computational Social Science', 'Science & Technology Studies', 'Human-Centered AI', 'Sustainability Transitions', 'Ethics & Society'],
+  },
+];
+
+export const RESEARCH_POSTING_CATEGORY_OPTIONS = RESEARCH_POSTING_TAXONOMY.map((group) => group.category);
+
+export const RESEARCH_AREA_OPTIONS = Array.from(
+  new Set(RESEARCH_POSTING_TAXONOMY.flatMap((group) => [group.category, ...group.subcategories]))
+).sort((a, b) => a.localeCompare(b));
+
+export const RESEARCH_SKILL_OPTIONS = [
+  'Archival Research',
+  'Clinical Protocols',
+  'Data Analysis',
+  'Data Visualization',
+  'Experimental Design',
+  'Field Research',
+  'Grant Writing',
+  'Interviewing',
+  'IRB Protocols',
+  'Lab Techniques',
+  'Literature Review',
+  'Machine Learning',
+  'Policy Analysis',
+  'Python',
+  'Qualitative Coding',
+  'R',
+  'Research Communication',
+  'Statistical Modeling',
+  'Survey Design',
+  'Technical Writing',
+  'Wet Lab',
+].sort((a, b) => a.localeCompare(b));
+
+export function getResearchAreasForPostingCategory(category: string) {
+  const group = RESEARCH_POSTING_TAXONOMY.find((entry) => entry.category === category);
+  return group ? group.subcategories : RESEARCH_AREA_OPTIONS;
+}
+
 const SUBJECT_ALIAS_TO_TITLE: Record<string, string> = {};
 
 const TITLE_TO_SUBFIELDS = new Map(RESEARCH_SUBJECT_GROUPS.map((group) => [group.title, group.subjects]));
