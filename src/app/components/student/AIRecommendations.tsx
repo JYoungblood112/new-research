@@ -55,11 +55,15 @@ type RecommendationResponse = {
   missingSignals?: Array<{ key?: string; status?: string; message?: string } | string>;
   warnings?: string[];
   generatedAt?: string;
+  source?: 'cache' | 'recomputed' | string;
+  cacheVersion?: string;
 };
 
 const FALLBACK_NOTICE_TITLE = "We're updating your recommendations";
 const FALLBACK_NOTICE_BODY =
   "We couldn't generate personalized recommendations right now. You can still browse available research opportunities while we refresh your profile analysis.";
+const RECOMMENDATION_LOAD_TIMEOUT_MS = 10_000;
+const LONG_RUNNING_RECOMMENDATIONS_MESSAGE = 'Recommendations are taking longer than expected.';
 
 function normalizeText(value: unknown) {
   return String(value ?? '').toLowerCase().replace(/[^a-z0-9+#]+/g, ' ').trim();
@@ -239,6 +243,24 @@ async function getAuthHeaders() {
   return data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : undefined;
 }
 
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = RECOMMENDATION_LOAD_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
 async function readRecommendationResponse(response: Response): Promise<RecommendationResponse> {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -336,7 +358,7 @@ export default function AIRecommendations({ onBrowseResearch }: { onBrowseResear
       }))
       .filter((entry): entry is { recommendation: RecommendationItem; posting: ResearchPosting } => Boolean(entry.posting))
       .sort((a, b) => b.recommendation.confidence - a.recommendation.confidence)
-      .slice(0, 8);
+      .slice(0, 5);
   }, [availablePostings, localFallbacks, scoredPostings]);
 
   const profileStrength = useMemo(() => {
@@ -382,7 +404,7 @@ export default function AIRecommendations({ onBrowseResearch }: { onBrowseResear
 
       try {
         const headers = await getAuthHeaders();
-        const res = await fetch(`/api/ai/recommendations/get-score?postingId=${encodeURIComponent(postingId)}`, {
+        const res = await fetchWithTimeout(`/api/ai/recommendations/get-score?postingId=${encodeURIComponent(postingId)}`, {
           credentials: 'include',
           headers,
         });
@@ -395,7 +417,8 @@ export default function AIRecommendations({ onBrowseResearch }: { onBrowseResear
             return next;
           });
         }
-      } catch {
+      } catch (error) {
+        console.error('[ai recommendations] score polling failed:', error);
         stopPolling(postingId);
         setFriendlyError(FALLBACK_NOTICE_BODY);
       }
@@ -407,7 +430,7 @@ export default function AIRecommendations({ onBrowseResearch }: { onBrowseResear
   const scorePosting = async (posting: ResearchPosting) => {
     try {
       const headers = await getAuthHeaders();
-      const res = await fetch(`/api/ai/recommendations/score-one?postingId=${encodeURIComponent(posting.id)}`, {
+      const res = await fetchWithTimeout(`/api/ai/recommendations/score-one?postingId=${encodeURIComponent(posting.id)}`, {
         credentials: 'include',
         headers,
       });
@@ -431,37 +454,41 @@ export default function AIRecommendations({ onBrowseResearch }: { onBrowseResear
           return next;
         });
       }
-    } catch {
+    } catch (error) {
+      console.error('[ai recommendations] scoring fallback failed:', error);
       setFriendlyError(FALLBACK_NOTICE_BODY);
     }
   };
 
-  const loadRecommendations = async () => {
+  const loadRecommendations = async ({ force = false }: { force?: boolean } = {}) => {
     if (!user?.id) {
       setIsLoading(false);
       return;
     }
 
     setIsRetrying(true);
+    setIsLoading(true);
     setFriendlyError('');
     setWarnings([]);
 
     try {
       const headers = await getAuthHeaders();
-      const postingsResponse = await fetch('/api/postings', { credentials: 'include', headers });
-      const postingsPayload = await postingsResponse.json().catch(() => ({}));
-      const loadedPostings = (Array.isArray(postingsPayload?.postings) ? postingsPayload.postings : postings)
+      const loadedPostings = postings
         .filter((posting: ResearchPosting) => posting?.status === 'published');
       setServerPostings(loadedPostings);
 
-      const bulkResponse = await fetch('/api/ai/recommendations', {
+      const bulkResponse = await fetchWithTimeout(force ? '/api/recommendations/recompute' : '/api/recommendations', {
         method: 'POST',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           ...(headers ?? {}),
         },
-        body: JSON.stringify({ profile: studentProfile ?? {}, postings: loadedPostings }),
+        body: JSON.stringify({
+          profile: studentProfile ?? {},
+          postings: loadedPostings,
+          appliedPostingIds: Array.from(appliedPostingIds),
+        }),
       });
       const bulkPayload = await readRecommendationResponse(bulkResponse);
       setServerProfileStrength(bulkPayload.profileStrength);
@@ -477,12 +504,13 @@ export default function AIRecommendations({ onBrowseResearch }: { onBrowseResear
         setScoredPostings(next);
       } else {
         setFriendlyError(FALLBACK_NOTICE_BODY);
-        for (const posting of loadedPostings.slice(0, 8)) {
+        for (const posting of loadedPostings.slice(0, 5)) {
           void scorePosting(posting);
         }
       }
-    } catch {
-      setFriendlyError(FALLBACK_NOTICE_BODY);
+    } catch (error) {
+      console.error('[ai recommendations] load failed:', error);
+      setFriendlyError(isAbortError(error) ? LONG_RUNNING_RECOMMENDATIONS_MESSAGE : FALLBACK_NOTICE_BODY);
       setServerPostings(postings.filter((posting) => posting.status === 'published'));
     } finally {
       setIsLoading(false);
@@ -497,7 +525,7 @@ export default function AIRecommendations({ onBrowseResearch }: { onBrowseResear
         stopPolling(postingId);
       }
     };
-  }, [user?.id, JSON.stringify(studentProfile ?? {}), postings.length]);
+  }, [user?.id, JSON.stringify(studentProfile ?? {}), postings.length, applications.length]);
 
   const handleApplied = (postingId: string) => {
     setSelectedPosting(null);
@@ -523,7 +551,7 @@ export default function AIRecommendations({ onBrowseResearch }: { onBrowseResear
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" className="rounded-md border-blue-200 bg-white text-blue-800" onClick={() => void loadRecommendations()} disabled={isRetrying}>
                 <RefreshCw className={`mr-2 h-4 w-4 ${isRetrying ? 'animate-spin' : ''}`} />
-                Retry Recommendations
+                Retry
               </Button>
               <Button type="button" className="rounded-md bg-blue-700 text-white hover:bg-blue-800" onClick={onBrowseResearch}>
                 <Search className="mr-2 h-4 w-4" />
@@ -540,7 +568,13 @@ export default function AIRecommendations({ onBrowseResearch }: { onBrowseResear
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8b7f79]">Recommended Opportunities</p>
             <h2 className="mt-1 text-3xl font-semibold tracking-tight text-[#111111]">Research projects that fit your profile</h2>
           </div>
-          <p className="text-sm text-[#666666]">{recommendations.length} opportunities ready</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-[#666666]">{recommendations.length} opportunities ready</p>
+            <Button type="button" variant="outline" className="rounded-md border-[#d0ceca] bg-white" onClick={() => void loadRecommendations({ force: true })} disabled={isRetrying}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${isRetrying ? 'animate-spin' : ''}`} />
+              Refresh Recommendations
+            </Button>
+          </div>
         </div>
 
         {isLoading ? (

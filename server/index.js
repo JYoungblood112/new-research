@@ -34,6 +34,8 @@ const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 8;
 const recommendationCache = new Map();
 const externalDataCache = new Map();
 const pendingRecommendationJobs = new Set();
+const STUDENT_RECOMMENDATION_CACHE_VERSION = 'student-rec-cache-v2';
+const STUDENT_RECOMMENDATION_LIMIT = 5;
 const professorProfileImportCache = new Map();
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -703,6 +705,296 @@ function buildFallbackRecommendations({ profile, postings }) {
     .map((posting, index) => scoreFallbackPosting(profile, posting, index))
     .sort((a, b) => b.confidence - a.confidence)
     .slice(0, 12);
+}
+
+function getOpenResearchPostings(postings) {
+  const openStatuses = new Set(['published', 'active', 'open']);
+  return (Array.isArray(postings) ? postings : [])
+    .map(normalizePostingPayload)
+    .filter(Boolean)
+    .filter((posting) => openStatuses.has(String(posting.status ?? 'published').toLowerCase()));
+}
+
+function getStudentAppliedProjectIds(store, studentId, explicitIds = []) {
+  const ids = new Set((Array.isArray(explicitIds) ? explicitIds : []).map((id) => String(id)).filter(Boolean));
+  const applications = Array.isArray(store.applications) ? store.applications : [];
+  applications
+    .filter((application) => String(application?.studentId ?? application?.student_id ?? '') === String(studentId))
+    .forEach((application) => {
+      const postingId = application?.postingId ?? application?.project_id;
+      if (postingId) ids.add(String(postingId));
+    });
+  return ids;
+}
+
+function getRecommendationsVersion(store, postings) {
+  return JSON.stringify({
+    cacheVersion: STUDENT_RECOMMENDATION_CACHE_VERSION,
+    globalVersion: store.recommendationsVersion ?? '',
+    postings: getOpenResearchPostings(postings).map((posting) => getRecommendationPostingFingerprint(posting)),
+  });
+}
+
+function normalizeRecommendationCache(store) {
+  if (!Array.isArray(store.studentRecommendationCache)) {
+    store.studentRecommendationCache = [];
+  }
+  if (!store.recommendationsVersion) {
+    store.recommendationsVersion = new Date(0).toISOString();
+  }
+}
+
+function invalidateStudentRecommendationCache(store, studentId) {
+  normalizeRecommendationCache(store);
+  const now = new Date().toISOString();
+  store.studentRecommendationCache = store.studentRecommendationCache.map((entry) =>
+    String(entry?.student_id ?? '') === String(studentId) && !entry.invalidated_at
+      ? { ...entry, invalidated_at: now, updated_at: now }
+      : entry
+  );
+}
+
+function invalidateAllRecommendationCaches(store) {
+  normalizeRecommendationCache(store);
+  const now = new Date().toISOString();
+  store.recommendationsVersion = now;
+  store.studentRecommendationCache = store.studentRecommendationCache.map((entry) =>
+    entry.invalidated_at ? entry : { ...entry, invalidated_at: now, updated_at: now }
+  );
+}
+
+function fitLabelFromScore(score) {
+  if (score >= 90) return 'excellent_match';
+  if (score >= 80) return 'strong_match';
+  if (score >= 65) return 'good_match';
+  if (score >= 50) return 'possible_match';
+  return 'low_match';
+}
+
+function displayFitLabel(label) {
+  const labels = {
+    excellent_match: 'Excellent Match',
+    strong_match: 'Strong Match',
+    good_match: 'Good Match',
+    possible_match: 'Possible Match',
+    low_match: 'Low Match',
+  };
+  return labels[label] ?? 'Possible Match';
+}
+
+function countOverlap(sourceTerms, targetValues) {
+  const source = new Set(sourceTerms);
+  return tokenizeRecommendationText((Array.isArray(targetValues) ? targetValues : [targetValues]).filter(Boolean).join(' '))
+    .reduce((count, term) => count + (source.has(term) ? 1 : 0), 0);
+}
+
+function scoreCachedRecommendation(profile, posting, index) {
+  const profileSkills = Array.isArray(profile?.skills) ? profile.skills : [];
+  const profileInterests = Array.isArray(profile?.interests) ? profile.interests : [];
+  const coursework = Array.isArray(profile?.coursework) ? profile.coursework.map(formatCourseworkEntry) : [];
+  const resumeText = buildStudentScoringSignal(profile);
+  const profileTerms = tokenizeRecommendationText([
+    profile?.major,
+    profile?.degree,
+    resumeText,
+    ...profileSkills,
+    ...profileInterests,
+    ...coursework,
+  ].filter(Boolean).join(' '));
+  const postingRequirementText = [
+    posting.requiredQualifications,
+    posting.preferredQualifications,
+    posting.studentRoleDescription,
+    posting.overview,
+    ...(Array.isArray(posting.researchAreas) ? posting.researchAreas : []),
+    ...(Array.isArray(posting.skillsNeeded) ? posting.skillsNeeded : []),
+  ].filter(Boolean).join(' ');
+  const postingSkillTerms = tokenizeRecommendationText(posting.skillsNeeded ?? []);
+  const matchedSkills = (Array.isArray(posting.skillsNeeded) ? posting.skillsNeeded : [])
+    .filter((skill) => countOverlap(profileTerms, skill) > 0)
+    .slice(0, 5);
+  const missingSkills = (Array.isArray(posting.skillsNeeded) ? posting.skillsNeeded : [])
+    .filter((skill) => !matchedSkills.includes(skill))
+    .slice(0, 4);
+
+  const requirementOverlap = countOverlap(profileTerms, postingRequirementText);
+  const skillsOverlap = postingSkillTerms.reduce((count, term) => count + (profileTerms.includes(term) ? 1 : 0), 0);
+  const interestOverlap = countOverlap(profileTerms, [posting.category, posting.professorDepartment, ...(posting.researchAreas ?? [])]);
+  const courseworkOverlap = countOverlap(tokenizeRecommendationText(coursework.join(' ')), postingRequirementText);
+  const hasEvidence = Boolean(profile?.resume?.name || profile?.resumeText || profile?.github || profile?.githubUrl || profile?.linkedin || profile?.linkedInUrl);
+  const profileSignals = [
+    Boolean(profile?.major),
+    profileSkills.length > 0,
+    profileInterests.length > 0,
+    Boolean(profile?.resume?.name || profile?.resumeText),
+    Boolean(profile?.transcript?.name || profile?.transcriptText || coursework.length > 0),
+    Boolean(profile?.github || profile?.githubUrl),
+    Boolean(profile?.linkedin || profile?.linkedInUrl),
+  ];
+
+  const requirementScore = Math.min(40, requirementOverlap * 6 + interestOverlap * 3);
+  const skillsScore = Math.min(20, skillsOverlap * 5);
+  const evidenceScore = hasEvidence ? Math.min(15, 8 + requirementOverlap * 2) : 4;
+  const courseworkScore = coursework.length > 0 ? Math.min(10, 4 + courseworkOverlap * 2) : 2;
+  const completenessScore = Math.round((profileSignals.filter(Boolean).length / profileSignals.length) * 10);
+  const createdAtMs = Date.parse(posting.createdAt ?? '');
+  const ageDays = Number.isFinite(createdAtMs) ? (Date.now() - createdAtMs) / 86400000 : 30;
+  const recencyScore = Math.max(1, Math.min(5, Math.round(5 - Math.max(0, ageDays) / 30)));
+  const confidence = clampScore(Math.max(35, requirementScore + skillsScore + evidenceScore + courseworkScore + completenessScore + recencyScore - index));
+  const fitLabel = fitLabelFromScore(confidence);
+  const reason = matchedSkills.length > 0 || interestOverlap > 0
+    ? `Recommended because your profile overlaps with ${matchedSkills.slice(0, 3).join(', ') || posting.category || 'this research area'}.`
+    : index < 3
+      ? 'Recommended as a recently available research opportunity.'
+      : 'Recommended from available published research opportunities.';
+
+  return {
+    postingId: String(posting.id),
+    confidence,
+    reason,
+    score_breakdown: {
+      base_score: confidence,
+      github_bonus: 0,
+      github_available: Boolean(profile?.github || profile?.githubUrl),
+      github_sparse: false,
+      linkedin_bonus: 0,
+      linkedin_available: Boolean(profile?.linkedin || profile?.linkedInUrl),
+      linkedin_sparse: false,
+    },
+    qualifications: matchedSkills.length > 0
+      ? matchedSkills.map((skill) => `${skill} appears in your profile or coursework.`)
+      : ['This project is open and matches available profile context.'],
+    fit_reasoning: [reason],
+    gaps: missingSkills.length > 0
+      ? missingSkills.map((skill) => `Add more evidence for ${skill}.`)
+      : ['Add more role-specific evidence to improve recommendation quality.'],
+    recommendation: displayFitLabel(fitLabel),
+    fallback: matchedSkills.length === 0 && requirementOverlap === 0,
+    fallback_reason: matchedSkills.length === 0 && requirementOverlap === 0 ? 'Filled from recent published projects.' : undefined,
+    matchedSkills,
+    missingEvidence: missingSkills,
+    fitLabel,
+  };
+}
+
+function cacheRecordToRecommendation(record) {
+  return {
+    postingId: String(record.project_id),
+    confidence: Number(record.confidence_score ?? 0),
+    reason: record.reasoning_summary || 'Recommended from your saved profile and this project description.',
+    score_breakdown: record.source_tags?.score_breakdown ?? {
+      base_score: Number(record.confidence_score ?? 0),
+      github_bonus: 0,
+      github_available: false,
+      github_sparse: false,
+      linkedin_bonus: 0,
+      linkedin_available: false,
+      linkedin_sparse: false,
+    },
+    qualifications: Array.isArray(record.source_tags?.qualifications) ? record.source_tags.qualifications : [],
+    fit_reasoning: Array.isArray(record.source_tags?.fit_reasoning) ? record.source_tags.fit_reasoning : [record.reasoning_summary].filter(Boolean),
+    gaps: Array.isArray(record.missing_evidence) ? record.missing_evidence : [],
+    recommendation: displayFitLabel(record.fit_label),
+    fallback: Boolean(record.source_tags?.fallback),
+    fallback_reason: record.source_tags?.fallback_reason,
+  };
+}
+
+function writeStudentRecommendationCache({ store, studentId, profile, postings, appliedIds }) {
+  normalizeRecommendationCache(store);
+  const now = new Date().toISOString();
+  const profileFingerprint = getRecommendationProfileFingerprint(profile);
+  const projectsFingerprint = getRecommendationsVersion(store, postings);
+  const eligiblePostings = getOpenResearchPostings(postings)
+    .filter((posting) => !appliedIds.has(String(posting.id)));
+  const recommendations = eligiblePostings
+    .map((posting, index) => ({ posting, recommendation: scoreCachedRecommendation(profile, posting, index) }))
+    .sort((a, b) => b.recommendation.confidence - a.recommendation.confidence)
+    .slice(0, STUDENT_RECOMMENDATION_LIMIT);
+
+  const records = recommendations.map(({ posting, recommendation }, index) => ({
+    id: randomId('rec'),
+    student_id: String(studentId),
+    project_id: String(posting.id),
+    confidence_score: recommendation.confidence,
+    fit_label: recommendation.fitLabel,
+    rank: index + 1,
+    reasoning_summary: recommendation.reason,
+    matched_skills: recommendation.matchedSkills,
+    missing_evidence: recommendation.missingEvidence,
+    source_tags: {
+      fallback: recommendation.fallback,
+      fallback_reason: recommendation.fallback_reason,
+      score_breakdown: recommendation.score_breakdown,
+      qualifications: recommendation.qualifications,
+      fit_reasoning: recommendation.fit_reasoning,
+    },
+    cache_version: STUDENT_RECOMMENDATION_CACHE_VERSION,
+    profile_fingerprint: profileFingerprint,
+    projects_fingerprint: projectsFingerprint,
+    generated_at: now,
+    invalidated_at: null,
+    created_at: now,
+    updated_at: now,
+  }));
+
+  store.studentRecommendationCache = [
+    ...store.studentRecommendationCache.filter((entry) => String(entry?.student_id ?? '') !== String(studentId)),
+    ...records,
+  ];
+  return records;
+}
+
+function getValidStudentRecommendationRecords({ store, studentId, profile, postings, appliedIds }) {
+  normalizeRecommendationCache(store);
+  const profileFingerprint = getRecommendationProfileFingerprint(profile);
+  const projectsFingerprint = getRecommendationsVersion(store, postings);
+  const records = store.studentRecommendationCache
+    .filter((entry) =>
+      String(entry?.student_id ?? '') === String(studentId) &&
+      entry.cache_version === STUDENT_RECOMMENDATION_CACHE_VERSION &&
+      !entry.invalidated_at &&
+      entry.profile_fingerprint === profileFingerprint &&
+      entry.projects_fingerprint === projectsFingerprint &&
+      !appliedIds.has(String(entry.project_id))
+    )
+    .sort((a, b) => Number(a.rank ?? 0) - Number(b.rank ?? 0));
+  return records.length > 0 ? records.slice(0, STUDENT_RECOMMENDATION_LIMIT) : [];
+}
+
+function getStudentRecommendations({ store, student, profile, postings, appliedPostingIds = [], force = false }) {
+  const studentId = String(student?.id ?? student?._id?.toString?.() ?? '').trim();
+  const safeProfile = getSafeStudentProfile(student, profile);
+  const candidatePostings = Array.isArray(postings) && postings.length > 0 ? postings : store.postings;
+  const appliedIds = getStudentAppliedProjectIds(store, studentId, appliedPostingIds);
+  const eligibleCount = getOpenResearchPostings(candidatePostings)
+    .filter((posting) => !appliedIds.has(String(posting.id))).length;
+  const targetCount = Math.min(STUDENT_RECOMMENDATION_LIMIT, eligibleCount);
+  let records = force
+    ? []
+    : getValidStudentRecommendationRecords({ store, studentId, profile: safeProfile, postings: candidatePostings, appliedIds });
+  let source = 'cache';
+
+  if (records.length < targetCount) {
+    records = writeStudentRecommendationCache({ store, studentId, profile: safeProfile, postings: candidatePostings, appliedIds });
+    source = 'recomputed';
+  }
+
+  return {
+    ...buildRecommendationResponse({
+      recommendations: records
+        .filter((record) => !appliedIds.has(String(record.project_id)))
+        .slice(0, STUDENT_RECOMMENDATION_LIMIT)
+        .map(cacheRecordToRecommendation),
+      profile: safeProfile,
+      warnings: records.some((record) => record.source_tags?.fallback)
+        ? ['Some recommendations use backup matching because profile evidence is limited.']
+        : [],
+    }),
+    source,
+    cacheVersion: STUDENT_RECOMMENDATION_CACHE_VERSION,
+    generatedAt: records[0]?.generated_at ?? new Date().toISOString(),
+  };
 }
 
 function buildRecommendationResponse({ recommendations = [], profile, warnings = [] }) {
@@ -1589,8 +1881,8 @@ app.put('/api/setup/student', authRequired, (req, res) => {
     }
   }
 
+  invalidateStudentRecommendationCache(store, user.id);
   writeStore(store);
-  warmRecommendationScoresForProfile({ store, studentId: user.id, profile });
   return res.json({ setup: getSetupState(store, user) });
 });
 
@@ -1659,6 +1951,7 @@ app.post('/api/postings/sync', authRequired, (req, res) => {
 
   const store = readStore();
   store.postings = postings.map(normalizePostingPayload).filter(Boolean);
+  invalidateAllRecommendationCaches(store);
   writeStore(store);
   return res.json({ ok: true, count: store.postings.length });
 });
@@ -1689,6 +1982,61 @@ app.get('/api/insights/student-interest-counts', authRequired, (req, res) => {
     counts,
     totalStudents: store.studentProfiles.length,
   });
+});
+
+function handleStudentRecommendationsRequest(req, res, force = false) {
+  const requestId = getRequestId();
+  try {
+    const student = req.user;
+    if (!student || student.role !== 'student') {
+      return res.status(403).json({ error: 'Student role required.', requestId });
+    }
+
+    const store = readStore();
+    normalizeRecommendationCache(store);
+    const profile = getSafeStudentProfile(student, req.body?.profile ?? getStudentProfile(store, student.id));
+    const incomingPostings = Array.isArray(req.body?.postings)
+      ? req.body.postings.map(normalizePostingPayload).filter(Boolean)
+      : [];
+
+    if (incomingPostings.length > 0) {
+      const incomingVersion = getRecommendationsVersion(store, incomingPostings);
+      const currentVersion = getRecommendationsVersion(store, store.postings);
+      store.postings = incomingPostings;
+      if (incomingVersion !== currentVersion) {
+        invalidateAllRecommendationCaches(store);
+      }
+    }
+
+    const payload = getStudentRecommendations({
+      store,
+      student,
+      profile,
+      postings: incomingPostings.length > 0 ? incomingPostings : store.postings,
+      appliedPostingIds: Array.isArray(req.body?.appliedPostingIds) ? req.body.appliedPostingIds : [],
+      force,
+    });
+
+    writeStore(store);
+    return res.json({ ...payload, requestId });
+  } catch (error) {
+    console.error(`[recommendations:${requestId}] error:`, error);
+    return res.status(500).json({
+      error: 'Recommendations are unavailable right now.',
+      recommendations: [],
+      warnings: ['Recommendations are refreshing. Please try again.'],
+      requestId,
+      generatedAt: new Date().toISOString(),
+    });
+  }
+}
+
+app.post('/api/recommendations', authRequired, (req, res) => {
+  return handleStudentRecommendationsRequest(req, res, Boolean(req.body?.force));
+});
+
+app.post('/api/recommendations/recompute', authRequired, (req, res) => {
+  return handleStudentRecommendationsRequest(req, res, true);
 });
 
 app.post('/api/import-professor-profile', authRequired, async (req, res, next) => {
