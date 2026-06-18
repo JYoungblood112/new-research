@@ -10,6 +10,14 @@ import StudentProfile from '../../components/student/StudentProfile';
 import ProgressReports from '../../components/student/ProgressReports';
 import { Header as AppHeader } from '../../../components/ui/header-1';
 
+const navigationItems = [
+  { value: 'browse', label: 'Browse' },
+  { value: 'recommendations', label: 'Recommendations' },
+  { value: 'applications', label: 'Applications' },
+  { value: 'progress', label: 'Reports' },
+  { value: 'profile', label: 'Profile' },
+];
+
 export default function StudentDashboard() {
   const { user, logout, setupState } = useAuth();
   const navigate = useNavigate();
@@ -39,65 +47,24 @@ export default function StudentDashboard() {
   const needsProfile = !setupState?.completed;
 
   return (
-    <div className="min-h-screen bg-[#f7f7f7]">
+    <div className="app-shell min-h-screen bg-[#fbfaf8]">
       <AppHeader
-        className="border-b border-[#e6dfdc] bg-[linear-gradient(120deg,#fffdfa_0%,#fff7f5_45%,#f8f7fb_100%)]"
+        className="border-b border-[#eee7e3] bg-[#fffdfa]/95 backdrop-blur"
         brand={
-          <div className="space-y-0.5 px-1 py-0.5 text-left">
-            <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-[#8b7f79]">Student Workspace</p>
-            <p className="text-sm font-semibold text-[#111111]">Student Research Portal</p>
+          <div className="flex min-w-0 items-center gap-3 text-left">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#c92e1f] text-xs font-bold text-white">
+              RP
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-[#111111]">Research Portal</p>
+              <p className="truncate text-[11px] font-medium uppercase tracking-[0.18em] text-[#8b7f79]">Student Workspace</p>
+            </div>
           </div>
         }
-        links={[
-          {
-            label: 'Browse',
-            href: '#',
-            active: activeTab === 'browse',
-            onClick: (event) => {
-              event.preventDefault();
-              void requestTabChange('browse');
-            },
-          },
-          {
-            label: 'AI Recommendations',
-            href: '#',
-            active: activeTab === 'recommendations',
-            onClick: (event) => {
-              event.preventDefault();
-              void requestTabChange('recommendations');
-            },
-          },
-          {
-            label: 'Applications',
-            href: '#',
-            active: activeTab === 'applications',
-            onClick: (event) => {
-              event.preventDefault();
-              void requestTabChange('applications');
-            },
-          },
-          {
-            label: 'Progress Reports',
-            href: '#',
-            active: activeTab === 'progress',
-            onClick: (event) => {
-              event.preventDefault();
-              void requestTabChange('progress');
-            },
-          },
-          {
-            label: 'Profile',
-            href: '#',
-            active: activeTab === 'profile',
-            onClick: (event) => {
-              event.preventDefault();
-              void requestTabChange('profile');
-            },
-          },
-        ]}
+        links={[]}
         actions={[
           {
-            label: user?.name ? `Hi, ${user.name.split(' ')[0]}` : 'Student',
+            label: user?.name ? user.name.split(' ')[0] : 'Profile',
             variant: 'outline',
             onClick: () => {
               void requestTabChange('profile');
@@ -110,77 +77,58 @@ export default function StudentDashboard() {
         ]}
       />
 
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-7">
-
-        {needsProfile && (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <span className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-red-700" />
-                <p className="text-sm">
-                  Please complete your profile and upload your resume to start applying to research
-                  opportunities.
-                </p>
-              </div>
-              <Button
-                variant="link"
-                className="h-auto p-0 text-red-800"
-                onClick={() => {
-                  void requestTabChange('profile');
-                }}
-              >
-                Go to Profile {'->'}
-              </Button>
-            </div>
+      <Tabs
+        value={activeTab}
+        onValueChange={(nextTab) => {
+          void requestTabChange(nextTab);
+        }}
+      >
+        <div className="border-b border-[#eee7e3] bg-[#fffdfa]/90">
+          <div className="mx-auto max-w-7xl overflow-x-auto px-4 py-2 sm:px-6 lg:px-8">
+            <TabsList className="inline-flex h-9 min-w-max items-center justify-start rounded-lg bg-transparent p-0 shadow-none">
+              {navigationItems.map((item) => (
+                <TabsTrigger
+                  key={item.value}
+                  value={item.value}
+                  className="h-8 whitespace-nowrap rounded-md bg-transparent px-3 text-sm font-medium text-[#625b57] shadow-none data-[state=active]:bg-[#f0ebe8] data-[state=active]:text-[#111111] data-[state=active]:shadow-none sm:px-4"
+                >
+                  {item.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
           </div>
-        )}
+        </div>
 
-        <Tabs
-          value={activeTab}
-          onValueChange={(nextTab) => {
-            void requestTabChange(nextTab);
-          }}
-          className="space-y-4"
-        >
-          <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl border border-[#dddddd] bg-white p-1.5 shadow-sm sm:w-fit">
-            <TabsTrigger
-              value="browse"
-              className="rounded-xl border border-transparent bg-transparent px-4 py-2 text-[#666666] data-[state=active]:border-red-200 data-[state=active]:bg-red-50 data-[state=active]:text-red-800 data-[state=active]:shadow-none"
-            >
-              Browse Research
-            </TabsTrigger>
-            <TabsTrigger
-              value="recommendations"
-              className="rounded-xl border border-transparent bg-transparent px-4 py-2 text-[#666666] data-[state=active]:border-red-200 data-[state=active]:bg-red-50 data-[state=active]:text-red-800 data-[state=active]:shadow-none"
-            >
-              AI Recommendations
-            </TabsTrigger>
-            <TabsTrigger
-              value="applications"
-              className="rounded-xl border border-transparent bg-transparent px-4 py-2 text-[#666666] data-[state=active]:border-red-200 data-[state=active]:bg-red-50 data-[state=active]:text-red-800 data-[state=active]:shadow-none"
-            >
-              My Applications
-            </TabsTrigger>
-            <TabsTrigger
-              value="progress"
-              className="rounded-xl border border-transparent bg-transparent px-4 py-2 text-[#666666] data-[state=active]:border-red-200 data-[state=active]:bg-red-50 data-[state=active]:text-red-800 data-[state=active]:shadow-none"
-            >
-              Progress Reports
-            </TabsTrigger>
-            <TabsTrigger
-              value="profile"
-              className="rounded-xl border border-transparent bg-transparent px-4 py-2 text-[#666666] data-[state=active]:border-red-200 data-[state=active]:bg-red-50 data-[state=active]:text-red-800 data-[state=active]:shadow-none"
-            >
-              Profile
-            </TabsTrigger>
-          </TabsList>
+        <main className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6 lg:px-8">
+          {needsProfile && (
+            <div className="status-danger rounded-lg px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm">
+                  Complete your profile and upload your resume to unlock better match scores.
+                </p>
+                <Button
+                  variant="link"
+                  className="h-auto p-0 text-red-800 hover:text-red-950"
+                  onClick={() => {
+                    void requestTabChange('profile');
+                  }}
+                >
+                  Go to Profile {'->'}
+                </Button>
+              </div>
+            </div>
+          )}
 
           <TabsContent value="browse">
             <BrowseResearch />
           </TabsContent>
 
           <TabsContent value="recommendations">
-            <AIRecommendations />
+            <AIRecommendations
+              onBrowseResearch={() => {
+                void requestTabChange('browse');
+              }}
+            />
           </TabsContent>
 
           <TabsContent value="applications">
@@ -198,8 +146,8 @@ export default function StudentDashboard() {
               }}
             />
           </TabsContent>
-        </Tabs>
-      </main>
+        </main>
+      </Tabs>
     </div>
   );
 }

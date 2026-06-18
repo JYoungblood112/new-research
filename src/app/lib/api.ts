@@ -1,3 +1,5 @@
+import { supabase } from './supabase';
+
 export type UserRole = 'student' | 'professor' | 'recruiter' | 'dean';
 
 export type User = {
@@ -68,12 +70,12 @@ export type ResumeAutofillResult = {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
+    ...init,
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(init?.headers ?? {}),
     },
-    ...init,
   });
 
   if (!response.ok) {
@@ -85,6 +87,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+async function getSupabaseAuthorizationHeader() {
+  const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+  const accessToken = data.session?.access_token;
+  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
 }
 
 export async function stubSsoLogin(payload: {
@@ -165,6 +173,39 @@ export async function parseResumeWithAi(payload: {
 
 export async function getStudentInterestCounts(): Promise<{ counts: Record<string, number>; totalStudents: number }> {
   return request('/api/insights/student-interest-counts');
+}
+
+export type ProfessorMessageEmailPayload = {
+  studentId: string;
+  applicationId?: string;
+  projectId?: string;
+  subject: string;
+  body: string;
+};
+
+export type ProfessorMessageEmailResult = {
+  ok: true;
+  recipient: {
+    studentId: string;
+    name: string;
+    email: string;
+  };
+  projectId: string;
+  applicationId: string | null;
+  messageId: string | null;
+  provider: string;
+  providerMessageId: string | null;
+};
+
+export async function sendProfessorMessageEmail(
+  payload: ProfessorMessageEmailPayload
+): Promise<ProfessorMessageEmailResult> {
+  const authorization = await getSupabaseAuthorizationHeader();
+  return request('/api/messages/send-email', {
+    method: 'POST',
+    headers: authorization,
+    body: JSON.stringify(payload),
+  });
 }
 
 export type RecruiterCandidateMatch = {

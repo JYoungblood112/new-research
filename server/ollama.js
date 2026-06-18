@@ -641,9 +641,10 @@ function hasNegativeFitSignal(values) {
 
 function recommendationFromScore(score) {
   if (score >= 85) return 'Strong Fit';
-  if (score >= 75) return 'Good Fit';
+  if (score >= 70) return 'Good Fit';
   if (score >= 55) return 'Possible Fit';
-  return 'Weak Fit';
+  if (score >= 40) return 'Weak Fit';
+  return 'Low Fit';
 }
 
 function calibrateRecommendationScore({
@@ -868,15 +869,16 @@ function buildFallbackRecommendation(posting, index, fallbackReason) {
       linkedin_sparse: false,
     },
     qualifications: [
-      'Profile includes baseline academic and skills signals to evaluate against the posting.',
-      'Recommendation fallback applied while enrichment analysis was unavailable.',
+      'Available academic, skills, and interest signals were compared with this posting.',
+      'This recommendation uses a backup match when personalized scoring is temporarily unavailable.',
     ],
     fit_reasoning: [
-      'The score was estimated from available profile context while keeping the resume baseline central.',
-      'Detailed GitHub/LinkedIn enrichment was unavailable for this specific request.',
+      fallbackReason,
+      'Add more profile evidence to improve future recommendation quality.',
     ],
     gaps: ['Provide more role-specific project evidence in application responses for stronger confidence.'],
     recommendation: confidence >= 80 ? 'Good Fit' : confidence >= 65 ? 'Possible Fit' : 'Weak Fit',
+    fallback: true,
   };
 }
 
@@ -1013,11 +1015,11 @@ function buildScoringPrompt(researchPosition, resumeText, githubData, linkedinDa
       title: researchPosition?.title ?? '',
       category: researchPosition?.category ?? '',
       research_areas: Array.isArray(researchPosition?.researchAreas) ? researchPosition.researchAreas : [],
-      skills_needed: Array.isArray(researchPosition?.skillsNeeded) ? researchPosition.skillsNeeded : [],
+      required_skills: Array.isArray(researchPosition?.skillsNeeded) ? researchPosition.skillsNeeded : [],
       professor_research_areas: Array.isArray(researchPosition?.professorResearchAreas) ? researchPosition.professorResearchAreas : [],
       professor_research_interests: Array.isArray(researchPosition?.professorResearchInterests) ? researchPosition.professorResearchInterests : [],
       overview: researchPosition?.overview ?? '',
-      student_role: researchPosition?.studentRoleDescription ?? '',
+      student_background_expectations: researchPosition?.studentRoleDescription ?? '',
       requirements: requirementItems,
     },
     student_evidence: {
@@ -1041,10 +1043,12 @@ Instructions:
 - Use "none" when no direct evidence is present.
 - Required requirements matter more than preferred requirements.
 - Use overlap between student interests and research_areas/professor_research_areas/professor_research_interests as a positive research-fit signal.
-- Use skills_needed as structured skill requirements when assessing student skills and evidence.
+- Use required_skills as structured skill requirements when assessing student skills and evidence.
 - Missing GitHub or LinkedIn is not a gap. Sparse or irrelevant GitHub/LinkedIn should receive 0 bonus.
 - External-source bonuses must be directly relevant to this posting.
 - Prefer exact evidence phrases from resume/profile/transcript/GitHub/LinkedIn.
+- Never return placeholder instructions. Every string must be a real student-facing explanation.
+- Do not expose JSON key names in user-facing strings.
 
 Scoring guidance:
 - base_score is 0-100 from resume/profile/transcript evidence only.
@@ -1071,18 +1075,18 @@ Return exactly:
       "importance": "required",
       "support": "strong",
       "sources": ["resume"],
-      "evidence": "short exact evidence phrase",
-      "gap": ""
+      "evidence": "real evidence phrase from the submitted materials",
+      "gap": "specific missing evidence or empty string when no gap exists"
     }
   ],
   "qualifications": [
-    "up to 6 source-prefixed evidence-backed qualifications"
+    "source-backed qualification written in plain English"
   ],
   "fit_reasoning": [
-    "up to 6 concise requirement-specific fit statements"
+    "specific plain-English explanation of how evidence supports a project requirement"
   ],
   "gaps": [
-    "up to 4 constructive missing-evidence statements"
+    "specific plain-English improvement area when evidence is missing or incomplete"
   ],
   "recommendation": "Strong Fit"
 }
@@ -1099,19 +1103,11 @@ export async function scoreOnePosting({ posting, index, resumeSignal, githubData
     return normalizeRecommendationObject(posting, parsed, githubData, linkedinData, resumeSignal);
   } catch (err) {
     console.error('[scoreOnePosting] Failed for posting', posting?.id || posting?.postingId, err.message);
-    if (err?.code === 'OLLAMA_UNAVAILABLE') {
-      throw err;
-    }
-    return {
-      postingId: posting?.id || posting?.postingId,
-      confidence: 50,
-      reason: 'Detailed scoring was unavailable because the model response could not be parsed. Retry after the model finishes processing.',
-      score_breakdown: null,
-      qualifications: [],
-      fit_reasoning: [`Model output could not be parsed - ${err.message}`],
-      gaps: [],
-      recommendation: 'Possible Fit',
-    };
+    return buildFallbackRecommendation(
+      posting,
+      index,
+      'Recommended from your saved profile and the project details while personalized scoring refreshes.'
+    );
   }
 }
 
@@ -1125,8 +1121,8 @@ export async function getOllamaRecommendations({ student, postings, resumeText }
   const resumeSignal = pickFirstNonEmpty(student?.resumeText, resumeText, student?.summary, '') || '';
 
   const [githubData, linkedinData] = await Promise.all([
-    githubUrl ? fetchGitHubData(githubUrl) : Promise.resolve(null),
-    linkedinUrl ? fetchLinkedInData(linkedinUrl) : Promise.resolve(null),
+    githubUrl ? fetchGitHubData(githubUrl).catch(() => null) : Promise.resolve(null),
+    linkedinUrl ? fetchLinkedInData(linkedinUrl).catch(() => null) : Promise.resolve(null),
   ]);
 
   const scored = await Promise.all(

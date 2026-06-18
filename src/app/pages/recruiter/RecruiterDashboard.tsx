@@ -218,8 +218,8 @@ export default function RecruiterDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f7f7f7] text-[#1f1f1f]">
-      <header className="border-b border-[#dddddd] bg-white">
+    <div className="app-shell min-h-screen text-[#1f1f1f]">
+      <header className="border-b border-[#e6dfdc] bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-4 px-4 py-5">
           <div className="space-y-1">
             <p className="text-xs font-medium uppercase tracking-[0.22em] text-[#8b7f79]">Recruiter Workspace</p>
@@ -240,7 +240,7 @@ export default function RecruiterDashboard() {
       </header>
 
       <main className="mx-auto flex max-w-[1400px] gap-4 px-4 py-6">
-        <aside className={`sticky top-4 hidden max-h-[calc(100vh-3rem)] self-start overflow-y-auto rounded-2xl border border-[#dddddd] bg-white p-3 shadow-sm transition-all duration-300 lg:block ${sidebarCollapsed ? 'w-[84px]' : 'w-[270px]'}`}>
+        <aside className={`dashboard-surface sticky top-4 hidden max-h-[calc(100vh-3rem)] self-start overflow-y-auto rounded-2xl p-3 transition-all duration-300 lg:block ${sidebarCollapsed ? 'w-[84px]' : 'w-[270px]'}`}>
           <div className="mb-3 flex items-center justify-between">
             {!sidebarCollapsed ? (
               <div>
@@ -288,14 +288,14 @@ export default function RecruiterDashboard() {
           <>
           <div id="recruiter-overview" className="grid scroll-mt-6 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {recruiterOverviewStats.map((stat) => (
-            <div key={stat.label} className="rounded-2xl border border-[#dddddd] bg-white p-4 shadow-sm">
+            <div key={stat.label} className="dashboard-surface rounded-2xl p-4">
               <p className="text-xs font-medium uppercase tracking-wide text-[#777777]">{stat.label}</p>
               <p className="mt-2 text-2xl font-bold text-[#1f1f1f]">{stat.value}</p>
               <p className="mt-1 text-xs text-[#666666]">{stat.detail}</p>
             </div>
           ))}
           </div>
-          <section className="rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+          <section className="dashboard-surface rounded-2xl p-5">
             <div className="flex items-center gap-2">
               <UserCheck className="h-5 w-5 text-red-700" />
               <h2 className="text-lg font-semibold text-[#1f1f1f]">Verified Talent Pipeline</h2>
@@ -306,7 +306,7 @@ export default function RecruiterDashboard() {
               ))}
             </div>
           </section>
-          <section className="rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+          <section className="dashboard-surface rounded-2xl p-5">
             <h2 className="text-lg font-semibold text-[#1f1f1f]">Candidate Quality Analytics</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <Metric label="Avg research score" value={`${candidateQuality.averageResearchScore}/100`} />
@@ -325,7 +325,7 @@ export default function RecruiterDashboard() {
           {['candidates', 'matching'].includes(activeNavItem) ? (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.85fr)]">
           {activeNavItem === 'candidates' ? (
-          <div id="recruiter-candidates" className="scroll-mt-6 rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+          <div id="recruiter-candidates" className="dashboard-surface scroll-mt-6 rounded-2xl p-5">
             <div className="flex flex-col gap-3 border-b border-[#eeeeee] pb-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-[#1f1f1f]">Candidate Discovery</h2>
@@ -376,7 +376,7 @@ export default function RecruiterDashboard() {
 
           {activeNavItem === 'matching' ? (
           <div id="recruiter-matching" className="scroll-mt-6 space-y-6">
-            <section className="rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+            <section className="dashboard-surface rounded-2xl p-5">
               <div className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-red-700" />
                 <h2 className="text-lg font-semibold text-[#1f1f1f]">AI Candidate Matching</h2>
@@ -451,7 +451,7 @@ export default function RecruiterDashboard() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+            <section className="dashboard-surface rounded-2xl p-5">
               <h2 className="text-lg font-semibold text-[#1f1f1f]">Skill Supply Analytics</h2>
               <div className="mt-4">
                 <BarRows title="Most Common Skills" rows={skillSupply.commonSkills} suffix=" candidates" />
@@ -473,7 +473,7 @@ export default function RecruiterDashboard() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+            <section className="dashboard-surface rounded-2xl p-5">
               <div className="flex items-center gap-2">
                 <Mail className="h-5 w-5 text-red-700" />
                 <h2 className="text-lg font-semibold text-[#1f1f1f]">AI Outreach Assistant</h2>
@@ -516,7 +516,7 @@ export default function RecruiterDashboard() {
           {['portfolio', 'watchlist', 'analytics'].includes(activeNavItem) ? (
           <div className="grid gap-6 lg:grid-cols-3">
           {activeNavItem === 'portfolio' ? (
-          <div id="recruiter-portfolio" className="scroll-mt-6 rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm lg:col-span-2">
+          <div id="recruiter-portfolio" className="dashboard-surface scroll-mt-6 rounded-2xl p-5 lg:col-span-2">
             <h2 className="text-lg font-semibold text-[#1f1f1f]">Verified Research Portfolio Feed</h2>
             <div className="mt-4 space-y-4">
               {portfolioFeed.map((item) => (
@@ -557,7 +557,7 @@ export default function RecruiterDashboard() {
           <div className="space-y-6">
             {activeNavItem === 'watchlist' ? (
             <>
-            <section id="recruiter-watchlist" className="scroll-mt-6 rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+            <section id="recruiter-watchlist" className="dashboard-surface scroll-mt-6 rounded-2xl p-5">
               <h2 className="text-lg font-semibold text-[#1f1f1f]">Watchlist</h2>
               <p className="mt-1 text-sm text-[#666666]">{savedCandidates.length} saved candidates</p>
               <div className="mt-4 space-y-3">
@@ -575,7 +575,7 @@ export default function RecruiterDashboard() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+            <section className="dashboard-surface rounded-2xl p-5">
               <h2 className="text-lg font-semibold text-[#1f1f1f]">Recruiter Funnel</h2>
               <div className="mt-4">
                 <BarRows title="Current Cycle" rows={recruiterFunnel.rows} />
@@ -590,7 +590,7 @@ export default function RecruiterDashboard() {
             ) : null}
 
             {activeNavItem === 'analytics' ? (
-            <section id="recruiter-analytics" className="scroll-mt-6 rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+            <section id="recruiter-analytics" className="dashboard-surface scroll-mt-6 rounded-2xl p-5">
               <div className="flex items-center gap-2">
                 <BarChart3 className="h-5 w-5 text-red-700" />
                 <h2 className="text-lg font-semibold text-[#1f1f1f]">Candidate Analytics</h2>
@@ -680,7 +680,7 @@ function CandidateCard({
   onSave: () => void;
 }) {
   return (
-    <article className="rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+    <article className="dashboard-surface rounded-2xl p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -747,7 +747,7 @@ function CandidateCard({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-[#eeeeee] bg-[#fafafa] p-3">
+    <div className="dashboard-muted-panel rounded-xl p-3">
       <p className="font-semibold text-[#1f1f1f]">{value}</p>
       <p className="text-xs text-[#666666]">{label}</p>
     </div>

@@ -2,7 +2,7 @@
   "users": [
     {
       "id": "u_gnaaamfwm",
-      "email": "jyounb2@andrew.cmu.edu",
+      "email": "jyoungb2@andrew.cmu.edu",
       "name": "c",
       "role": "professor",
       "createdAt": "2026-05-28T07:20:21.114Z"
@@ -492,7 +492,7 @@
       "userId": "u_gnaaamfwm",
       "department": "ddcr32rgd",
       "title": "dsawdce1e",
-      "contactEmail": "jyounb2@andrew.cmu.edu",
+      "contactEmail": "jyoungb2@andrew.cmu.edu",
       "officeHours": "e1"
     },
     {
@@ -1236,15 +1236,19 @@
     {
       "id": "2ef9976d-f431-4364-8476-4e34b03dc853",
       "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
-      "professorName": "Teaching Professor",
+      "professorName": "Professor",
       "professorEmail": "jonathanalexanderyoungblood@gmail.com",
       "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
       "professorDepartment": "Computer Science Department",
       "professorResearchAreas": [
-        "Computer Science"
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
       ],
       "professorResearchInterests": [
-        "[\"[]\"]"
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
       ],
       "category": "Computer Science",
       "researchAreas": [
@@ -1267,6 +1271,736 @@
       "questions": [],
       "quickNoteEnabled": true,
       "createdAt": "2026-06-16T07:40:47.205872+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000001",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Machine Learning",
+      "researchAreas": [
+        "Interpretable ML Healthcare AI"
+      ],
+      "skillsNeeded": [
+        "Python Pytorch Statistics Model Evaluation"
+      ],
+      "title": "Interpretable Machine Learning for Healthcare",
+      "overview": "Develop explanation and calibration workflows for clinical risk models using de-identified health data.",
+      "studentRoleDescription": "Run model audits, write analysis notebooks, and prepare weekly summaries for the research team.",
+      "studentGain": "Experience with responsible AI evaluation, clinical ML workflows, and publication-quality research communication.",
+      "requiredQualifications": "Python, statistics, and machine learning coursework.",
+      "preferredQualifications": "PyTorch, calibration metrics, or healthcare data experience.",
+      "timeCommitmentExpected": "10-12 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "2 semesters",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "stipend",
+      "questions": [
+        {
+          "question": "Describe a model evaluation project you have completed.",
+          "wordLimit": 150
+        },
+        {
+          "question": "How would you explain uncertainty to a clinical stakeholder?",
+          "wordLimit": 150
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000002",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Robotics",
+      "researchAreas": [
+        "Navigation Autonomous Systems"
+      ],
+      "skillsNeeded": [
+        "Python C++ ROS Planning"
+      ],
+      "title": "Robotics Navigation in Dynamic Environments",
+      "overview": "Build navigation policies that remain robust when people and obstacles move unpredictably.",
+      "studentRoleDescription": "Implement simulation scenarios, evaluate planners, and help collect robot telemetry.",
+      "studentGain": "Hands-on robotics research experience with planning, simulation, and safety evaluation.",
+      "requiredQualifications": "Algorithms, Python, and linear algebra.",
+      "preferredQualifications": "ROS, C++, motion planning, or robotics lab experience.",
+      "timeCommitmentExpected": "12-15 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "2 semesters",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "stipend",
+      "questions": [
+        {
+          "question": "What makes navigation difficult in dynamic scenes?",
+          "wordLimit": 140
+        },
+        {
+          "question": "Describe your robotics or simulation experience.",
+          "wordLimit": 140
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000003",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Computer Science",
+      "researchAreas": [
+        "NLP Human-ai Collaboration"
+      ],
+      "skillsNeeded": [
+        "Python Transformers Information Retrieval Evaluation"
+      ],
+      "title": "LLM-Based Literature Review Assistant",
+      "overview": "Prototype and evaluate an LLM assistant that helps researchers find, cluster, and summarize related work.",
+      "studentRoleDescription": "Build retrieval pipelines, evaluate summaries, and design study materials for lab users.",
+      "studentGain": "Applied NLP systems experience and exposure to human-centered AI evaluation.",
+      "requiredQualifications": "Python and data structures.",
+      "preferredQualifications": "NLP coursework, search systems, or LLM evaluation experience.",
+      "timeCommitmentExpected": "8-12 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "1 semester",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "course credit",
+      "questions": [
+        {
+          "question": "How would you evaluate a literature-review assistant?",
+          "wordLimit": 150
+        },
+        {
+          "question": "What risks appear when summarizing papers with LLMs?",
+          "wordLimit": 150
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000004",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Business Analytics",
+      "researchAreas": [],
+      "skillsNeeded": [
+        "SQL Python Statistics Dashboarding"
+      ],
+      "title": "Predictive Analytics for Student Success",
+      "overview": "Create early-warning models and dashboards for student support interventions while auditing fairness.",
+      "studentRoleDescription": "Clean advising datasets, train baselines, and summarize model risks for program leaders.",
+      "studentGain": "Portfolio-ready analytics experience with ethical data-use framing.",
+      "requiredQualifications": "Statistics and SQL fundamentals.",
+      "preferredQualifications": "Fairness metrics, Tableau, or education analytics experience.",
+      "timeCommitmentExpected": "8-10 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "1 semester",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "course credit",
+      "questions": [
+        {
+          "question": "What features might predict student success without becoming unfair?",
+          "wordLimit": 150
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000005",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Economics",
+      "researchAreas": [
+        "Financial Markets Risk Modeling"
+      ],
+      "skillsNeeded": [
+        "Python R Time Series Econometrics"
+      ],
+      "title": "Financial Market Risk Modeling",
+      "overview": "Stress-test portfolio risk models across volatility regimes using market and macroeconomic data.",
+      "studentRoleDescription": "Build reproducible notebooks, compare VaR variants, and document assumptions.",
+      "studentGain": "Experience connecting economics, statistical modeling, and decision-ready visualizations.",
+      "requiredQualifications": "Probability, regression, and coding basics.",
+      "preferredQualifications": "Time-series modeling, finance coursework, or risk dashboards.",
+      "timeCommitmentExpected": "10-12 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "1 semester",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "stipend",
+      "questions": [
+        {
+          "question": "Describe a financial or time-series analysis you have done.",
+          "wordLimit": 140
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000006",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Biomedical Engineering",
+      "researchAreas": [
+        "Computer Vision Medical Imaging"
+      ],
+      "skillsNeeded": [
+        "Python Pytorch Opencv Image Analysis"
+      ],
+      "title": "Computer Vision for Medical Imaging",
+      "overview": "Train and evaluate image models for segmentation and quality control in clinical imaging workflows.",
+      "studentRoleDescription": "Prepare datasets, run baseline experiments, and create error-analysis reports.",
+      "studentGain": "Medical imaging research experience with model training and translational constraints.",
+      "requiredQualifications": "Python and linear algebra.",
+      "preferredQualifications": "Computer vision, PyTorch, or biomedical domain experience.",
+      "timeCommitmentExpected": "10-14 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "2 semesters",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "stipend",
+      "questions": [
+        {
+          "question": "What failure modes matter in medical imaging models?",
+          "wordLimit": 150
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000007",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Psychology",
+      "researchAreas": [],
+      "skillsNeeded": [
+        "User Research Python Statistics Study Design"
+      ],
+      "title": "Human-AI Collaboration in Education",
+      "overview": "Study when AI-generated hints improve learning and when they create overreliance.",
+      "studentRoleDescription": "Instrument prototypes, analyze interaction logs, and help run user studies.",
+      "studentGain": "End-to-end human-centered AI research practice.",
+      "requiredQualifications": "Research methods and comfort with data analysis.",
+      "preferredQualifications": "HCI, psychology, or education technology research experience.",
+      "timeCommitmentExpected": "8-10 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "1 semester",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "course credit",
+      "questions": [
+        {
+          "question": "How would you identify overreliance on AI hints?",
+          "wordLimit": 150
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000008",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Public Policy",
+      "researchAreas": [
+        "Climate Policy Causal Inference"
+      ],
+      "skillsNeeded": [
+        "R Python GIS Policy Writing"
+      ],
+      "title": "Climate Policy Data Analysis",
+      "overview": "Analyze whether municipal climate programs reduce energy burden across neighborhoods.",
+      "studentRoleDescription": "Clean public datasets, estimate policy effects, and draft policy-facing visuals.",
+      "studentGain": "Policy analytics portfolio evidence and applied causal inference experience.",
+      "requiredQualifications": "Data cleaning and policy writing.",
+      "preferredQualifications": "GIS, causal inference, or climate policy background.",
+      "timeCommitmentExpected": "8-12 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "1 semester",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "stipend",
+      "questions": [
+        {
+          "question": "How would you communicate uncertainty in a policy memo?",
+          "wordLimit": 140
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000009",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Economics",
+      "researchAreas": [
+        "Behavioral Economics Decision Making"
+      ],
+      "skillsNeeded": [
+        "R Survey Design Statistics Research Writing"
+      ],
+      "title": "Behavioral Economics and Decision Making",
+      "overview": "Run survey and lab studies on how people make decisions under uncertainty and time pressure.",
+      "studentRoleDescription": "Code survey responses, run statistical models, and produce study documentation.",
+      "studentGain": "Behavioral research methods, data analysis, and faculty-reviewed contribution evidence.",
+      "requiredQualifications": "Statistics and careful written communication.",
+      "preferredQualifications": "Qualtrics, R, or behavioral economics coursework.",
+      "timeCommitmentExpected": "6-9 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "1 semester",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "volunteer",
+      "questions": [
+        {
+          "question": "Describe a behavioral study design you find convincing.",
+          "wordLimit": 140
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000010",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Electrical & Computer Engineering",
+      "researchAreas": [
+        "Brain-computer Interfaces Signal Processing"
+      ],
+      "skillsNeeded": [
+        "MATLAB Python Signal Processing EEG"
+      ],
+      "title": "Brain-Computer Interface Signal Processing",
+      "overview": "Improve EEG feature extraction and classification pipelines for motor-imagery BCI experiments.",
+      "studentRoleDescription": "Implement filters, compare classifiers, and package reproducible reports.",
+      "studentGain": "Signal processing and biomedical device research experience.",
+      "requiredQualifications": "Signals and systems plus Python or MATLAB.",
+      "preferredQualifications": "EEG, wearable sensing, or ML classification experience.",
+      "timeCommitmentExpected": "10-12 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "2 semesters",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "stipend",
+      "questions": [
+        {
+          "question": "What signal-processing steps would you use before classification?",
+          "wordLimit": 150
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000011",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Electrical & Computer Engineering",
+      "researchAreas": [
+        "Smart Grids Optimization"
+      ],
+      "skillsNeeded": [
+        "Python Convex Optimization Power Systems Simulation"
+      ],
+      "title": "Optimization Methods for Smart Grids",
+      "overview": "Model demand-response strategies and optimize energy dispatch for campus-scale smart-grid scenarios.",
+      "studentRoleDescription": "Implement optimization baselines, run simulations, and summarize tradeoffs for grid operators.",
+      "studentGain": "Experience with optimization, energy systems, and reproducible simulation workflows.",
+      "requiredQualifications": "Python and linear algebra.",
+      "preferredQualifications": "Convex optimization, power systems, or simulation experience.",
+      "timeCommitmentExpected": "9-12 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "1 semester",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "tbd",
+      "questions": [
+        {
+          "question": "What tradeoffs matter in grid optimization?",
+          "wordLimit": 140
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000012",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Statistics & Data Science",
+      "researchAreas": [
+        "Public Health Data Visualization"
+      ],
+      "skillsNeeded": [
+        "R D3 Statistics Data Storytelling"
+      ],
+      "title": "Data Visualization for Public Health",
+      "overview": "Create visual analytics for regional public-health indicators and uncertainty-aware communication.",
+      "studentRoleDescription": "Prepare datasets, build dashboard prototypes, and evaluate interpretability with stakeholders.",
+      "studentGain": "Applied data-visualization experience with public-health impact.",
+      "requiredQualifications": "Statistics and data cleaning.",
+      "preferredQualifications": "D3, R Shiny, public-health data, or visual design.",
+      "timeCommitmentExpected": "8-10 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "1 semester",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "course credit",
+      "questions": [
+        {
+          "question": "How would you visualize uncertainty for nontechnical audiences?",
+          "wordLimit": 140
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000013",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Computer Science",
+      "researchAreas": [
+        "AI Safety Evaluation"
+      ],
+      "skillsNeeded": [
+        "Python LLM Evaluation Benchmarking Statistics"
+      ],
+      "title": "AI Safety Evaluation Benchmarks",
+      "overview": "Design benchmark tasks for measuring reliability, refusal behavior, and robustness in AI assistants.",
+      "studentRoleDescription": "Write benchmark prompts, analyze model outputs, and document evaluation limitations.",
+      "studentGain": "Practical AI safety evaluation and research-methods experience.",
+      "requiredQualifications": "Python and careful experimental design.",
+      "preferredQualifications": "LLM evaluation, statistics, or responsible AI coursework.",
+      "timeCommitmentExpected": "8-12 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "1 semester",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "stipend",
+      "questions": [
+        {
+          "question": "What makes an AI safety benchmark trustworthy?",
+          "wordLimit": 150
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000014",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Biomedical Engineering",
+      "researchAreas": [
+        "Biomedical Signals Wearable Sensing"
+      ],
+      "skillsNeeded": [
+        "Python MATLAB Signal Processing Pandas"
+      ],
+      "title": "Biomedical Signal Processing",
+      "overview": "Process noisy wearable-sensor data to identify clinically meaningful movement and physiology features.",
+      "studentRoleDescription": "Build preprocessing notebooks, compare feature pipelines, and validate data-quality flags.",
+      "studentGain": "Biomedical analytics experience with signal processing and reproducible reporting.",
+      "requiredQualifications": "Signals, Python, and data analysis.",
+      "preferredQualifications": "Wearable sensing, MATLAB, or biomedical datasets.",
+      "timeCommitmentExpected": "10-12 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "2 semesters",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "stipend",
+      "questions": [
+        {
+          "question": "How would you handle noisy wearable-sensor data?",
+          "wordLimit": 140
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000015",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Statistics & Data Science",
+      "researchAreas": [],
+      "skillsNeeded": [
+        "SQL Python R Fairness Metrics"
+      ],
+      "title": "Undergraduate Research Participation Analytics",
+      "overview": "Analyze participation trends, barriers, and outcomes in undergraduate research access across departments.",
+      "studentRoleDescription": "Clean participation datasets, estimate access gaps, and prepare faculty-facing analytics briefs.",
+      "studentGain": "Institutional analytics experience with equity, outcomes, and research-program strategy.",
+      "requiredQualifications": "SQL, statistics, and communication skills.",
+      "preferredQualifications": "Causal inference, dashboarding, or higher-education data experience.",
+      "timeCommitmentExpected": "8-10 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "1 semester",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "course credit",
+      "questions": [
+        {
+          "question": "What signals would you use to measure equitable research access?",
+          "wordLimit": 150
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:17:07.297638+00:00",
+      "status": "published"
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000001",
+      "professorId": "0d3faeef-6723-4937-86c2-ea378e6d694a",
+      "professorName": "Professor",
+      "professorEmail": "jonathanalexanderyoungblood@gmail.com",
+      "professorBioUrl": "https://www.csd.cs.cmu.edu/people/faculty/iliano-cervesato",
+      "professorDepartment": "Computer Science Department",
+      "professorResearchAreas": [
+        "Computer Science",
+        "Machine Learning",
+        "AI Systems"
+      ],
+      "professorResearchInterests": [
+        "LLM fine-tuning",
+        "scientific text mining",
+        "research assistant systems"
+      ],
+      "category": "Computer Science",
+      "researchAreas": [
+        "Machine Learning Scientific Text Mining"
+      ],
+      "skillsNeeded": [
+        "Python Llms Research Writing Evaluation"
+      ],
+      "title": "Efficient LLM Fine-Tuning for Scientific Text",
+      "overview": "Develop and evaluate efficient fine-tuning workflows for scientific text analysis, literature triage, and research assistant prototypes.",
+      "studentRoleDescription": "Build evaluation notebooks, prepare dataset summaries, and compare lightweight fine-tuning strategies for scientific corpora.",
+      "studentGain": "Hands-on experience with LLM evaluation, applied ML experimentation, and research communication.",
+      "requiredQualifications": "Python experience and interest in applied machine learning.",
+      "preferredQualifications": "Experience with PyTorch, transformers, data analysis, or research writing.",
+      "timeCommitmentExpected": "8-10 hours per week",
+      "startDate": "2026-09-01",
+      "duration": "1 semester",
+      "applicationDeadline": "2026-09-15",
+      "compensation": "course credit",
+      "questions": [
+        {
+          "question": "Describe your experience with Python or ML experiments.",
+          "wordLimit": 150
+        },
+        {
+          "question": "Why are you interested in scientific text analysis?",
+          "wordLimit": 150
+        }
+      ],
+      "quickNoteEnabled": true,
+      "createdAt": "2026-06-17T02:34:48.849761+00:00",
       "status": "published"
     }
   ]

@@ -20,6 +20,7 @@ import {
 } from './ollama.js';
 import { fetchGitHubData } from './utils/fetchGitHubData.js';
 import { fetchLinkedInData } from './utils/fetchLinkedInData.js';
+import { sendEmail } from './email.js';
 import { profileRouter } from './profile.js';
 import { validateCmuEmail } from './sso.js';
 import { deleteSession, getSessionUserId, pruneExpiredSessions, refreshSession, setSession } from './sessionStore.js';
@@ -39,6 +40,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'qwen2.5:7b';
 const PROFESSOR_IMPORT_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 app.use(
   cors({
@@ -332,6 +334,155 @@ function deanRequired(req, res, next) {
   return next();
 }
 
+function professorRequired(req, res, next) {
+  if (!req.user || req.user.role !== 'professor') {
+    return res.status(403).json({ error: 'Professor role required.' });
+  }
+  return next();
+}
+
+function httpError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function requiredText(value, field, maxLength) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw httpError(400, `${field} is required.`);
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length > maxLength) {
+    throw httpError(400, `${field} is too long.`);
+  }
+  return trimmed;
+}
+
+function cleanEmailSubject(value) {
+  return requiredText(value, 'subject', 200).replace(/[\r\n]+/g, ' ');
+}
+
+function isValidEmailAddress(value) {
+  return typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function isUuid(value) {
+  return typeof value === 'string' && UUID_PATTERN.test(value);
+}
+
+async function resolveSupabaseMessageTarget({ accessToken, professorId, studentId, applicationId, projectId }) {
+  if (!isUuid(studentId) || (applicationId && !isUuid(applicationId)) || (projectId && !isUuid(projectId))) {
+    throw httpError(400, 'Real email sending requires a Supabase application record.');
+  }
+
+  const supabase = createSupabaseUserClient(accessToken);
+  if (!applicationId && !projectId) {
+    throw httpError(400, 'applicationId or projectId is required.');
+  }
+
+  const { data, error } = await supabase
+    .rpc('resolve_professor_message_recipient', {
+      p_student_id: studentId,
+      p_application_id: applicationId,
+      p_project_id: projectId,
+    })
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+  if (!data) {
+    throw httpError(404, 'Application relationship not found.');
+  }
+
+  const email = typeof data.student_email === 'string' ? data.student_email.trim() : '';
+  if (!isValidEmailAddress(email)) {
+    throw httpError(422, 'Student profile email is missing or invalid.');
+  }
+
+  return {
+    supabase,
+    applicationId: data.application_id,
+    projectId: data.project_id,
+    projectTitle: typeof data.project_title === 'string' ? data.project_title : '',
+    recipient: {
+      studentId: data.student_id,
+      name: typeof data.student_name === 'string' && data.student_name.trim() ? data.student_name.trim() : 'Student Applicant',
+      email,
+    },
+  };
+}
+
+function resolveLocalMessageTarget({ store, professorId, studentId, projectId }) {
+  const posting = getPostingById(store, projectId);
+  if (!posting) {
+    throw httpError(404, 'Project not found.');
+  }
+  if (String(posting.professorId) !== String(professorId)) {
+    throw httpError(403, 'You can only email students for your own projects.');
+  }
+
+  const student = store.users.find((entry) => String(entry.id) === String(studentId) && entry.role === 'student');
+  if (!student || !isValidEmailAddress(student.email)) {
+    throw httpError(422, 'Student email is missing or invalid.');
+  }
+
+  return {
+    supabase: null,
+    applicationId: null,
+    projectId: posting.id,
+    projectTitle: posting.title ?? '',
+    recipient: {
+      studentId: student.id,
+      name: student.name ?? 'Student Applicant',
+      email: student.email,
+    },
+  };
+}
+
+async function createPendingMessage({ target, professorId, subject, body }) {
+  if (!target.supabase) {
+    return null;
+  }
+
+  const { data, error } = await target.supabase.from('messages').insert({
+    sender_id: professorId,
+    recipient_id: target.recipient.studentId,
+    recipient_email: target.recipient.email,
+    project_id: target.projectId,
+    application_id: target.applicationId,
+    subject,
+    body,
+    delivery_status: 'pending',
+  }).select('id').single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data?.id ?? null;
+}
+
+async function updateMessageDelivery({ supabase, messageId, status, providerMessageId = null, errorMessage = null }) {
+  if (!supabase || !messageId) {
+    return;
+  }
+
+  const { error } = await supabase
+    .from('messages')
+    .update({
+      delivery_status: status,
+      provider_message_id: providerMessageId,
+      error_message: errorMessage,
+    })
+    .eq('id', messageId);
+
+  if (error) {
+    console.warn('[messages/send-email] message delivery update failed:', error.message);
+  }
+}
+
 function getRecommendationPostingFingerprint(posting) {
   return JSON.stringify({
     id: posting?.id ?? '',
@@ -430,6 +581,138 @@ function buildStudentScoringSignal(profile) {
   }
 
   return parts.join('\n');
+}
+
+function getSafeStudentProfile(student, profile) {
+  return {
+    ...(profile && typeof profile === 'object' ? profile : {}),
+    userId: profile?.userId ?? student?.id ?? '',
+    id: profile?.id ?? student?.id ?? '',
+    name: profile?.name ?? student?.name ?? '',
+    email: profile?.email ?? student?.email ?? '',
+    skills: Array.isArray(profile?.skills) ? profile.skills : [],
+    interests: Array.isArray(profile?.interests) ? profile.interests : [],
+    coursework: Array.isArray(profile?.coursework) ? profile.coursework : [],
+  };
+}
+
+function getProfileStrength(profile) {
+  const githubUrl = String(profile?.github ?? profile?.githubUrl ?? profile?.github_url ?? '').trim();
+  const linkedinUrl = String(profile?.linkedin ?? profile?.linkedInUrl ?? profile?.linkedinUrl ?? profile?.linkedInURL ?? profile?.linkedin_url ?? '').trim();
+  const hasResume = Boolean(profile?.resume?.name || (typeof profile?.resumeText === 'string' && profile.resumeText.trim()));
+  const hasTranscript = Boolean(profile?.transcript?.name || (typeof profile?.transcriptText === 'string' && profile.transcriptText.trim()) || (Array.isArray(profile?.coursework) && profile.coursework.length > 0));
+  const hasInterests = Array.isArray(profile?.interests) && profile.interests.length > 0;
+  const hasSkills = Array.isArray(profile?.skills) && profile.skills.length > 0;
+
+  return {
+    resume: hasResume ? 'Connected' : 'Missing',
+    github: githubUrl ? 'Connected' : 'Missing',
+    linkedin: linkedinUrl ? 'Connected' : 'Missing',
+    transcript: hasTranscript ? 'Connected' : 'Missing',
+    researchInterests: hasInterests ? 'Connected' : 'Missing',
+    skills: hasSkills ? 'Connected' : 'Incomplete',
+    progressReports: 'Missing',
+    facultyVerification: 'Missing',
+  };
+}
+
+function getMissingRecommendationSignals(profile) {
+  const strength = getProfileStrength(profile);
+  const labels = {
+    resume: 'Resume not uploaded',
+    github: 'GitHub not connected',
+    linkedin: 'LinkedIn not connected',
+    transcript: 'Transcript or coursework not added',
+    researchInterests: 'Research interests incomplete',
+    skills: 'Skills list incomplete',
+    progressReports: 'No progress reports available',
+    facultyVerification: 'No faculty verification available',
+  };
+
+  return Object.entries(strength)
+    .filter(([, status]) => status !== 'Connected')
+    .map(([key, status]) => ({
+      key,
+      status,
+      message: labels[key] ?? 'Profile signal incomplete',
+    }));
+}
+
+function tokenizeRecommendationText(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9+#]+/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word.length >= 3);
+}
+
+function scoreFallbackPosting(profile, posting, index) {
+  const profileTerms = new Set(tokenizeRecommendationText([
+    profile?.major,
+    profile?.degree,
+    ...(Array.isArray(profile?.skills) ? profile.skills : []),
+    ...(Array.isArray(profile?.interests) ? profile.interests : []),
+    ...(Array.isArray(profile?.coursework) ? profile.coursework.map(formatCourseworkEntry) : []),
+  ].filter(Boolean).join(' ')));
+  const postingTerms = tokenizeRecommendationText([
+    posting?.title,
+    posting?.category,
+    posting?.professorDepartment,
+    posting?.overview,
+    posting?.studentRoleDescription,
+    posting?.requiredQualifications,
+    posting?.preferredQualifications,
+    ...(Array.isArray(posting?.researchAreas) ? posting.researchAreas : []),
+    ...(Array.isArray(posting?.skillsNeeded) ? posting.skillsNeeded : []),
+  ].filter(Boolean).join(' '));
+  const overlap = postingTerms.reduce((count, term) => count + (profileTerms.has(term) ? 1 : 0), 0);
+  const basis = overlap > 0
+    ? 'Recommended from your major, interests, and saved profile'
+    : index < 3
+      ? 'Recently posted opportunity'
+      : 'Available research opportunity';
+  const confidence = clampScore(Math.min(84, 58 + overlap * 6 - index * 2));
+
+  return {
+    postingId: String(posting.id),
+    confidence,
+    reason: basis,
+    score_breakdown: {
+      base_score: confidence,
+      github_bonus: 0,
+      github_available: false,
+      github_sparse: false,
+      linkedin_bonus: 0,
+      linkedin_available: false,
+      linkedin_sparse: false,
+    },
+    qualifications: overlap > 0 ? ['Saved profile terms overlap with this project.'] : ['This published project is available for student applications.'],
+    fit_reasoning: [basis],
+    gaps: ['Add more profile evidence to improve recommendation quality.'],
+    recommendation: confidence >= 70 ? 'Good Fit' : confidence >= 55 ? 'Possible Fit' : 'Weak Fit',
+    fallback: true,
+    fallback_reason: basis,
+  };
+}
+
+function buildFallbackRecommendations({ profile, postings }) {
+  return (Array.isArray(postings) ? postings : [])
+    .map(normalizePostingPayload)
+    .filter(Boolean)
+    .filter((posting) => posting.status === 'published' || !posting.status)
+    .map((posting, index) => scoreFallbackPosting(profile, posting, index))
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, 12);
+}
+
+function buildRecommendationResponse({ recommendations = [], profile, warnings = [] }) {
+  return {
+    recommendations: Array.isArray(recommendations) ? recommendations : [],
+    profileStrength: getProfileStrength(profile),
+    missingSignals: getMissingRecommendationSignals(profile),
+    warnings: warnings.filter(Boolean).map((warning) => String(warning)),
+    generatedAt: new Date().toISOString(),
+  };
 }
 
 function normalizePostingPayload(posting) {
@@ -1467,14 +1750,11 @@ app.get('/api/ai/recommendations/score-one', authRequired, async (req, res) => {
   }
 
   const store = readStore();
-  const profile = req.studentProfile ?? getStudentProfile(store, studentId);
-  if (!profile) {
-    return res.status(404).json({ error: 'Student profile not found.' });
-  }
+  const profile = getSafeStudentProfile(student, req.studentProfile ?? getStudentProfile(store, studentId));
 
   const posting = getPostingById(store, postingId);
   if (!posting) {
-    return res.status(404).json({ error: 'Posting not found.' });
+    return res.status(404).json({ error: 'Recommendation is not available for this opportunity.' });
   }
 
   const cacheKey = getCacheKey(studentId, posting, profile);
@@ -1502,14 +1782,11 @@ app.get('/api/ai/recommendations/get-score', authRequired, (req, res) => {
   }
 
   const store = readStore();
-  const profile = req.studentProfile ?? getStudentProfile(store, studentId);
-  if (!profile) {
-    return res.status(404).json({ error: 'Student profile not found.' });
-  }
+  const profile = getSafeStudentProfile(student, req.studentProfile ?? getStudentProfile(store, studentId));
 
   const posting = getPostingById(store, postingId);
   if (!posting) {
-    return res.status(404).json({ error: 'Posting not found.' });
+    return res.status(404).json({ error: 'Recommendation is not available for this opportunity.' });
   }
 
   const cacheKey = getCacheKey(studentId, posting, profile);
@@ -1536,7 +1813,7 @@ app.post('/api/ai/recommendations', authRequired, async (req, res) => {
 
     if (!profile || !Array.isArray(postings)) {
       return res.status(400).json({
-        error: 'profile and postings are required',
+        error: 'Recommendation inputs are incomplete.',
         requestId,
       });
     }
@@ -1546,12 +1823,13 @@ app.post('/api/ai/recommendations', authRequired, async (req, res) => {
       `[ai/recommendations:${requestId}] postings=${postings.length} skills=${Array.isArray(profile?.skills) ? profile.skills.length : 0} interests=${Array.isArray(profile?.interests) ? profile.interests.length : 0}`
     );
 
-    const githubUrl = (profile?.github || profile?.githubUrl || profile?.github_url || '').toString().trim() || null;
-    const linkedinUrl = (profile?.linkedin || profile?.linkedInUrl || profile?.linkedinUrl || profile?.linkedInURL || profile?.linkedin_url || '').toString().trim() || null;
-    const resumeText = buildStudentScoringSignal(profile);
+    const safeProfile = getSafeStudentProfile(req.user, profile);
+    const githubUrl = (safeProfile?.github || safeProfile?.githubUrl || safeProfile?.github_url || '').toString().trim() || null;
+    const linkedinUrl = (safeProfile?.linkedin || safeProfile?.linkedInUrl || safeProfile?.linkedinUrl || safeProfile?.linkedInURL || safeProfile?.linkedin_url || '').toString().trim() || null;
+    const resumeText = buildStudentScoringSignal(safeProfile);
 
     const student = {
-      ...profile,
+      ...safeProfile,
       github: githubUrl,
       githubUrl: githubUrl,
       linkedin: linkedinUrl,
@@ -1560,18 +1838,29 @@ app.post('/api/ai/recommendations', authRequired, async (req, res) => {
       resumeText,
     };
 
+    const warnings = [];
+    const safePostings = postings.map(normalizePostingPayload).filter(Boolean);
     const recommendations = await getOllamaRecommendations({
       student,
-      postings,
+      postings: safePostings,
       resumeText,
     });
-    return res.json({ recommendations, requestId });
+    if (recommendations.some((item) => item?.fallback)) {
+      warnings.push('Personalized scoring is refreshing, so some recommendations use backup matching.');
+    }
+    return res.json({ ...buildRecommendationResponse({ recommendations, profile: safeProfile, warnings }), requestId });
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error(`[ai/recommendations:${requestId}] error:`, error);
-    const message = error instanceof Error ? error.message : 'Recommendation request failed.';
-    return res.status(500).json({
-      error: message,
+    const { profile, postings } = req.body ?? {};
+    const safeProfile = getSafeStudentProfile(req.user, profile);
+    const fallbackRecommendations = buildFallbackRecommendations({ profile: safeProfile, postings });
+    return res.json({
+      ...buildRecommendationResponse({
+        recommendations: fallbackRecommendations,
+        profile: safeProfile,
+        warnings: ['Personalized recommendations are refreshing. Showing backup matches for now.'],
+      }),
       requestId,
     });
   }
@@ -1712,6 +2001,83 @@ app.post('/api/dean/ai/insights', authRequired, deanRequired, async (req, res) =
       source: 'fallback',
       warning,
     });
+  }
+});
+
+app.post('/api/messages/send-email', authRequired, professorRequired, async (req, res, next) => {
+  try {
+    const studentId = requiredText(req.body?.studentId, 'studentId', 120);
+    const applicationId =
+      typeof req.body?.applicationId === 'string' && req.body.applicationId.trim()
+        ? req.body.applicationId.trim()
+        : null;
+    const projectId =
+      typeof req.body?.projectId === 'string' && req.body.projectId.trim()
+        ? req.body.projectId.trim()
+        : null;
+    const subject = cleanEmailSubject(req.body?.subject);
+    const body = requiredText(req.body?.body, 'body', 10000);
+    const accessToken = getBearerToken(req);
+
+    // TODO: add per-professor and per-recipient rate limiting before production launch.
+    const target = accessToken
+      ? await resolveSupabaseMessageTarget({
+          accessToken,
+          professorId: req.user.id,
+          studentId,
+          applicationId,
+          projectId,
+        })
+      : resolveLocalMessageTarget({
+          store: readStore(),
+          professorId: req.user.id,
+          studentId,
+          projectId,
+        });
+
+    const messageId = await createPendingMessage({
+      target,
+      professorId: req.user.id,
+      subject,
+      body,
+    });
+
+    const delivery = await sendEmail({
+      recipientEmail: target.recipient.email,
+      replyTo: req.user.email,
+      subject,
+      text: body,
+    });
+
+    if (!delivery.success) {
+      await updateMessageDelivery({
+        supabase: target.supabase,
+        messageId,
+        status: 'failed',
+        errorMessage: delivery.error,
+      });
+      const status = delivery.error === 'Email provider is not configured' ? 503 : 502;
+      throw httpError(status, delivery.error || 'Resend email delivery failed.');
+    }
+
+    await updateMessageDelivery({
+      supabase: target.supabase,
+      messageId,
+      status: 'sent',
+      providerMessageId: delivery.providerMessageId,
+    });
+
+    return res.json({
+      ok: true,
+      recipient: target.recipient,
+      projectId: target.projectId,
+      applicationId: target.applicationId,
+      messageId,
+      provider: 'resend',
+      providerMessageId: delivery.providerMessageId,
+    });
+  } catch (error) {
+    return next(error);
   }
 });
 

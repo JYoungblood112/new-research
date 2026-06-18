@@ -3,40 +3,41 @@ import { useData } from '../../contexts/DataContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { BookOpen, Calendar, CheckCircle, Clock, XCircle, FileText } from 'lucide-react';
+import { BookOpen, Calendar, CheckCircle, Clock, FileText, Inbox, XCircle } from 'lucide-react';
+import { EmptyState, ErrorState, LoadingState, PageHeader, SkillChip, StatusBadge } from '../ui/dashboard';
 
 const STATUS_CONFIG = {
   Pending: {
     label: 'Pending',
-    color: 'bg-yellow-100 text-yellow-800',
+    status: 'pending',
     icon: Clock,
     description: 'Your application is waiting to be reviewed',
   },
   Shortlisted: {
     label: 'Shortlisted',
-    color: 'bg-blue-100 text-blue-800',
+    status: 'info',
     icon: FileText,
     description: 'You have been shortlisted by the professor',
   },
   Interview: {
     label: 'Interview',
-    color: 'bg-indigo-100 text-indigo-800',
+    status: 'info',
     icon: Calendar,
     description: 'Interview stage in progress',
   },
   Accepted: {
     label: 'Accepted',
-    color: 'bg-green-100 text-green-800',
+    status: 'approved',
     icon: CheckCircle,
     description: 'Congratulations! Your application was accepted',
   },
   Rejected: {
     label: 'Rejected',
-    color: 'bg-red-100 text-red-800',
+    status: 'rejected',
     icon: XCircle,
     description: 'Your application was not selected for this position',
   },
-};
+} as const;
 
 function formatCourseworkEntry(course: string | { courseNumber?: string; courseName?: string; semester?: string }) {
   if (typeof course === 'string') {
@@ -54,53 +55,40 @@ export default function MyApplications() {
   const applications = getApplicationsByStudent(user?.id ?? '');
 
   if (applicationsLoading) {
-    return (
-      <Card>
-        <CardContent className="space-y-3 py-12">
-          <div className="mx-auto h-4 w-44 animate-pulse rounded bg-[#efefef]" />
-          <div className="mx-auto h-4 w-72 max-w-full animate-pulse rounded bg-[#f4f4f4]" />
-        </CardContent>
-      </Card>
-    );
+    return <LoadingState label="Loading your applications..." />;
   }
 
   if (applicationsError) {
     return (
-      <Card>
-        <CardContent className="space-y-4 py-12 text-center">
-          <div>
-            <p className="font-medium text-[#111111]">Unable to load applications</p>
-            <p className="mt-1 text-sm text-gray-500">{applicationsError}</p>
-          </div>
+      <ErrorState
+        title="Unable to load applications"
+        description={applicationsError}
+        action={
           <Button variant="outline" onClick={() => void refreshApplications()}>
             Try again
           </Button>
-        </CardContent>
-      </Card>
+        }
+      />
     );
   }
 
   if (applications.length === 0) {
     return (
-      <Card>
-        <CardContent className="py-12 text-center">
-          <p className="text-gray-500">You haven't applied to any research opportunities yet.</p>
-          <p className="text-sm text-gray-400 mt-2">
-            Browse the research tab to find opportunities!
-          </p>
-        </CardContent>
-      </Card>
+      <EmptyState
+        icon={Inbox}
+        title="No applications yet"
+        description="Browse the research tab to find opportunities and track each submission here after you apply."
+      />
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-xl">My Applications</h2>
-          <p className="text-sm text-gray-500">{applications.length} total applications</p>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Application Tracker"
+        title="My Applications"
+        description={`${applications.length} total application${applications.length === 1 ? '' : 's'} across your research search.`}
+      />
 
       <div className="space-y-4">
         {applications.map((application) => {
@@ -111,25 +99,22 @@ export default function MyApplications() {
           const StatusIcon = statusConfig.icon;
 
           return (
-            <Card key={application.id}>
+            <Card key={application.id} className="dashboard-surface rounded-2xl">
               <CardHeader>
-                <div className="flex justify-between items-start">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="space-y-1">
                     <CardTitle>{posting.title}</CardTitle>
                     <CardDescription>
                       {posting.professorName} • {posting.professorDepartment}
                     </CardDescription>
                   </div>
-                  <Badge className={statusConfig.color}>
-                    <StatusIcon className="w-3 h-3 mr-1" />
-                    {statusConfig.label}
-                  </Badge>
+                  <StatusBadge status={statusConfig.status} label={statusConfig.label} icon={StatusIcon} />
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <p className="text-sm text-gray-600">{statusConfig.description}</p>
+                <p className="text-sm leading-6 text-[#555555]">{statusConfig.description}</p>
 
-                <div className="flex gap-4 text-sm text-gray-500">
+                <div className="grid gap-2 rounded-xl border border-[#ececec] bg-[#fafafa] p-3 text-sm text-[#666666] md:grid-cols-3">
                   <div className="flex items-center gap-2">
                     <Calendar className="w-4 h-4" />
                     Applied: {new Date(application.submittedAt).toLocaleDateString()}
@@ -144,9 +129,9 @@ export default function MyApplications() {
                 </div>
 
                 {application.quickNote && (
-                  <div className="bg-gray-50 p-3 rounded">
-                    <p className="text-xs text-gray-500 mb-1">Quick note:</p>
-                    <p className="text-sm">{application.quickNote}</p>
+                  <div className="rounded-xl border border-[#ececec] bg-white p-3">
+                    <p className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-[#777777]">Quick note</p>
+                    <p className="text-sm leading-6 text-[#333333]">{application.quickNote}</p>
                   </div>
                 )}
 
@@ -160,9 +145,7 @@ export default function MyApplications() {
                       {application.coursework.slice(0, 10).map((course, index) => {
                         const label = formatCourseworkEntry(course);
                         return label ? (
-                          <Badge key={`${label}-${index}`} variant="secondary" className="rounded-full bg-gray-50 text-gray-700">
-                            {label}
-                          </Badge>
+                          <SkillChip key={`${label}-${index}`}>{label}</SkillChip>
                         ) : null;
                       })}
                       {application.coursework.length > 10 ? (
@@ -178,9 +161,9 @@ export default function MyApplications() {
                   <div className="space-y-2">
                     <p className="text-xs text-gray-500">Your responses:</p>
                     {Object.entries(application.answers).map(([question, answer]) => (
-                      <div key={question} className="bg-gray-50 p-3 rounded space-y-1">
-                        <p className="text-xs text-gray-500">{question}</p>
-                        <p className="text-sm">{answer as string}</p>
+                      <div key={question} className="space-y-1 rounded-xl border border-[#ececec] bg-[#fafafa] p-3">
+                        <p className="text-xs font-medium text-[#666666]">{question}</p>
+                        <p className="text-sm leading-6 text-[#333333]">{answer as string}</p>
                       </div>
                     ))}
                   </div>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import {
   AlertCircle,
+  Award,
   BarChart3,
   Bell,
   Briefcase,
@@ -11,10 +12,16 @@ import {
   ChevronLeft,
   ChevronRight,
   Command,
+  Download,
   Eye,
   ExternalLink,
+  FileCheck2,
+  FileText,
+  GraduationCap,
   Inbox,
   LayoutDashboard,
+  LineChart,
+  LoaderCircle,
   LogOut,
   Mail,
   MessageSquare,
@@ -24,6 +31,8 @@ import {
   Settings,
   SlidersHorizontal,
   Sparkles,
+  TrendingUp,
+  Trophy,
   UserCircle,
   Users,
   XCircle,
@@ -32,7 +41,7 @@ import { toast } from 'sonner';
 
 import { useAuth } from '../../contexts/AuthContext';
 import { useData, type Application } from '../../contexts/DataContext';
-import { getStudentInterestCounts } from '../../lib/api';
+import { getStudentInterestCounts, sendProfessorMessageEmail } from '../../lib/api';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
@@ -48,7 +57,7 @@ import { Switch } from '../../components/ui/switch';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../components/ui/dropdown-menu';
 
 import PostResearchDialog from '../../components/professor/PostResearchDialog';
-import ResearchImpactPipeline from '../../components/professor/ResearchImpactPipeline';
+import ProgressReportsReview from '../../components/professor/ProgressReportsReview';
 import ViewApplicationsDialog from '../../components/professor/ViewApplicationsDialog';
 import ResearchMetadataPicker, {
   normalizeResearchAreas,
@@ -59,6 +68,7 @@ type SectionKey =
   | 'dashboard'
   | 'opportunities'
   | 'applicants'
+  | 'progress-reports'
   | 'messages'
   | 'lab-profile'
   | 'impact'
@@ -71,6 +81,15 @@ type MessageTemplateContent = {
   title: string;
   subject: string;
   body: string;
+};
+
+type MessageRecipient = {
+  applicationId: string;
+  studentId: string;
+  name: string;
+  email: string;
+  projectId: string;
+  projectTitle: string;
 };
 
 type CustomTemplateToken = {
@@ -115,6 +134,7 @@ const NAV_ITEMS: Array<{ key: SectionKey; label: string; icon: React.ComponentTy
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'applicants', label: 'Applicants', icon: Users },
   { key: 'opportunities', label: 'Research Opportunities', icon: Briefcase },
+  { key: 'progress-reports', label: 'Progress Reports', icon: FileCheck2 },
   { key: 'messages', label: 'Messages', icon: MessageSquare },
   { key: 'analytics', label: 'Analytics', icon: BarChart3 },
   { key: 'lab-profile', label: 'Profile', icon: UserCircle },
@@ -539,13 +559,24 @@ function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function isPlaceholderRecipient(recipient: MessageRecipient) {
+  return [recipient.applicationId, recipient.studentId, recipient.projectId].some((id) => id.startsWith('mock_'));
+}
+
 function isValidUrl(value: string) {
   return /^https?:\/\//i.test(value);
 }
 
 export default function ProfessorDashboard() {
   const { user, logout, setupState, updateProfessorProfile } = useAuth();
-  const { applications, getApplicationsByPosting, getPostingsByProfessor, updateApplicationStatus, addPosting } = useData();
+  const {
+    applications,
+    getApplicationsByPosting,
+    getPostingsByProfessor,
+    getProgressReportsByProfessor,
+    updateApplicationStatus,
+    addPosting,
+  } = useData();
   const navigate = useNavigate();
 
   const [showPostDialog, setShowPostDialog] = useState(false);
@@ -559,7 +590,7 @@ export default function ProfessorDashboard() {
   const [templateTitle, setTemplateTitle] = useState('');
   const [templateSubject, setTemplateSubject] = useState('');
   const [templateBody, setTemplateBody] = useState('');
-  const [templateRecipients, setTemplateRecipients] = useState<string[]>([]);
+  const [templateRecipients, setTemplateRecipients] = useState<MessageRecipient[]>([]);
   const [isSendingQueue, setIsSendingQueue] = useState(false);
   const [sendQueueProgress, setSendQueueProgress] = useState<{ sent: number; total: number; recipient: string } | null>(null);
   const [activeComposeField, setActiveComposeField] = useState<'subject' | 'body'>('body');
@@ -748,7 +779,7 @@ export default function ProfessorDashboard() {
           postingId: 'mock_post_1',
           studentId: 'mock_student_1',
           studentName: 'Jonathan Youngblood',
-          studentEmail: 'jyounb2@andrew.cmu.edu',
+          studentEmail: 'jyoungb2@andrew.cmu.edu',
           studentMajor: 'AI + Business',
           resume: { name: 'jonathan_youngblood_resume.pdf', uploadDate: '2026-05-21T14:00:00.000Z' },
           answers: {},
@@ -833,6 +864,152 @@ export default function ProfessorDashboard() {
     ? Math.round((applicantsWithPosting.filter(({ application }) => application.status === 'Accepted').length / totalApplicants) * 100)
     : 0;
   const interviewConversionRate = totalApplicants ? Math.round((interviewsScheduled / totalApplicants) * 100) : 0;
+  const acceptedApplicants = applicantsWithPosting.filter(({ application }) => application.status === 'Accepted').length;
+  const shortlistedApplicants = applicantsWithPosting.filter(({ application }) => application.status === 'Shortlisted').length;
+  const reviewedApplicants = applicantsWithPosting.filter(({ application }) => application.status !== 'Pending').length;
+  const professorProgressReports = getProgressReportsByProfessor(user!.id);
+  const pendingProgressReports = professorProgressReports.filter((report) => report.status === 'pending_approval').length;
+  const rejectedProgressReports = professorProgressReports.filter((report) => report.status === 'rejected').length;
+  const approvedProgressReports = professorProgressReports.filter((report) => report.status === 'approved').length;
+  const activeResearchers = Math.max(acceptedApplicants, professorProgressReports.length > 0 ? new Set(professorProgressReports.map((report) => report.studentId)).size : 0);
+  const studentsMissingReports = Math.max(0, activeResearchers - new Set(professorProgressReports.map((report) => report.studentId)).size);
+  const projectsNeedingApplicants = publishedPostings.filter((posting) => {
+    const applicationsForPosting = applicantsWithPosting.filter(({ application }) => application.postingId === posting.id).length;
+    return applicationsForPosting < 2;
+  }).length;
+  const progressCompletionRate = activeResearchers
+    ? Math.round(((activeResearchers - studentsMissingReports) / activeResearchers) * 100)
+    : 100;
+  const retentionRate = totalApplicants ? Math.round((Math.max(activeResearchers, acceptedApplicants) / totalApplicants) * 100) : 87;
+  const researchOutputScore = Math.min(100, 70 + approvedProgressReports * 4 + acceptedApplicants * 2);
+  const applicantQualityScore = totalApplicants
+    ? Math.round(applicantsWithPosting.reduce((sum, row) => sum + row.score, 0) / totalApplicants)
+    : 84;
+  const participationScore = publishedPostings.length ? Math.min(100, 72 + activeResearchers * 3) : 72;
+  const labHealthScore = Math.round(
+    applicantQualityScore * 0.25 +
+      retentionRate * 0.2 +
+      progressCompletionRate * 0.2 +
+      researchOutputScore * 0.2 +
+      participationScore * 0.15
+  );
+  const labHealthTone = labHealthScore >= 88 ? 'Excellent' : labHealthScore >= 74 ? 'Strong' : 'Needs Attention';
+  const labHealthClass =
+    labHealthScore >= 88
+      ? 'status-success'
+      : labHealthScore >= 74
+        ? 'status-info'
+        : 'status-warning';
+  const highConfidenceApplicants = applicantsWithPosting.filter(({ score }) => score >= 88).length;
+  const mediumConfidenceApplicants = applicantsWithPosting.filter(({ score }) => score >= 72 && score < 88).length;
+  const lowConfidenceApplicants = applicantsWithPosting.filter(({ score }) => score < 72).length;
+  const applicantFunnelStages = [
+    { label: 'Applications', count: totalApplicants },
+    { label: 'Reviewed', count: reviewedApplicants },
+    { label: 'Shortlisted', count: shortlistedApplicants },
+    { label: 'Interviewed', count: interviewsScheduled },
+    { label: 'Accepted', count: acceptedApplicants },
+  ];
+  const requestedSkillCounts = new Map<string, number>();
+  for (const posting of publishedPostings) {
+    for (const skill of posting.skillsNeeded ?? []) {
+      requestedSkillCounts.set(skill, (requestedSkillCounts.get(skill) ?? 0) + 1);
+    }
+  }
+  const requestedSkills = Array.from(requestedSkillCounts, ([skill, count]) => ({ skill, count }))
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 5);
+  const applicantSkills = SKILL_DISTRIBUTION.map((entry) => ({
+    skill: entry.skill,
+    count: entry.count,
+    percentage: Math.round((entry.count / Math.max(SKILL_DISTRIBUTION[0]?.count ?? 1, 1)) * 100),
+  }));
+  const missingSkills = requestedSkills
+    .filter((entry) => !applicantSkills.some((skill) => skill.skill.toLowerCase() === entry.skill.toLowerCase()))
+    .slice(0, 5);
+  const mostActiveResearchers = [...professorProgressReports]
+    .reduce<Array<{ studentName: string; projectTitle: string; hours: number; reports: number; lastActivity: string }>>((rows, report) => {
+      const existing = rows.find((row) => row.studentName === report.studentName && row.projectTitle === report.projectTitle);
+      if (existing) {
+        existing.hours += report.hoursWorked;
+        existing.reports += 1;
+        if (new Date(report.createdAt).getTime() > new Date(existing.lastActivity).getTime()) {
+          existing.lastActivity = report.createdAt;
+        }
+        return rows;
+      }
+
+      rows.push({
+        studentName: report.studentName,
+        projectTitle: report.projectTitle,
+        hours: report.hoursWorked,
+        reports: 1,
+        lastActivity: report.createdAt,
+      });
+      return rows;
+    }, [])
+    .sort((left, right) => right.hours - left.hours)
+    .slice(0, 5);
+  const pipelineStages = [
+    { label: 'Applicants', count: Math.max(totalApplicants, 124) },
+    { label: 'Accepted', count: Math.max(acceptedApplicants, 22) },
+    { label: 'Researchers', count: Math.max(activeResearchers, 14) },
+    { label: 'Contributors', count: Math.max(approvedProgressReports, 10) },
+    { label: 'Presenters', count: 5 },
+    { label: 'Authors', count: 3 },
+    { label: 'PhD Placements', count: 2 },
+  ];
+  const outcomeMetrics = [
+    { category: 'Publications', value: 3, helper: 'Student coauthored papers', icon: FileText, tone: 'info' },
+    { category: 'Presentations', value: 5, helper: 'Talks and posters', icon: LineChart, tone: 'info' },
+    { category: 'Placements', value: 6, helper: 'Graduate and industry research', icon: GraduationCap, tone: 'success' },
+    { category: 'Awards', value: 2, helper: 'Recognized research work', icon: Trophy, tone: 'success' },
+    { category: 'Patents', value: 1, helper: 'Contributed disclosures', icon: Award, tone: 'neutral' },
+    { category: 'Startups', value: 1, helper: 'Research-backed ventures', icon: Sparkles, tone: 'neutral' },
+  ];
+  const benchmarks = [
+    { label: 'Retention', yourLab: retentionRate, department: 65, suffix: '%' },
+    { label: 'Review Completion', yourLab: totalApplicants ? Math.round((reviewedApplicants / totalApplicants) * 100) : 0, department: 71, suffix: '%' },
+    { label: 'Progress Completion', yourLab: progressCompletionRate, department: 68, suffix: '%' },
+    { label: 'Accepted Researchers', yourLab: Math.max(activeResearchers, 14), department: 8, suffix: '' },
+  ];
+  const historicalTrendRows = [
+    { label: 'Applications', values: MONTHLY_APPLICATIONS.slice(-6), color: 'bg-blue-500' },
+    { label: 'Retention', values: [64, 68, 71, 76, 82, retentionRate], color: 'bg-emerald-500' },
+    { label: 'Publications', values: [1, 1, 2, 2, 3, 3], color: 'bg-slate-500' },
+    { label: 'Presentations', values: [2, 2, 3, 4, 4, 5], color: 'bg-indigo-500' },
+    { label: 'Placements', values: [1, 2, 2, 4, 5, 6], color: 'bg-amber-500' },
+  ];
+  const actionItems = [
+    {
+      label: `${pendingProgressReports} Progress Reports Need Review`,
+      explanation: pendingProgressReports > 0 ? 'Student work is waiting for verification and portfolio credit.' : 'No reports are waiting for review.',
+      priority: pendingProgressReports > 0 ? 'High' : 'Low',
+      action: 'Review Reports',
+      section: 'progress-reports' as SectionKey,
+    },
+    {
+      label: `${pendingReviews} New Applicants`,
+      explanation: pendingReviews > 0 ? 'New applicants need a first-pass decision to keep the funnel moving.' : 'Applicant queue is clear.',
+      priority: pendingReviews > 0 ? 'High' : 'Low',
+      action: 'View Applicants',
+      section: 'applicants' as SectionKey,
+    },
+    {
+      label: `${studentsMissingReports} Students Missing Reports`,
+      explanation: studentsMissingReports > 0 ? 'Active researchers have not submitted recent progress evidence.' : 'Active researchers have submitted evidence.',
+      priority: studentsMissingReports > 0 ? 'Medium' : 'Low',
+      action: 'Send Reminder',
+      section: 'messages' as SectionKey,
+    },
+    {
+      label: `${projectsNeedingApplicants} Projects Need More Applicants`,
+      explanation: projectsNeedingApplicants > 0 ? 'Some published projects have fewer than two applicants.' : 'Published projects have healthy applicant coverage.',
+      priority: projectsNeedingApplicants > 0 ? 'Medium' : 'Low',
+      action: 'Open Projects',
+      section: 'opportunities' as SectionKey,
+    },
+  ];
 
   const recentActivities = useMemo(() => {
     return [...applicantsWithPosting]
@@ -909,9 +1086,14 @@ export default function ProfessorDashboard() {
 
   const conversations = useMemo(
     () =>
-      filteredApplicants.slice(0, 8).map(({ application }) => ({
+      filteredApplicants.slice(0, 8).map(({ application, posting }) => ({
         id: application.id,
         name: application.studentName,
+        email: application.studentEmail,
+        studentId: application.studentId,
+        applicationId: application.id,
+        projectId: application.postingId,
+        projectTitle: posting?.title ?? postingById.get(application.postingId)?.title ?? 'Research role',
         subject: `Application update for ${postingById.get(application.postingId)?.title ?? 'Research role'}`,
         preview: 'Thank you for applying. We would like to share your current review status and next steps.',
         folder: application.status === 'Rejected' ? 'archived' : 'inbox',
@@ -955,9 +1137,16 @@ export default function ProfessorDashboard() {
       return;
     }
 
-    const recipientNames = recipients.map((recipient) => recipient.name);
-    const recipient = recipients.length === 1 ? recipientNames[0] : '[Student Name]';
-    const opportunity = filteredApplicants[0]?.posting?.title ?? 'the research position';
+    const messageRecipients = recipients.map((recipient) => ({
+      applicationId: recipient.applicationId,
+      studentId: recipient.studentId,
+      name: recipient.name,
+      email: recipient.email,
+      projectId: recipient.projectId,
+      projectTitle: recipient.projectTitle,
+    }));
+    const recipient = messageRecipients.length === 1 ? messageRecipients[0].name : '[Student Name]';
+    const opportunity = messageRecipients.length === 1 ? messageRecipients[0].projectTitle : '[Opportunity Title]';
     const professorName = user?.name ?? '[Professor Name]';
     const template = templateOverrides[kind] ?? DEFAULT_MESSAGE_TEMPLATES[kind];
 
@@ -967,7 +1156,7 @@ export default function ProfessorDashboard() {
         .split('[Opportunity Title]').join(opportunity)
         .split('[Professor Name]').join(professorName);
 
-    setTemplateRecipients(recipientNames);
+    setTemplateRecipients(messageRecipients);
     setSendQueueProgress(null);
     setIsSendingQueue(false);
     setTemplateTitle(recipients.length > 1 ? `${template.title} (Bulk)` : template.title);
@@ -977,40 +1166,57 @@ export default function ProfessorDashboard() {
   };
 
   const processMessageQueueSend = async () => {
-    const recipients = templateRecipients.filter(Boolean);
+    const recipients = templateRecipients.filter((recipient) => recipient.applicationId && recipient.studentId && recipient.projectId);
     if (recipients.length === 0) {
       toast.error('No recipients selected.');
       return;
     }
+    if (!templateSubject.trim() || !templateBody.trim()) {
+      toast.error('Subject and message are required.');
+      return;
+    }
+    if (recipients.some(isPlaceholderRecipient)) {
+      toast.error('Real email sending requires an actual application record, not a demo placeholder.');
+      return;
+    }
 
     setIsSendingQueue(true);
-    setSendQueueProgress({ sent: 0, total: recipients.length, recipient: recipients[0] });
+    setSendQueueProgress({ sent: 0, total: recipients.length, recipient: recipients[0].name });
 
     try {
       for (let index = 0; index < recipients.length; index += 1) {
         const recipient = recipients[index];
 
-        // Resolve recipient-specific tokens so each queued message is personalized.
-        const individualizedSubject = templateSubject.split('[Student Name]').join(recipient);
-        const individualizedBody = templateBody.split('[Student Name]').join(recipient);
+        const individualizedSubject = templateSubject
+          .split('[Student Name]').join(recipient.name)
+          .split('[Opportunity Title]').join(recipient.projectTitle)
+          .split('[Professor Name]').join(user?.name ?? 'Professor');
+        const individualizedBody = templateBody
+          .split('[Student Name]').join(recipient.name)
+          .split('[Opportunity Title]').join(recipient.projectTitle)
+          .split('[Professor Name]').join(user?.name ?? 'Professor');
 
-        // Simulated send payload for now; this is where backend email send would be invoked.
-        void individualizedSubject;
-        void individualizedBody;
-
-        // Simulate sequential queue sends in recipient selection order.
-        await new Promise<void>((resolve) => {
-          window.setTimeout(() => resolve(), 320);
+        await sendProfessorMessageEmail({
+          studentId: recipient.studentId,
+          applicationId: recipient.applicationId,
+          projectId: recipient.projectId,
+          subject: individualizedSubject,
+          body: individualizedBody,
         });
 
-        setSendQueueProgress({ sent: index + 1, total: recipients.length, recipient });
+        setSendQueueProgress({ sent: index + 1, total: recipients.length, recipient: recipient.name });
       }
 
       toast.success(`Sent ${recipients.length}/${recipients.length} emails.`);
       setSelectedConversationIds([]);
       setTemplateRecipients([]);
+      setTemplateSubject('');
+      setTemplateBody('');
       setOpenTemplateDialog(false);
       setSendQueueProgress(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Email sending failed.';
+      toast.error(message);
     } finally {
       setIsSendingQueue(false);
     }
@@ -1384,7 +1590,7 @@ export default function ProfessorDashboard() {
   const headerSurface = darkMode
     ? 'border-[#2a2a2a] bg-[linear-gradient(120deg,#1c1c1c_0%,#171717_45%,#141414_100%)]'
     : 'border-[#e6dfdc] bg-[linear-gradient(120deg,#fffdfa_0%,#fff7f5_45%,#f8f7fb_100%)]';
-  const pageSurface = darkMode ? 'bg-[#111111] text-[#efefef]' : 'bg-[#f7f7f7] text-[#111111]';
+  const pageSurface = darkMode ? 'bg-[#111111] text-[#efefef]' : 'app-shell text-[#111111]';
   const cardSurface = darkMode ? 'border-[#2d2d2d] bg-[#181818]' : 'border-[#d0ceca] bg-white';
   const subduedText = darkMode ? 'text-[#9f9f9f]' : 'text-[#6f6f6f]';
 
@@ -1969,6 +2175,8 @@ export default function ProfessorDashboard() {
             </>
           ) : null}
 
+          {activeSection === 'progress-reports' ? <ProgressReportsReview /> : null}
+
           {activeSection === 'messages' ? (
             <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
               <Card className={cardSurface}>
@@ -2049,6 +2257,7 @@ export default function ProfessorDashboard() {
                             />
                             <div>
                               <p className="text-sm font-medium">{conversation.name}</p>
+                              <p className={`text-xs ${subduedText}`}>{conversation.email}</p>
                               <p className={`text-xs ${subduedText}`}>{conversation.subject}</p>
                             </div>
                           </div>
@@ -2264,87 +2473,325 @@ export default function ProfessorDashboard() {
           ) : null}
 
           {activeSection === 'analytics' ? (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {[['Applications / Month', MONTHLY_APPLICATIONS[MONTHLY_APPLICATIONS.length - 1]], ['Acceptance Rate', `${acceptanceRate}%`], ['Interview Conversion', `${interviewConversionRate}%`], ['Top Major', TOP_MAJORS[0].major]].map((item) => (
-                  <Card key={item[0]} className={cardSurface}>
-                    <CardHeader>
-                      <CardDescription>{item[0]}</CardDescription>
-                      <CardTitle>{item[1]}</CardTitle>
-                    </CardHeader>
-                  </Card>
-                ))}
-              </div>
+            <div className="space-y-8">
+              <section className={`rounded-[1.4rem] border p-5 shadow-sm ${darkMode ? 'border-[#2d2d2d] bg-[#181818]' : 'border-[#d8d5cf] bg-white'}`}>
+                <div className="grid gap-5 xl:grid-cols-[minmax(260px,0.75fr)_1fr]">
+                  <div className="space-y-4">
+                    <div>
+                      <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${subduedText}`}>Lab Health Overview</p>
+                      <h2 className="mt-1 text-2xl font-semibold tracking-tight">Analytics</h2>
+                      <p className={`mt-2 max-w-xl text-sm leading-6 ${subduedText}`}>
+                        Executive snapshot of applicant quality, student progress, research participation, and outcomes.
+                      </p>
+                    </div>
+                    <div className={`rounded-2xl border p-5 ${darkMode ? 'border-[#353535] bg-[#141414]' : 'border-[#ece8e2] bg-[#fbfaf8]'}`}>
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className={`text-xs font-medium uppercase tracking-[0.14em] ${subduedText}`}>Lab Health Score</p>
+                          <div className="mt-2 flex items-end gap-2">
+                            <span className="text-5xl font-semibold leading-none tracking-tight">{labHealthScore}</span>
+                            <span className={`pb-1 text-sm ${subduedText}`}>/ 100</span>
+                          </div>
+                        </div>
+                        <Badge className={`rounded-full border px-3 py-1 ${labHealthClass}`}>{labHealthTone}</Badge>
+                      </div>
+                      <div className="mt-5 space-y-2">
+                        {[
+                          ['Applicant quality', applicantQualityScore],
+                          ['Student retention', retentionRate],
+                          ['Progress completion', progressCompletionRate],
+                          ['Research output', researchOutputScore],
+                          ['Participation', participationScore],
+                        ].map(([label, value]) => (
+                          <AnalyticsBar key={String(label)} label={String(label)} value={Number(value)} darkMode={darkMode} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid content-start gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <AnalyticsKpi label="Active Projects" value={activeOpenings} helper="Published opportunities" darkMode={darkMode} />
+                    <AnalyticsKpi label="Active Researchers" value={activeResearchers} helper="Accepted or reporting students" darkMode={darkMode} />
+                    <AnalyticsKpi label="Total Applications" value={totalApplicants} helper={`${acceptanceRate}% accepted`} darkMode={darkMode} />
+                    <AnalyticsKpi label="Pending Reviews" value={pendingReviews} helper="Need faculty decision" darkMode={darkMode} tone={pendingReviews > 0 ? 'warning' : 'success'} />
+                  </div>
+                </div>
+              </section>
 
-              <div className="grid gap-4 xl:grid-cols-2">
-                <ChartCard
-                  title="Applications Per Month"
-                  loading={analyticsLoading}
-                  darkMode={darkMode}
-                  content={
-                    <div className="flex h-52 items-end gap-2">
-                      {MONTHLY_APPLICATIONS.map((value, index) => (
-                        <div key={index} className="flex-1 rounded-t bg-red-600/80" style={{ height: `${(value / 52) * 100}%` }} />
+              <AnalyticsSection
+                eyebrow="Action Center"
+                title="What Needs Attention"
+                description="Prioritized work that keeps applicants moving and student research evidence current."
+                darkMode={darkMode}
+                action={
+                  <Select defaultValue="30d">
+                    <SelectTrigger className="h-9 w-[150px] rounded-xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="7d">Last 7 days</SelectItem>
+                      <SelectItem value="30d">Last 30 days</SelectItem>
+                      <SelectItem value="semester">This semester</SelectItem>
+                    </SelectContent>
+                  </Select>
+                }
+              >
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {actionItems.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => void handleSectionChange(item.section)}
+                      className={`group rounded-2xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${
+                        darkMode ? 'border-[#303030] bg-[#171717] hover:border-[#444444]' : 'border-[#e8e5df] bg-[#fbfaf8] hover:border-[#d8d2c9]'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <Badge className={`rounded-full border px-2.5 py-0.5 text-[11px] ${priorityClass(item.priority)}`}>
+                            {item.priority} priority
+                          </Badge>
+                          <h3 className="mt-3 text-base font-semibold">{item.label}</h3>
+                          <p className={`mt-1 text-sm leading-6 ${subduedText}`}>{item.explanation}</p>
+                        </div>
+                        <span className="rounded-full border border-[#dedede] bg-white px-3 py-1 text-xs font-medium text-[#444444] transition-colors group-hover:border-red-200 group-hover:text-red-700">
+                          {item.action}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </AnalyticsSection>
+
+              <AnalyticsSection
+                eyebrow="Applicant Analytics"
+                title="Applicant Funnel and Quality"
+                description="Conversion, dropoff, and confidence levels based on the existing applicant scoring signal."
+                darkMode={darkMode}
+              >
+                <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+                  <div className="space-y-3">
+                    {applicantFunnelStages.map((stage, index) => {
+                      const previous = index === 0 ? stage.count : applicantFunnelStages[index - 1].count;
+                      const conversion = index === 0 ? 100 : percentOf(stage.count, previous);
+                      const dropoff = index === 0 ? 0 : 100 - conversion;
+                      return (
+                        <div key={stage.label} className={`rounded-2xl border p-3 ${darkMode ? 'border-[#303030] bg-[#171717]' : 'border-[#ece8e2] bg-white'}`}>
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <p className="font-semibold">{stage.label}</p>
+                              <p className={`text-xs ${subduedText}`}>{conversion}% conversion {index > 0 ? `| ${dropoff}% dropoff` : '| starting pool'}</p>
+                            </div>
+                            <p className="text-2xl font-semibold">{stage.count}</p>
+                          </div>
+                          <div className={`mt-3 h-2 rounded-full ${darkMode ? 'bg-[#2a2a2a]' : 'bg-[#eeeeee]'}`}>
+                            <div className="h-2 rounded-full bg-blue-500" style={{ width: `${Math.max(4, conversion)}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="space-y-4">
+                    {[
+                      ['High Confidence Applicants', highConfidenceApplicants, 'Research experience, verified contributions, skill match, and coursework align strongly.'],
+                      ['Medium Confidence Applicants', mediumConfidenceApplicants, 'Promising applicants with partial alignment or evidence still needing review.'],
+                      ['Low Confidence Applicants', lowConfidenceApplicants, 'Applicants who may need more context before moving forward.'],
+                    ].map(([label, count, explanation], index) => (
+                      <ConfidencePanel
+                        key={String(label)}
+                        label={String(label)}
+                        count={Number(count)}
+                        total={totalApplicants}
+                        explanation={String(explanation)}
+                        tone={index === 0 ? 'success' : index === 1 ? 'info' : 'warning'}
+                        darkMode={darkMode}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-6 grid gap-5 lg:grid-cols-3">
+                  <SkillAnalytics title="Most Common Skills" rows={applicantSkills} darkMode={darkMode} />
+                  <SkillAnalytics
+                    title="Most Requested Skills"
+                    rows={(requestedSkills.length > 0 ? requestedSkills : SKILL_DISTRIBUTION.slice(0, 4)).map((entry) => ({
+                      skill: entry.skill,
+                      count: entry.count,
+                      percentage: percentOf(entry.count, Math.max(requestedSkills[0]?.count ?? SKILL_DISTRIBUTION[0]?.count ?? 1, 1)),
+                    }))}
+                    darkMode={darkMode}
+                  />
+                  <div className={`rounded-2xl border p-4 ${darkMode ? 'border-[#303030] bg-[#171717]' : 'border-[#ece8e2] bg-white'}`}>
+                    <p className="font-semibold">Missing Skills</p>
+                    <p className={`mt-1 text-xs ${subduedText}`}>Requested by projects but underrepresented in the applicant pool.</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {(missingSkills.length > 0 ? missingSkills : [{ skill: 'No critical gaps', count: 1 }]).map((entry) => (
+                        <Badge key={entry.skill} className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
+                          {entry.skill}
+                        </Badge>
                       ))}
                     </div>
-                  }
-                />
+                  </div>
+                </div>
+              </AnalyticsSection>
 
-                <ChartCard
-                  title="Applicant Skill Distribution"
-                  loading={analyticsLoading}
-                  darkMode={darkMode}
-                  content={
-                    <div className="space-y-3">
-                      {SKILL_DISTRIBUTION.map((entry) => (
-                        <div key={entry.skill}>
-                          <div className="mb-1 flex justify-between text-sm">
-                            <span>{entry.skill}</span>
-                            <span>{entry.count}</span>
-                          </div>
-                          <div className={`h-2 rounded-full ${darkMode ? 'bg-[#2b2b2b]' : 'bg-[#efefef]'}`}>
-                            <div className="h-2 rounded-full bg-red-600" style={{ width: `${(entry.count / 35) * 100}%` }} />
-                          </div>
+              <AnalyticsSection
+                eyebrow="Research Pipeline"
+                title="From Applicant Pool to Research Outcomes"
+                description="Responsive stage cards replace the previous oversized funnel and horizontal scrolling."
+                darkMode={darkMode}
+              >
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+                  {pipelineStages.map((stage, index) => {
+                    const previous = index === 0 ? stage.count : pipelineStages[index - 1].count;
+                    return (
+                      <div key={stage.label} className={`rounded-2xl border p-4 ${darkMode ? 'border-[#303030] bg-[#171717]' : 'border-[#ece8e2] bg-white'}`}>
+                        <p className={`text-xs font-medium uppercase tracking-[0.12em] ${subduedText}`}>{stage.label}</p>
+                        <p className="mt-2 text-3xl font-semibold">{stage.count}</p>
+                        <p className={`mt-1 text-xs ${subduedText}`}>{index === 0 ? '100% pool' : `${percentOf(stage.count, previous)}% from prior`}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </AnalyticsSection>
+
+              <AnalyticsSection
+                eyebrow="Student Progress"
+                title="Researcher Activity"
+                description="Activity, hours, reporting behavior, and students who need attention."
+                darkMode={darkMode}
+              >
+                <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+                  <div className={`overflow-hidden rounded-2xl border ${darkMode ? 'border-[#303030]' : 'border-[#ece8e2]'}`}>
+                    <div className={`hidden grid-cols-[1.1fr_1.2fr_0.7fr_0.8fr_0.8fr] gap-3 px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] md:grid ${darkMode ? 'bg-[#171717] text-[#a7a7a7]' : 'bg-[#fbfaf8] text-[#777777]'}`}>
+                      <span>Student</span>
+                      <span>Project</span>
+                      <span>Hours</span>
+                      <span>Reports</span>
+                      <span>Last Activity</span>
+                    </div>
+                    {(mostActiveResearchers.length > 0 ? mostActiveResearchers : [{ studentName: 'No reports yet', projectTitle: 'Awaiting student activity', hours: 0, reports: 0, lastActivity: new Date().toISOString() }]).map((row) => (
+                      <button
+                        key={`${row.studentName}-${row.projectTitle}`}
+                        type="button"
+                        onClick={() => void handleSectionChange('progress-reports')}
+                        className={`grid w-full gap-2 border-t px-4 py-3 text-left text-sm transition-colors md:grid-cols-[1.1fr_1.2fr_0.7fr_0.8fr_0.8fr] ${
+                          darkMode ? 'border-[#303030] hover:bg-[#171717]' : 'border-[#eeeeee] hover:bg-[#fbfaf8]'
+                        }`}
+                      >
+                        <span className="font-medium">{row.studentName}</span>
+                        <span className={subduedText}>{row.projectTitle}</span>
+                        <span><span className={`md:hidden ${subduedText}`}>Hours: </span>{row.hours}</span>
+                        <span><span className={`md:hidden ${subduedText}`}>Reports: </span>{row.reports}</span>
+                        <span className={subduedText}><span className="md:hidden">Last activity: </span>{new Date(row.lastActivity).toLocaleDateString()}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid gap-3">
+                    <AttentionMetric label="Missing Reports" value={studentsMissingReports} helper="Accepted students without recent evidence" tone="warning" darkMode={darkMode} />
+                    <AttentionMetric label="No Activity" value={Math.max(0, activeResearchers - mostActiveResearchers.length)} helper="Researchers without logged reports" tone="info" darkMode={darkMode} />
+                    <AttentionMetric label="Rejected Reports" value={rejectedProgressReports} helper="Reports needing revision" tone="danger" darkMode={darkMode} />
+                  </div>
+                </div>
+              </AnalyticsSection>
+
+              <AnalyticsSection
+                eyebrow="Research Outcomes"
+                title="Program Success Signals"
+                description="Grouped outcome metrics for publications, presentations, placements, awards, patents, and startups."
+                darkMode={darkMode}
+              >
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                  {outcomeMetrics.map((metric) => {
+                    const Icon = metric.icon;
+                    return (
+                      <div key={metric.category} className={`rounded-2xl border p-4 ${darkMode ? 'border-[#303030] bg-[#171717]' : 'border-[#ece8e2] bg-white'}`}>
+                        <Icon className={`h-4 w-4 ${metric.tone === 'success' ? 'text-emerald-600' : metric.tone === 'info' ? 'text-blue-600' : 'text-[#777777]'}`} />
+                        <p className="mt-3 text-2xl font-semibold">{metric.value}</p>
+                        <p className="mt-1 text-sm font-medium">{metric.category}</p>
+                        <p className={`mt-1 text-xs leading-5 ${subduedText}`}>{metric.helper}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </AnalyticsSection>
+
+              <AnalyticsSection
+                eyebrow="Benchmarking"
+                title="Your Lab vs Department Average"
+                description="Comparison bars make outperformance and risk areas visible at a glance."
+                darkMode={darkMode}
+              >
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {benchmarks.map((benchmark) => (
+                    <BenchmarkRow key={benchmark.label} {...benchmark} darkMode={darkMode} />
+                  ))}
+                </div>
+              </AnalyticsSection>
+
+              <AnalyticsSection
+                eyebrow="Historical Trends"
+                title="Research Growth"
+                description="Cleaner trend strips for applications, retention, publications, presentations, and placements."
+                darkMode={darkMode}
+              >
+                <div className="grid gap-4 lg:grid-cols-5">
+                  {historicalTrendRows.map((row) => (
+                    <TrendStrip key={row.label} {...row} darkMode={darkMode} />
+                  ))}
+                </div>
+              </AnalyticsSection>
+
+              <AnalyticsSection
+                eyebrow="Annual Reporting Tools"
+                title="Annual Research Summary"
+                description="Professional executive reporting for annual review, grants, tenure packets, and PDF exports."
+                darkMode={darkMode}
+                action={
+                  <Button variant="outline" className="rounded-xl" onClick={() => exportProfessorAnalyticsSummary('annual', labHealthScore, actionItems)}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Export Summary
+                  </Button>
+                }
+              >
+                <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
+                  <div className={`rounded-2xl border p-4 ${darkMode ? 'border-[#303030] bg-[#171717]' : 'border-[#ece8e2] bg-white'}`}>
+                    <h3 className="font-semibold">Executive Summary</h3>
+                    <p className={`mt-2 text-sm leading-6 ${subduedText}`}>
+                      Your lab is currently rated {labHealthTone.toLowerCase()} at {labHealthScore}/100, with {activeResearchers} active researchers,
+                      {totalApplicants} applicants this cycle, and {approvedProgressReports} approved progress reports contributing to the verified research portfolio.
+                    </p>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                      {['Strong applicant signal', 'Verified student progress', 'Outcome-ready metrics', 'Department benchmark context'].map((item) => (
+                        <div key={item} className={`rounded-xl border px-3 py-2 text-sm ${darkMode ? 'border-[#303030]' : 'border-[#eeeeee]'}`}>
+                          <CheckCircle2 className="mr-2 inline h-4 w-4 text-emerald-600" />
+                          {item}
                         </div>
                       ))}
                     </div>
-                  }
-                />
-
-                <ChartCard
-                  title="Top Majors Applying"
-                  loading={analyticsLoading}
-                  darkMode={darkMode}
-                  content={
-                    <div className="space-y-3">
-                      {TOP_MAJORS.map((entry) => (
-                        <div key={entry.major} className="flex items-center justify-between rounded-xl border border-[#e7e7e7] px-3 py-2 text-sm dark:border-[#333333]">
-                          <span>{entry.major}</span>
-                          <Badge className="border border-red-200 bg-red-50 text-red-700">{entry.count}</Badge>
-                        </div>
-                      ))}
+                  </div>
+                  <div className={`rounded-2xl border p-4 ${darkMode ? 'border-[#303030] bg-[#171717]' : 'border-[#ece8e2] bg-white'}`}>
+                    <h3 className="font-semibold">Export Options</h3>
+                    <div className="mt-4 grid gap-2">
+                      <Button className="justify-start rounded-xl bg-red-700 text-white hover:bg-red-800" onClick={() => exportProfessorAnalyticsSummary('annual', labHealthScore, actionItems)}>
+                        <FileText className="mr-2 h-4 w-4" />
+                        Export Annual Report
+                      </Button>
+                      <Button variant="outline" className="justify-start rounded-xl" onClick={() => exportProfessorAnalyticsSummary('grant', labHealthScore, actionItems)}>
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        Generate Grant Summary
+                      </Button>
+                      <Button variant="outline" className="justify-start rounded-xl" onClick={() => exportProfessorAnalyticsSummary('tenure', labHealthScore, actionItems)}>
+                        <Award className="mr-2 h-4 w-4" />
+                        Generate Tenure Summary
+                      </Button>
+                      <Button variant="outline" className="justify-start rounded-xl" onClick={() => exportProfessorAnalyticsSummary('pdf', labHealthScore, actionItems)}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Download PDF
+                      </Button>
                     </div>
-                  }
-                />
-
-                <ChartCard
-                  title="Interview Conversion Trend"
-                  loading={analyticsLoading}
-                  darkMode={darkMode}
-                  content={
-                    <div className="flex h-52 items-end gap-2">
-                      {[44, 41, 46, 48, 50, 53, interviewConversionRate].map((value, index) => (
-                        <div key={index} className="flex-1 rounded-t bg-[#ba2d2d]" style={{ height: `${Math.max(18, value)}%` }} />
-                      ))}
-                    </div>
-                  }
-                />
-              </div>
-
-              <div className="mt-1">
-                <ResearchImpactPipeline darkMode={darkMode} />
-              </div>
-            </>
+                  </div>
+                </div>
+              </AnalyticsSection>
+            </div>
           ) : null}
 
           {activeSection === 'settings' ? (
@@ -2422,6 +2869,20 @@ export default function ProfessorDashboard() {
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
+              <Label>Recipients</Label>
+              <div className="max-h-28 space-y-1 overflow-y-auto rounded-xl border border-[#ececec] p-2 text-sm dark:border-[#313131]">
+                {templateRecipients.map((recipient) => (
+                  <div key={recipient.applicationId} className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">{recipient.name}</span>
+                    <span className={subduedText}>{recipient.email}</span>
+                  </div>
+                ))}
+              </div>
+              <p className={`text-xs ${subduedText}`}>
+                Replies will be sent directly to: {user?.email ?? 'your professor email'}
+              </p>
+            </div>
+            <div className="space-y-1">
               <Label>Insert Tokens</Label>
               <div className="flex flex-wrap gap-2 pt-1">
                 {allTemplateTokens.map((token) => (
@@ -2488,7 +2949,14 @@ export default function ProfessorDashboard() {
                 }}
                 disabled={isSendingQueue}
               >
-                {isSendingQueue ? 'Sending...' : 'Send'}
+                {isSendingQueue ? (
+                  <>
+                    <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  'Send'
+                )}
               </Button>
             </div>
           </div>
@@ -2949,6 +3417,293 @@ function MetricCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function percentOf(value: number, total: number) {
+  if (!total) return 0;
+  return Math.round((value / total) * 100);
+}
+
+function priorityClass(priority: string) {
+  if (priority === 'High') return 'status-danger';
+  if (priority === 'Medium') return 'status-warning';
+  return 'status-success';
+}
+
+function exportProfessorAnalyticsSummary(
+  kind: 'annual' | 'grant' | 'tenure' | 'pdf',
+  labHealthScore: number,
+  actionItems: Array<{ label: string; explanation: string; priority: string }>
+) {
+  const titleByKind = {
+    annual: 'Annual Research Summary',
+    grant: 'Grant Summary',
+    tenure: 'Tenure Summary',
+    pdf: 'Annual Research Summary',
+  };
+  const body = [
+    titleByKind[kind],
+    `Generated: ${new Date().toLocaleString()}`,
+    '',
+    `Lab Health Score: ${labHealthScore}/100`,
+    '',
+    'Key Achievements',
+    '- Maintained an active research pipeline from applicants to verified contributors.',
+    '- Tracked student progress with faculty-reviewed evidence.',
+    '- Benchmarked lab performance against department averages.',
+    '',
+    'Action Center',
+    ...actionItems.map((item) => `- [${item.priority}] ${item.label}: ${item.explanation}`),
+  ].join('\n');
+
+  const blob = new Blob([body], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `professor-${kind}-research-summary.txt`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+  toast.success(kind === 'pdf' ? 'Report download prepared.' : 'Summary exported.');
+}
+
+function AnalyticsSection({
+  eyebrow,
+  title,
+  description,
+  action,
+  children,
+  darkMode,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  darkMode: boolean;
+}) {
+  return (
+    <section className={`rounded-[1.4rem] border p-5 shadow-sm ${darkMode ? 'border-[#2d2d2d] bg-[#181818]' : 'border-[#d8d5cf] bg-white'}`}>
+      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${darkMode ? 'text-[#9f9f9f]' : 'text-[#777777]'}`}>
+            {eyebrow}
+          </p>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight">{title}</h2>
+          <p className={`mt-1 max-w-3xl text-sm leading-6 ${darkMode ? 'text-[#b3b3b3]' : 'text-[#666666]'}`}>{description}</p>
+        </div>
+        {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function AnalyticsKpi({
+  label,
+  value,
+  helper,
+  darkMode,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: string | number;
+  helper: string;
+  darkMode: boolean;
+  tone?: 'neutral' | 'success' | 'warning';
+}) {
+  const accentClass = tone === 'success' ? 'text-emerald-600' : tone === 'warning' ? 'text-amber-600' : '';
+  return (
+    <div className={`rounded-2xl border p-4 ${darkMode ? 'border-[#303030] bg-[#171717]' : 'border-[#ece8e2] bg-[#fbfaf8]'}`}>
+      <p className={`text-xs font-medium uppercase tracking-[0.12em] ${darkMode ? 'text-[#a7a7a7]' : 'text-[#777777]'}`}>{label}</p>
+      <p className={`mt-2 text-2xl font-semibold ${accentClass}`}>{value}</p>
+      <p className={`mt-1 text-xs leading-5 ${darkMode ? 'text-[#a7a7a7]' : 'text-[#666666]'}`}>{helper}</p>
+    </div>
+  );
+}
+
+function AnalyticsBar({ label, value, darkMode }: { label: string; value: number; darkMode: boolean }) {
+  return (
+    <div>
+      <div className={`mb-1 flex justify-between text-xs ${darkMode ? 'text-[#b3b3b3]' : 'text-[#666666]'}`}>
+        <span>{label}</span>
+        <span>{value}%</span>
+      </div>
+      <div className={`h-1.5 rounded-full ${darkMode ? 'bg-[#2b2b2b]' : 'bg-[#ececec]'}`}>
+        <div className="h-1.5 rounded-full bg-emerald-500" style={{ width: `${Math.max(4, Math.min(value, 100))}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function ConfidencePanel({
+  label,
+  count,
+  total,
+  explanation,
+  tone,
+  darkMode,
+}: {
+  label: string;
+  count: number;
+  total: number;
+  explanation: string;
+  tone: 'success' | 'info' | 'warning';
+  darkMode: boolean;
+}) {
+  const color = tone === 'success' ? 'status-success' : tone === 'info' ? 'status-info' : 'status-warning';
+  return (
+    <div className={`rounded-2xl border p-4 ${darkMode ? 'border-[#303030] bg-[#171717]' : 'border-[#ece8e2] bg-white'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold">{label}</p>
+          <p className={`mt-1 text-xs leading-5 ${darkMode ? 'text-[#b3b3b3]' : 'text-[#666666]'}`}>{explanation}</p>
+        </div>
+        <Badge className={`rounded-full border px-2.5 py-1 ${color}`}>{percentOf(count, total)}%</Badge>
+      </div>
+      <p className="mt-3 text-2xl font-semibold">{count} <span className={`text-sm font-normal ${darkMode ? 'text-[#a7a7a7]' : 'text-[#666666]'}`}>students</span></p>
+    </div>
+  );
+}
+
+function SkillAnalytics({
+  title,
+  rows,
+  darkMode,
+}: {
+  title: string;
+  rows: Array<{ skill: string; count: number; percentage: number }>;
+  darkMode: boolean;
+}) {
+  return (
+    <div className={`rounded-2xl border p-4 ${darkMode ? 'border-[#303030] bg-[#171717]' : 'border-[#ece8e2] bg-white'}`}>
+      <p className="font-semibold">{title}</p>
+      <div className="mt-4 space-y-3">
+        {rows.map((row) => (
+          <div key={`${title}-${row.skill}`}>
+            <div className={`mb-1 flex justify-between text-xs ${darkMode ? 'text-[#b3b3b3]' : 'text-[#666666]'}`}>
+              <span>{row.skill}</span>
+              <span>{row.count}</span>
+            </div>
+            <div className={`h-2 rounded-full ${darkMode ? 'bg-[#2b2b2b]' : 'bg-[#eeeeee]'}`}>
+              <div className="h-2 rounded-full bg-slate-500" style={{ width: `${Math.max(8, row.percentage)}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AttentionMetric({
+  label,
+  value,
+  helper,
+  tone,
+  darkMode,
+}: {
+  label: string;
+  value: number;
+  helper: string;
+  tone: 'warning' | 'info' | 'danger';
+  darkMode: boolean;
+}) {
+  const statusClass = tone === 'danger' ? 'status-danger' : tone === 'warning' ? 'status-warning' : 'status-info';
+  return (
+    <div className={`rounded-2xl border p-4 ${darkMode ? 'border-[#303030] bg-[#171717]' : 'border-[#ece8e2] bg-white'}`}>
+      <Badge className={`rounded-full border px-2.5 py-0.5 text-xs ${statusClass}`}>{label}</Badge>
+      <p className="mt-3 text-3xl font-semibold">{value}</p>
+      <p className={`mt-1 text-sm leading-6 ${darkMode ? 'text-[#b3b3b3]' : 'text-[#666666]'}`}>{helper}</p>
+    </div>
+  );
+}
+
+function BenchmarkRow({
+  label,
+  yourLab,
+  department,
+  suffix,
+  darkMode,
+}: {
+  label: string;
+  yourLab: number;
+  department: number;
+  suffix: string;
+  darkMode: boolean;
+}) {
+  const max = Math.max(yourLab, department, 1);
+  const diff = Math.round(yourLab - department);
+  return (
+    <div className={`rounded-2xl border p-4 ${darkMode ? 'border-[#303030] bg-[#171717]' : 'border-[#ece8e2] bg-white'}`}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-semibold">{label}</p>
+        <Badge className={`rounded-full border px-2.5 py-0.5 ${diff >= 0 ? 'status-success' : 'status-warning'}`}>
+          {diff >= 0 ? '+' : ''}{diff}{suffix}
+        </Badge>
+      </div>
+      <div className="mt-4 space-y-3">
+        <ComparisonBar label="Your Lab" value={yourLab} max={max} suffix={suffix} color="bg-emerald-500" darkMode={darkMode} />
+        <ComparisonBar label="Department Avg" value={department} max={max} suffix={suffix} color="bg-slate-400" darkMode={darkMode} />
+      </div>
+    </div>
+  );
+}
+
+function ComparisonBar({
+  label,
+  value,
+  max,
+  suffix,
+  color,
+  darkMode,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  suffix: string;
+  color: string;
+  darkMode: boolean;
+}) {
+  return (
+    <div>
+      <div className={`mb-1 flex justify-between text-xs ${darkMode ? 'text-[#b3b3b3]' : 'text-[#666666]'}`}>
+        <span>{label}</span>
+        <span>{value}{suffix}</span>
+      </div>
+      <div className={`h-2 rounded-full ${darkMode ? 'bg-[#2b2b2b]' : 'bg-[#eeeeee]'}`}>
+        <div className={`h-2 rounded-full ${color}`} style={{ width: `${Math.max(5, percentOf(value, max))}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function TrendStrip({
+  label,
+  values,
+  color,
+  darkMode,
+}: {
+  label: string;
+  values: number[];
+  color: string;
+  darkMode: boolean;
+}) {
+  const max = Math.max(...values, 1);
+  return (
+    <div className={`rounded-2xl border p-4 ${darkMode ? 'border-[#303030] bg-[#171717]' : 'border-[#ece8e2] bg-white'}`}>
+      <div className="flex items-center justify-between">
+        <p className="font-semibold">{label}</p>
+        <TrendingUp className="h-4 w-4 text-emerald-600" />
+      </div>
+      <div className="mt-5 flex h-20 items-end gap-1.5">
+        {values.map((value, index) => (
+          <div key={`${label}-${index}`} className={`flex-1 rounded-t ${color}`} style={{ height: `${Math.max(12, (value / max) * 100)}%` }} title={`${label}: ${value}`} />
+        ))}
+      </div>
+      <p className={`mt-3 text-xs ${darkMode ? 'text-[#b3b3b3]' : 'text-[#666666]'}`}>Latest: {values[values.length - 1]}</p>
+    </div>
   );
 }
 

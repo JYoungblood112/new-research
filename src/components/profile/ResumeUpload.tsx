@@ -186,7 +186,7 @@ const ResumeUpload = forwardRef<ResumeUploadHandle, ResumeUploadProps>(function 
             handleClick();
           }
         }}
-        className={`flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-8 text-center transition-colors ${
+        className={`flex min-h-20 cursor-pointer items-center justify-between gap-4 rounded-lg border border-dashed px-4 py-3 text-left transition-colors ${
           isDragging ? 'border-red-600 bg-red-50' : 'border-[#d7d0ca] bg-[#fcfbfa] hover:border-red-300 hover:bg-red-50/40'
         } ${isUploading ? 'cursor-wait opacity-80' : ''}`}
       >
@@ -206,21 +206,25 @@ const ResumeUpload = forwardRef<ResumeUploadHandle, ResumeUploadProps>(function 
         />
 
         {isUploading ? (
-          <div className="space-y-2 text-center">
-            <div className="flex items-center gap-3 text-sm font-medium text-red-700">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              Extracting fields...
+          <div className="flex items-center gap-3 text-sm font-medium text-amber-800">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <div>
+              <p>Parsing resume</p>
+              <p className="text-xs font-normal text-muted-foreground">Extracting fields... {elapsed}s</p>
             </div>
-            <p className="text-sm text-muted-foreground mt-2">Extracting fields... {elapsed}s</p>
           </div>
         ) : (
           <>
-            <UploadCloud className="h-10 w-10 text-red-700" />
-            <p className="mt-3 text-sm font-semibold text-foreground">Upload your resume</p>
-            <p className="text-sm text-muted-foreground">
-              Uploads will autofill: Full Name, Email, Major, Academic Year,
-              LinkedIn, GitHub, Skills, and Degree.
-            </p>
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-slate-100 p-2">
+                <UploadCloud className="h-5 w-5 text-slate-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground">Upload resume</p>
+                <p className="text-xs text-muted-foreground">Autofills profile fields and skills.</p>
+              </div>
+            </div>
+            <span className="text-xs font-medium text-red-700">Choose file</span>
           </>
         )}
       </div>
@@ -228,10 +232,11 @@ const ResumeUpload = forwardRef<ResumeUploadHandle, ResumeUploadProps>(function 
       {error ? <p className="text-sm text-red-600" role="alert">{error}</p> : null}
 
       {parsedFields ? (
-        <div className="rounded-xl border border-[#d7d0ca] bg-[#fcfbfa] px-4 py-3">
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+          <p className="mb-1 text-xs font-semibold text-emerald-800">Autofill complete</p>
           {AUTOFILL_FIELDS.filter((f) => parsedFields[f.key] !== null).map((f) => (
-            <div key={f.key} className="flex items-center gap-2 text-sm py-1">
-              <Check className="h-4 w-4 shrink-0 text-green-500" aria-hidden="true" />
+            <div key={f.key} className="flex items-center gap-2 py-0.5 text-xs">
+              <Check className="h-3.5 w-3.5 shrink-0 text-green-600" aria-hidden="true" />
               <span className="font-medium">{f.label}:</span>
               <span className="text-muted-foreground truncate max-w-xs">
                 {parsedFields[f.key]}

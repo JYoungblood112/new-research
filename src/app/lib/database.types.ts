@@ -5,6 +5,20 @@ export type ProjectStatus = 'pending_approval' | 'published' | 'closed' | 'archi
 export type ApplicationStatus = 'Pending' | 'Shortlisted' | 'Interview' | 'Rejected' | 'Accepted';
 export type ProjectCompensation = 'stipend' | 'volunteer' | 'course credit' | 'tbd';
 export type SkillImportance = 'required' | 'preferred' | 'nice_to_have';
+export type ProgressReportStatus = 'pending_approval' | 'approved' | 'rejected';
+export type ProgressEvidenceType =
+  | 'github_repo'
+  | 'commit'
+  | 'pull_request'
+  | 'website'
+  | 'paper'
+  | 'dataset'
+  | 'notebook'
+  | 'presentation'
+  | 'poster'
+  | 'demo_video'
+  | 'research_report'
+  | 'other';
 
 export type ProfileRow = {
   id: string;
@@ -132,6 +146,41 @@ export type RecommendationRow = {
   updated_at: string;
 };
 
+export type ProgressReportRow = {
+  id: string;
+  project_id: string;
+  student_id: string;
+  professor_id: string;
+  reporting_period: string;
+  hours_worked: number;
+  tasks_completed: string;
+  results_achieved: string | null;
+  challenges: string | null;
+  next_steps: string | null;
+  skills_used: string[];
+  evidence_links: Json;
+  status: ProgressReportStatus;
+  professor_comment: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProgressReportEvidenceRow = {
+  id: string;
+  progress_report_id: string;
+  type: ProgressEvidenceType;
+  title: string;
+  description: string | null;
+  external_url: string | null;
+  file_url: string | null;
+  file_path: string | null;
+  file_name: string | null;
+  file_type: string | null;
+  file_size: number | null;
+  created_at: string;
+};
+
 type Tables = {
   profiles: {
     Row: ProfileRow;
@@ -177,6 +226,16 @@ type Tables = {
     Row: RecommendationRow;
     Insert: Pick<RecommendationRow, 'student_id' | 'project_id' | 'confidence'> & Partial<Omit<RecommendationRow, 'id' | 'created_at' | 'updated_at'>>;
     Update: Partial<Omit<RecommendationRow, 'id' | 'student_id' | 'project_id' | 'created_at' | 'updated_at'>>;
+  };
+  progress_reports: {
+    Row: ProgressReportRow;
+    Insert: Pick<ProgressReportRow, 'project_id' | 'student_id' | 'professor_id' | 'reporting_period' | 'tasks_completed'> & Partial<Omit<ProgressReportRow, 'id' | 'created_at' | 'updated_at'>>;
+    Update: Partial<Omit<ProgressReportRow, 'id' | 'project_id' | 'student_id' | 'professor_id' | 'created_at' | 'updated_at'>>;
+  };
+  progress_report_evidence: {
+    Row: ProgressReportEvidenceRow;
+    Insert: Pick<ProgressReportEvidenceRow, 'progress_report_id' | 'type' | 'title'> & Partial<Omit<ProgressReportEvidenceRow, 'id' | 'created_at'>>;
+    Update: Partial<Omit<ProgressReportEvidenceRow, 'id' | 'progress_report_id' | 'created_at'>>;
   };
 };
 

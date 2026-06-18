@@ -1,5 +1,5 @@
 import { requireSupabaseClient } from './supabase';
-import type { Database, ProjectSkillRow, StudentSkillRow } from './database.types';
+import type { Database, ProgressEvidenceType, ProjectSkillRow, StudentSkillRow } from './database.types';
 
 type Tables = Database['public']['Tables'];
 type InsertRow<TableName extends keyof Tables> = Tables[TableName]['Insert'];
@@ -244,4 +244,215 @@ export async function upsertRecommendation(recommendation: InsertRow<'recommenda
     .single();
   if (error) throw error;
   return data;
+}
+
+export async function createProgressReport(report: InsertRow<'progress_reports'>) {
+  const client = requireSupabaseClient();
+  const { data, error } = await client
+    .from('progress_reports')
+    .insert(report)
+    .select('*, progress_report_evidence(*)')
+    .single();
+  if (error) throwSupabaseError(error, 'Unable to create progress report.');
+  return data;
+}
+
+export async function getStudentProgressReports(studentId: string) {
+  const client = requireSupabaseClient();
+  const { data, error } = await client
+    .from('progress_reports')
+    .select('*, projects(title, professor_id), progress_report_evidence(*)')
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: false });
+  if (error) throwSupabaseError(error, 'Unable to load student progress reports.');
+  return data ?? [];
+}
+
+export async function getProfessorProgressReports(professorId: string) {
+  const client = requireSupabaseClient();
+  const { data, error } = await client
+    .from('progress_reports')
+    .select('*, projects(title), students(major,degree,academic_year), progress_report_evidence(*)')
+    .eq('professor_id', professorId)
+    .order('created_at', { ascending: false });
+  if (error) throwSupabaseError(error, 'Unable to load professor progress reports.');
+  return data ?? [];
+}
+
+export async function updateProgressReport(reportId: string, updates: UpdateRow<'progress_reports'>) {
+  const client = requireSupabaseClient();
+  const { data, error } = await client
+    .from('progress_reports')
+    .update(updates)
+    .eq('id', reportId)
+    .select('*, progress_report_evidence(*)')
+    .single();
+  if (error) throwSupabaseError(error, 'Unable to update progress report.');
+  return data;
+}
+
+export async function updateProgressReportReview(
+  progressReportId: string,
+  status: Database['public']['Tables']['progress_reports']['Row']['status'],
+  professorComment?: string
+) {
+  if (!['pending_approval', 'approved', 'rejected'].includes(status)) {
+    throw new Error('Invalid progress report status.');
+  }
+
+  const client = requireSupabaseClient();
+  const { data, error } = await client
+    .from('progress_reports')
+    .update({
+      status,
+      professor_comment: professorComment?.trim() || null,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('id', progressReportId)
+    .select('*, progress_report_evidence(*)')
+    .single();
+  if (error) throwSupabaseError(error, 'Unable to review progress report.');
+  return data;
+}
+
+export const RESEARCH_EVIDENCE_BUCKET = 'research-evidence';
+
+export const ALLOWED_PROGRESS_EVIDENCE_EXTENSIONS = [
+  'pdf',
+  'ppt',
+  'pptx',
+  'csv',
+  'xlsx',
+  'xls',
+  'ipynb',
+  'png',
+  'jpg',
+  'jpeg',
+  'mp4',
+  'mov',
+  'txt',
+] as const;
+
+export const MAX_PROGRESS_EVIDENCE_FILE_SIZE_BYTES = 50 * 1024 * 1024;
+
+function sanitizeStorageFileName(fileName: string) {
+  return fileName
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 120) || 'evidence-file';
+}
+
+export function validateProgressReportEvidenceFile(file: File) {
+  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (!ALLOWED_PROGRESS_EVIDENCE_EXTENSIONS.includes(extension as (typeof ALLOWED_PROGRESS_EVIDENCE_EXTENSIONS)[number])) {
+    throw new Error('Unsupported evidence file type. Upload PDF, PPTX, CSV/XLSX, IPYNB, image, video, or text files.');
+  }
+
+  if (file.size > MAX_PROGRESS_EVIDENCE_FILE_SIZE_BYTES) {
+    throw new Error('Evidence files must be 50 MB or smaller.');
+  }
+}
+
+export async function uploadProgressReportEvidenceFile({
+  progressReportId,
+  studentId,
+  file,
+}: {
+  progressReportId: string;
+  studentId: string;
+  file: File;
+}) {
+  validateProgressReportEvidenceFile(file);
+  const client = requireSupabaseClient();
+  const filePath = `${studentId}/${progressReportId}/${crypto.randomUUID()}-${sanitizeStorageFileName(file.name)}`;
+  const { data, error } = await client.storage.from(RESEARCH_EVIDENCE_BUCKET).upload(filePath, file, {
+    contentType: file.type || undefined,
+    upsert: false,
+  });
+  if (error) throwSupabaseError(error, 'Unable to upload evidence file.');
+  return {
+    filePath: data.path,
+    fileName: file.name,
+    fileType: file.type || null,
+    fileSize: file.size,
+  };
+}
+
+export async function getProgressReportEvidenceFileUrl(filePath: string) {
+  const client = requireSupabaseClient();
+  const { data, error } = await client.storage.from(RESEARCH_EVIDENCE_BUCKET).createSignedUrl(filePath, 60 * 10);
+  if (error) throwSupabaseError(error, 'Unable to open evidence file.');
+  return data.signedUrl;
+}
+
+export async function addProgressReportEvidenceUrl(evidence: InsertRow<'progress_report_evidence'>) {
+  const client = requireSupabaseClient();
+  const { data, error } = await client.from('progress_report_evidence').insert(evidence).select('*').single();
+  if (error) throwSupabaseError(error, 'Unable to save evidence.');
+  return data;
+}
+
+export async function getProgressReportEvidence(progressReportId: string) {
+  const client = requireSupabaseClient();
+  const { data, error } = await client
+    .from('progress_report_evidence')
+    .select('*')
+    .eq('progress_report_id', progressReportId)
+    .order('created_at', { ascending: true });
+  if (error) throwSupabaseError(error, 'Unable to load progress report evidence.');
+  return data ?? [];
+}
+
+export async function deleteProgressReportEvidence(evidenceId: string, filePath?: string | null) {
+  const client = requireSupabaseClient();
+  const { error } = await client.from('progress_report_evidence').delete().eq('id', evidenceId);
+  if (error) throwSupabaseError(error, 'Unable to remove evidence.');
+
+  if (filePath) {
+    const { error: storageError } = await client.storage.from(RESEARCH_EVIDENCE_BUCKET).remove([filePath]);
+    if (storageError) throwSupabaseError(storageError, 'Evidence row was removed, but the uploaded file could not be deleted.');
+  }
+}
+
+export async function deleteProgressReportEvidenceForReport(progressReportId: string, preserveFilePaths: string[] = []) {
+  const evidence = await getProgressReportEvidence(progressReportId);
+  const filePaths = evidence
+    .map((entry) => entry.file_path)
+    .filter((entry): entry is string => Boolean(entry) && !preserveFilePaths.includes(entry));
+  const client = requireSupabaseClient();
+  const { error } = await client.from('progress_report_evidence').delete().eq('progress_report_id', progressReportId);
+  if (error) throwSupabaseError(error, 'Unable to replace progress report evidence.');
+
+  if (filePaths.length > 0) {
+    await client.storage.from(RESEARCH_EVIDENCE_BUCKET).remove(filePaths);
+  }
+}
+
+export async function addProgressReportEvidenceFile({
+  progressReportId,
+  studentId,
+  type,
+  title,
+  description,
+  file,
+}: {
+  progressReportId: string;
+  studentId: string;
+  type: ProgressEvidenceType;
+  title: string;
+  description?: string;
+  file: File;
+}) {
+  const uploaded = await uploadProgressReportEvidenceFile({ progressReportId, studentId, file });
+  return addProgressReportEvidenceUrl({
+    progress_report_id: progressReportId,
+    type,
+    title,
+    description: description?.trim() || null,
+    file_path: uploaded.filePath,
+    file_name: uploaded.fileName,
+    file_type: uploaded.fileType,
+    file_size: uploaded.fileSize,
+  });
 }

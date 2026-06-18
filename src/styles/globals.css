@@ -119,6 +119,53 @@ body {
 	cursor: progress;
 }
 
+.app-shell {
+	background:
+		radial-gradient(circle at top left, color-mix(in oklab, var(--brand, #b91c1c) 6%, transparent) 0, transparent 28rem),
+		linear-gradient(180deg, #fffdfa 0%, #f7f7f7 24rem, #f7f7f7 100%);
+	color: #1f1f1f;
+}
+
+.dashboard-surface {
+	border: 1px solid color-mix(in oklab, var(--border, #dddddd) 82%, white);
+	background: color-mix(in oklab, var(--surface, #ffffff) 96%, var(--surface-accent, #fff7f5));
+	box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 18px 48px -38px rgb(0 0 0 / 0.36);
+}
+
+.dashboard-surface:hover {
+	border-color: color-mix(in oklab, var(--brand, #b91c1c) 22%, var(--border, #dddddd));
+	box-shadow: 0 16px 42px -34px rgb(0 0 0 / 0.42);
+}
+
+.dashboard-muted-panel {
+	border: 1px solid #ececec;
+	background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+}
+
+.status-success {
+	border-color: var(--status-success-border);
+	background: var(--status-success-bg);
+	color: var(--status-success);
+}
+
+.status-warning {
+	border-color: var(--status-warning-border);
+	background: var(--status-warning-bg);
+	color: var(--status-warning);
+}
+
+.status-danger {
+	border-color: var(--status-danger-border);
+	background: var(--status-danger-bg);
+	color: var(--status-danger);
+}
+
+.status-info {
+	border-color: var(--status-info-border);
+	background: var(--status-info-bg);
+	color: var(--status-info);
+}
+
 @media (max-width: 640px) {
 	:where([data-slot="card"]) {
 		border-radius: 1rem;

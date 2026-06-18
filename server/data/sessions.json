@@ -1,12 +1,3 @@
 {
-  "sessions": {
-    "sess_pewahzn3h": {
-      "userId": "u_v2vleyzoz",
-      "expiresAtMs": 1781605941383
-    },
-    "sess_y7s5yjb1i": {
-      "userId": "u_v2vleyzoz",
-      "expiresAtMs": 1781605987537
-    }
-  }
+  "sessions": {}
 }

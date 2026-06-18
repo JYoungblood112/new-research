@@ -1,19 +1,39 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import {
+  addProgressReportEvidenceFile,
+  addProgressReportEvidenceUrl,
   createApplication,
+  createProgressReport,
+  deleteProgressReportEvidenceForReport,
+  getProgressReportEvidenceFileUrl,
   createProject,
   getCurrentProfessor,
+  getProfessorProgressReports,
+  getStudentProgressReports,
   listMyApplications,
   listProjectApplications,
   listProfessorProjects,
   listPublicProjects,
+  updateProgressReport,
+  updateProgressReportReview,
   updateProject,
   updateProjectApplicationStatus,
 } from '../lib/researchPlatformQueries';
 import { supabase } from '../lib/supabase';
 import type { ProfessorSetupProfile, User } from '../lib/api';
-import type { ApplicationRow, ApplicationStatus, Json, ProjectCompensation, ProjectRow, ProjectStatus } from '../lib/database.types';
+import type {
+  ApplicationRow,
+  ApplicationStatus,
+  Json,
+  ProgressEvidenceType,
+  ProgressReportEvidenceRow,
+  ProgressReportRow,
+  ProgressReportStatus,
+  ProjectCompensation,
+  ProjectRow,
+  ProjectStatus,
+} from '../lib/database.types';
 
 export interface ApplicationQuestion {
   question: string;
@@ -52,6 +72,8 @@ export interface ResearchPosting {
 export interface Application {
   id: string;
   postingId: string;
+  postingTitle?: string;
+  postingProfessorId?: string;
   studentId: string;
   studentName: string;
   studentEmail: string;
@@ -67,6 +89,73 @@ export interface Application {
   submittedAt: string;
 }
 
+export interface ProgressReportEvidence {
+  id: string;
+  progressReportId: string;
+  type: ProgressEvidenceType;
+  title: string;
+  description?: string;
+  externalUrl?: string;
+  fileUrl?: string;
+  filePath?: string;
+  fileName?: string;
+  fileType?: string;
+  fileSize?: number;
+  createdAt: string;
+  isLegacy?: boolean;
+}
+
+export type ProgressReportEvidenceDraft =
+  | {
+      mode: 'url';
+      type: ProgressEvidenceType;
+      title: string;
+      description?: string;
+      externalUrl: string;
+    }
+  | {
+      mode: 'file';
+      type: ProgressEvidenceType;
+      title: string;
+      description?: string;
+      file: File;
+    }
+  | {
+      mode: 'existing';
+      evidence: ProgressReportEvidence;
+    };
+
+export interface ProgressEvidenceLink {
+  id: string;
+  type: ProgressEvidenceType;
+  url: string;
+  description: string;
+}
+
+export interface ProgressReport {
+  id: string;
+  projectId: string;
+  projectTitle: string;
+  studentId: string;
+  studentName: string;
+  studentEmail: string;
+  professorId: string;
+  reportingPeriod: string;
+  hoursWorked: number;
+  tasksCompleted: string;
+  resultsAchieved: string;
+  challenges: string;
+  nextSteps: string;
+  skillsUsed: string[];
+  evidence: ProgressReportEvidence[];
+  evidenceLinks: ProgressEvidenceLink[];
+  status: ProgressReportStatus;
+  professorComment: string;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface DataContextType {
   postings: ResearchPosting[];
   projectsLoading: boolean;
@@ -76,18 +165,29 @@ interface DataContextType {
   applicationsLoading: boolean;
   applicationsError: string | null;
   refreshApplications: () => Promise<void>;
+  progressReports: ProgressReport[];
+  progressReportsLoading: boolean;
+  progressReportsError: string | null;
+  refreshProgressReports: () => Promise<void>;
   addPosting: (posting: Omit<ResearchPosting, 'id' | 'createdAt'>) => Promise<ResearchPosting>;
   updatePosting: (id: string, updates: Partial<ResearchPosting>) => Promise<void>;
   addApplication: (application: Omit<Application, 'id' | 'submittedAt'>) => Promise<Application>;
   updateApplicationStatus: (id: string, status: Application['status']) => Promise<void>;
+  submitProgressReport: (report: Omit<ProgressReport, 'id' | 'projectTitle' | 'studentName' | 'studentEmail' | 'status' | 'professorComment' | 'reviewedAt' | 'createdAt' | 'updatedAt' | 'evidence' | 'evidenceLinks'> & { evidence?: ProgressReportEvidenceDraft[] }) => Promise<ProgressReport>;
+  editProgressReport: (id: string, updates: Partial<Pick<ProgressReport, 'reportingPeriod' | 'hoursWorked' | 'tasksCompleted' | 'resultsAchieved' | 'challenges' | 'nextSteps' | 'skillsUsed'>> & { evidence?: ProgressReportEvidenceDraft[] }) => Promise<ProgressReport>;
+  reviewProgressReport: (id: string, status: ProgressReportStatus, professorComment?: string) => Promise<ProgressReport>;
+  openProgressReportEvidenceFile: (filePath: string) => Promise<string>;
   getPostingsByProfessor: (professorId: string) => ResearchPosting[];
   getApplicationsByPosting: (postingId: string) => Application[];
   getApplicationsByStudent: (studentId: string) => Application[];
+  getProgressReportsByStudent: (studentId: string) => ProgressReport[];
+  getProgressReportsByProfessor: (professorId: string) => ProgressReport[];
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 const requireProjectApproval = import.meta.env.VITE_REQUIRE_PROJECT_APPROVAL === 'true';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const PROFESSOR_BIO_URL_BY_EMAIL: Record<string, string> = {
   'schen@andrew.cmu.edu': 'https://www.cs.cmu.edu/directory/schen',
@@ -136,6 +236,10 @@ type ProfessorSnapshot = {
 
 function asString(value: unknown, fallback = '') {
   return typeof value === 'string' && value.trim() ? value : fallback;
+}
+
+function isUuid(value: string) {
+  return UUID_PATTERN.test(value);
 }
 
 function asStringArray(value: unknown): string[] {
@@ -361,12 +465,15 @@ function asResume(value: Json): Application['resume'] {
   };
 }
 
-function mapSupabaseApplicationToApplication(row: ApplicationRow): Application {
+function mapSupabaseApplicationToApplication(row: ApplicationRow & Record<string, any>): Application {
   const snapshot = asRecord(row.student_snapshot);
+  const project = asProjectRecord(row.projects);
 
   return {
     id: row.id,
     postingId: row.project_id,
+    postingTitle: asString(project.title) || undefined,
+    postingProfessorId: asString(project.professor_id) || undefined,
     studentId: row.student_id,
     studentName: asString(snapshot.name, 'Student Applicant'),
     studentEmail: asString(snapshot.email),
@@ -388,6 +495,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [applications, setApplications] = useState<Application[]>([]);
   const [applicationsLoading, setApplicationsLoading] = useState(false);
   const [applicationsError, setApplicationsError] = useState<string | null>(null);
+  const [progressReports, setProgressReports] = useState<ProgressReport[]>([]);
+  const [progressReportsLoading, setProgressReportsLoading] = useState(false);
+  const [progressReportsError, setProgressReportsError] = useState<string | null>(null);
 
   const refreshProjects = async () => {
     setProjectsLoading(true);
@@ -571,6 +681,288 @@ export function DataProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const asEvidenceLinks = (value: Json): ProgressEvidenceLink[] => {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value
+      .map((entry, index) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+          return null;
+        }
+
+        const type = asString(entry.type, 'other') as ProgressEvidenceType;
+        const url = asString(entry.url);
+        const description = asString(entry.description);
+
+        if (!url && !description) {
+          return null;
+        }
+
+        return {
+          id: asString(entry.id, `evidence-${index}`),
+          type,
+          url,
+          description,
+        };
+      })
+      .filter((entry): entry is ProgressEvidenceLink => Boolean(entry));
+  };
+
+  const mapProgressReportEvidenceRow = (row: ProgressReportEvidenceRow): ProgressReportEvidence => ({
+    id: row.id,
+    progressReportId: row.progress_report_id,
+    type: row.type,
+    title: row.title,
+    description: row.description ?? undefined,
+    externalUrl: row.external_url ?? undefined,
+    fileUrl: row.file_url ?? undefined,
+    filePath: row.file_path ?? undefined,
+    fileName: row.file_name ?? undefined,
+    fileType: row.file_type ?? undefined,
+    fileSize: row.file_size ?? undefined,
+    createdAt: row.created_at,
+  });
+
+  const legacyEvidenceLinksToEvidence = (reportId: string, links: ProgressEvidenceLink[]): ProgressReportEvidence[] => {
+    // TODO: migrate legacy progress_reports.evidence_links JSONB into progress_report_evidence rows.
+    return links.map((link, index) => ({
+      id: `legacy-${reportId}-${link.id || index}`,
+      progressReportId: reportId,
+      type: link.type,
+      title: link.description || link.url || 'Legacy evidence link',
+      description: link.description || undefined,
+      externalUrl: link.url || undefined,
+      createdAt: new Date(0).toISOString(),
+      isLegacy: true,
+    }));
+  };
+
+  const mapProgressReportRowToReport = (row: ProgressReportRow & Record<string, any>): ProgressReport => {
+    const posting = postings.find((entry) => entry.id === row.project_id);
+    const matchingApplication = applications.find(
+      (application) => application.postingId === row.project_id && application.studentId === row.student_id
+    );
+    const projectTitle = asString(row.projects?.title, posting?.title ?? 'Research Project');
+    const legacyLinks = asEvidenceLinks(row.evidence_links);
+    const evidenceRows = Array.isArray(row.progress_report_evidence) ? row.progress_report_evidence : [];
+    const evidence = [
+      ...evidenceRows.map((entry: ProgressReportEvidenceRow) => mapProgressReportEvidenceRow(entry)),
+      ...legacyEvidenceLinksToEvidence(row.id, legacyLinks),
+    ];
+
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      projectTitle,
+      studentId: row.student_id,
+      studentName: matchingApplication?.studentName ?? (user?.id === row.student_id ? user.name : 'Student Applicant'),
+      studentEmail: matchingApplication?.studentEmail ?? (user?.id === row.student_id ? user.email : ''),
+      professorId: row.professor_id,
+      reportingPeriod: row.reporting_period,
+      hoursWorked: Number(row.hours_worked ?? 0),
+      tasksCompleted: row.tasks_completed,
+      resultsAchieved: row.results_achieved ?? '',
+      challenges: row.challenges ?? '',
+      nextSteps: row.next_steps ?? '',
+      skillsUsed: Array.isArray(row.skills_used) ? row.skills_used.filter((skill): skill is string => typeof skill === 'string') : [],
+      evidence,
+      evidenceLinks: legacyLinks,
+      status: row.status as ProgressReportStatus,
+      professorComment: row.professor_comment ?? '',
+      reviewedAt: row.reviewed_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  };
+
+  const refreshProgressReports = async () => {
+    if (!user) {
+      setProgressReports([]);
+      setProgressReportsError(null);
+      setProgressReportsLoading(false);
+      return;
+    }
+
+    setProgressReportsLoading(true);
+    setProgressReportsError(null);
+
+    try {
+      if (user.role === 'student') {
+        const rows = await getStudentProgressReports(user.id);
+        setProgressReports(rows.map((row) => mapProgressReportRowToReport(row as ProgressReportRow & Record<string, any>)));
+        return;
+      }
+
+      if (user.role === 'professor') {
+        const rows = await getProfessorProgressReports(user.id);
+        setProgressReports(rows.map((row) => mapProgressReportRowToReport(row as ProgressReportRow & Record<string, any>)));
+        return;
+      }
+
+      setProgressReports([]);
+    } catch (error) {
+      setProgressReportsError(error instanceof Error ? error.message : 'Unable to load progress reports.');
+      setProgressReports([]);
+    } finally {
+      setProgressReportsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshProgressReports();
+  }, [user?.id, user?.role, postings, applications]);
+
+  const submitProgressReport = async (
+    report: Omit<ProgressReport, 'id' | 'projectTitle' | 'studentName' | 'studentEmail' | 'status' | 'professorComment' | 'reviewedAt' | 'createdAt' | 'updatedAt' | 'evidence' | 'evidenceLinks'> & {
+      evidence?: ProgressReportEvidenceDraft[];
+    }
+  ) => {
+    if (!user || user.role !== 'student') {
+      throw new Error('Only student accounts can submit progress reports.');
+    }
+
+    if (report.studentId !== user.id) {
+      throw new Error('Progress reports must be submitted by the signed-in student.');
+    }
+
+    if (!isUuid(report.projectId) || !isUuid(report.professorId) || !isUuid(user.id)) {
+      throw new Error('Choose a valid research project before submitting a progress report.');
+    }
+
+    const row = await createProgressReport({
+      project_id: report.projectId,
+      student_id: user.id,
+      professor_id: report.professorId,
+      reporting_period: report.reportingPeriod.trim(),
+      hours_worked: report.hoursWorked,
+      tasks_completed: report.tasksCompleted.trim(),
+      results_achieved: report.resultsAchieved.trim() || null,
+      challenges: report.challenges.trim() || null,
+      next_steps: report.nextSteps.trim() || null,
+      skills_used: report.skillsUsed,
+      evidence_links: [],
+      status: 'pending_approval',
+    });
+
+    if (report.evidence && report.evidence.length > 0) {
+      await Promise.all(
+        report.evidence.map((item) => {
+          if (item.mode === 'file') {
+            return addProgressReportEvidenceFile({
+              progressReportId: row.id,
+              studentId: user.id,
+              type: item.type,
+              title: item.title.trim(),
+              description: item.description,
+              file: item.file,
+            });
+          }
+
+          return addProgressReportEvidenceUrl({
+            progress_report_id: row.id,
+            type: item.type,
+            title: item.title.trim(),
+            description: item.description?.trim() || null,
+            external_url: item.externalUrl.trim(),
+          });
+        })
+      );
+    }
+
+    const refreshedRows = await getStudentProgressReports(user.id);
+    const refreshedRow = refreshedRows.find((entry) => entry.id === row.id) ?? row;
+    const savedReport = mapProgressReportRowToReport(refreshedRow as ProgressReportRow & Record<string, any>);
+    setProgressReports((prev) => [savedReport, ...prev.filter((entry) => entry.id !== savedReport.id)]);
+    return savedReport;
+  };
+
+  const editProgressReport = async (
+    id: string,
+    updates: Partial<Pick<ProgressReport, 'reportingPeriod' | 'hoursWorked' | 'tasksCompleted' | 'resultsAchieved' | 'challenges' | 'nextSteps' | 'skillsUsed'>> & {
+      evidence?: ProgressReportEvidenceDraft[];
+    }
+  ) => {
+    const row = await updateProgressReport(id, {
+      reporting_period: updates.reportingPeriod?.trim(),
+      hours_worked: updates.hoursWorked,
+      tasks_completed: updates.tasksCompleted?.trim(),
+      results_achieved: updates.resultsAchieved?.trim() || null,
+      challenges: updates.challenges?.trim() || null,
+      next_steps: updates.nextSteps?.trim() || null,
+      skills_used: updates.skillsUsed,
+    });
+
+    if (updates.evidence) {
+      if (!user || user.role !== 'student') {
+        throw new Error('Only student accounts can edit progress report evidence.');
+      }
+
+      const preservedFilePaths = updates.evidence
+        .filter((item) => item.mode === 'existing')
+        .map((item) => item.evidence.filePath)
+        .filter((entry): entry is string => Boolean(entry));
+      await deleteProgressReportEvidenceForReport(id, preservedFilePaths);
+      await Promise.all(
+        updates.evidence.map((item) => {
+          if (item.mode === 'existing') {
+            return addProgressReportEvidenceUrl({
+              progress_report_id: id,
+              type: item.evidence.type,
+              title: item.evidence.title,
+              description: item.evidence.description ?? null,
+              external_url: item.evidence.externalUrl ?? null,
+              file_url: item.evidence.fileUrl ?? null,
+              file_path: item.evidence.filePath ?? null,
+              file_name: item.evidence.fileName ?? null,
+              file_type: item.evidence.fileType ?? null,
+              file_size: item.evidence.fileSize ?? null,
+            });
+          }
+
+          if (item.mode === 'file') {
+            return addProgressReportEvidenceFile({
+              progressReportId: id,
+              studentId: user.id,
+              type: item.type,
+              title: item.title.trim(),
+              description: item.description,
+              file: item.file,
+            });
+          }
+
+          return addProgressReportEvidenceUrl({
+            progress_report_id: id,
+            type: item.type,
+            title: item.title.trim(),
+            description: item.description?.trim() || null,
+            external_url: item.externalUrl.trim(),
+          });
+        })
+      );
+    }
+
+    const refreshedRows = user?.role === 'student'
+      ? await getStudentProgressReports(user.id)
+      : [];
+    const refreshedRow = refreshedRows.find((entry) => entry.id === id) ?? row;
+    const savedReport = mapProgressReportRowToReport(refreshedRow as ProgressReportRow & Record<string, any>);
+    setProgressReports((prev) => prev.map((entry) => (entry.id === savedReport.id ? savedReport : entry)));
+    return savedReport;
+  };
+
+  const reviewProgressReport = async (id: string, status: ProgressReportStatus, professorComment?: string) => {
+    const row = await updateProgressReportReview(id, status, professorComment);
+    const savedReport = mapProgressReportRowToReport(row as ProgressReportRow & Record<string, any>);
+    setProgressReports((prev) => prev.map((entry) => (entry.id === savedReport.id ? savedReport : entry)));
+    return savedReport;
+  };
+
+  const openProgressReportEvidenceFile = async (filePath: string) => {
+    return getProgressReportEvidenceFileUrl(filePath);
+  };
+
   const getPostingsByProfessor = (professorId: string) => {
     return postings.filter((p) => p.professorId === professorId);
   };
@@ -581,6 +973,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const getApplicationsByStudent = (studentId: string) => {
     return applications.filter((a) => a.studentId === studentId);
+  };
+
+  const getProgressReportsByStudent = (studentId: string) => {
+    return progressReports.filter((report) => report.studentId === studentId);
+  };
+
+  const getProgressReportsByProfessor = (professorId: string) => {
+    return progressReports.filter((report) => report.professorId === professorId);
   };
 
   return (
@@ -594,13 +994,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
         applicationsLoading,
         applicationsError,
         refreshApplications,
+        progressReports,
+        progressReportsLoading,
+        progressReportsError,
+        refreshProgressReports,
         addPosting,
         updatePosting,
         addApplication,
         updateApplicationStatus,
+        submitProgressReport,
+        editProgressReport,
+        reviewProgressReport,
+        openProgressReportEvidenceFile,
         getPostingsByProfessor,
         getApplicationsByPosting,
         getApplicationsByStudent,
+        getProgressReportsByStudent,
+        getProgressReportsByProfessor,
       }}
     >
       {children}

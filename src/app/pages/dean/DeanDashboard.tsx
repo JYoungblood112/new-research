@@ -176,8 +176,8 @@ export default function DeanDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f7f7f7] text-[#1f1f1f]">
-      <header className="border-b border-[#dddddd] bg-white">
+    <div className="app-shell min-h-screen text-[#1f1f1f]">
+      <header className="border-b border-[#e6dfdc] bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-4 px-4 py-5">
           <div className="space-y-1">
             <p className="text-xs font-medium uppercase tracking-[0.22em] text-[#8b7f79]">Dean Workspace</p>
@@ -198,7 +198,7 @@ export default function DeanDashboard() {
       </header>
 
       <main className="mx-auto flex max-w-[1400px] gap-4 px-4 py-6">
-        <aside className={`sticky top-4 hidden max-h-[calc(100vh-3rem)] self-start overflow-y-auto rounded-2xl border border-[#dddddd] bg-white p-3 shadow-sm transition-all duration-300 lg:block ${sidebarCollapsed ? 'w-[84px]' : 'w-[270px]'}`}>
+        <aside className={`dashboard-surface sticky top-4 hidden max-h-[calc(100vh-3rem)] self-start overflow-y-auto rounded-2xl p-3 transition-all duration-300 lg:block ${sidebarCollapsed ? 'w-[84px]' : 'w-[270px]'}`}>
           <div className="mb-3 flex items-center justify-between">
             {!sidebarCollapsed ? (
               <div>
@@ -248,7 +248,7 @@ export default function DeanDashboard() {
           {deanOverviewStats.map((stat, index) => {
             const Icon = metricIcon(index);
             return (
-              <div key={stat.label} className="rounded-2xl border border-[#dddddd] bg-white p-4 shadow-sm">
+              <div key={stat.label} className="dashboard-surface rounded-2xl p-4">
                 <Icon className="h-5 w-5 text-red-700" />
                 <p className="mt-3 text-xs font-medium uppercase tracking-wide text-[#777777]">{stat.label}</p>
                 <p className="mt-2 text-2xl font-bold text-[#1f1f1f]">{stat.value}</p>
@@ -578,7 +578,7 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-[#dddddd] bg-white p-5 shadow-sm">
+    <section className="dashboard-surface rounded-2xl p-5">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-[#1f1f1f]">{title}</h2>
@@ -603,7 +603,7 @@ function MetricGrid({ rows }: { rows: string[][] }) {
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-[#eeeeee] bg-[#fafafa] p-3">
+    <div className="dashboard-muted-panel rounded-2xl p-3">
       <p className="text-lg font-bold text-[#1f1f1f]">{value}</p>
       <p className="mt-1 text-xs text-[#666666]">{label}</p>
     </div>

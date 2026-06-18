@@ -1,376 +1,711 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { AlertCircle, ArrowLeft, Brain, CheckCircle, ExternalLink, FileSearch, ShieldAlert, Sparkles, Target, XCircle } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  FileQuestion,
+  FileSearch,
+  Github,
+  GraduationCap,
+  HelpCircle,
+  Linkedin,
+  MessageSquare,
+  ShieldCheck,
+  Target,
+  XCircle,
+} from 'lucide-react';
 
-import { useData } from '../../contexts/DataContext';
+import { useData, type Application, type ResearchPosting } from '../../contexts/DataContext';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { Progress } from '../../components/ui/progress';
 
-function getSuggestedCoursework(project: string, major: string) {
-  const base = ['15-122 Principles of Imperative Computation'];
-  const normalizedProject = project.toLowerCase();
-  const normalizedMajor = major.toLowerCase();
+type FitLevel = 'Strong Fit' | 'Good Fit' | 'Possible Fit' | 'Weak Fit' | 'Low Fit';
+type AlignmentLevel = 'Strong Alignment' | 'Moderate Alignment' | 'Limited Alignment' | 'No Evidence';
+type EvidenceStrength = 'Strong' | 'Moderate' | 'Limited' | 'Missing';
+type SourceKind = 'Resume' | 'Transcript' | 'GitHub' | 'LinkedIn' | 'Progress Reports' | 'Faculty Verification';
 
-  if (normalizedProject.includes('nlp') || normalizedProject.includes('llm') || normalizedProject.includes('language')) {
-    return ['11-411 Natural Language Processing', '10-601 Machine Learning', ...base];
-  }
-
-  if (normalizedProject.includes('vision') || normalizedProject.includes('imag')) {
-    return ['16-385 Computer Vision', '10-601 Machine Learning', ...base];
-  }
-
-  if (normalizedProject.includes('robot')) {
-    return ['16-311 Introduction to Robotics', '16-299 Robotics Programming', ...base];
-  }
-
-  if (normalizedProject.includes('hci') || normalizedProject.includes('interface')) {
-    return ['05-410 User-Centered Research and Evaluation', '05-430 Programming Usable Interfaces', ...base];
-  }
-
-  if (normalizedMajor.includes('computer science') || normalizedMajor.includes('ai')) {
-    return ['10-601 Machine Learning', '15-210 Parallel and Sequential Data Structures', ...base];
-  }
-
-  return ['36-401 Modern Regression', '70-311 Organizational Design and Implementation', ...base];
-}
-
-type EvidenceProof = {
+type ScoreComponent = {
+  key: string;
   label: string;
-  detail: string;
-  href?: string;
+  earned: number;
+  possible: number;
+  explanation: string;
 };
 
-function getProofHref(source: 'resume' | 'github' | 'linkedin' | 'note', repoName?: string) {
-  if (source === 'resume') {
-    return '#submitted-resume';
-  }
-  if (source === 'github') {
-    return repoName ? `https://github.com/student-profile/${repoName}` : 'https://github.com/student-profile';
-  }
-  if (source === 'linkedin') {
-    return 'https://www.linkedin.com/in/student-profile';
-  }
-  return '#application-note';
-}
-
-function buildAiInsights(score: number, project: string, major: string, resumeName: string, quickNote: string) {
-  const coursework = getSuggestedCoursework(project, major);
-
-  const strengths = [
-    {
-      title: 'Strong Python experience',
-      because: `Because of resume project and implementation evidence in ${resumeName}.`,
-      source: `Resume project stack mentions Python-based workflows and experiment implementation, which matches requirements in your project description. Coursework alignment: ${coursework[0]} and ${coursework[1]} reinforce model development, experimentation, and evaluation skills directly used in this research project.`,
-      proof: [
-        { label: 'Resume', detail: `${resumeName} contains the submitted project/skills evidence.`, href: getProofHref('resume') },
-        { label: 'Coursework', detail: coursework.slice(0, 2).join(', '), href: getProofHref('resume') },
-      ],
-    },
-    {
-      title: 'Relevant ML coursework',
-      because: `Because of course taken: ${coursework[0]} and ${coursework[1]}.`,
-      source: `Course trajectory aligns with ${project} requirements by connecting concepts learned in class to the project's expected research workflow and deliverables.`,
-      proof: [
-        { label: 'Coursework', detail: `${coursework[0]} and ${coursework[1]}`, href: getProofHref('resume') },
-      ],
-    },
-    {
-      title: 'High quality resume and role alignment',
-      because: `Because application note focuses on outcomes tied to this role: "${quickNote}"`,
-      source: 'Statement and project alignment indicate readiness for weekly research deliverables.',
-      proof: [
-        { label: 'Application note', detail: quickNote, href: getProofHref('note') },
-        { label: 'Resume', detail: resumeName, href: getProofHref('resume') },
-      ],
-    },
-  ];
-
-  const concerns = [
-    {
-      title: 'No publication experience listed',
-      because: 'Because no accepted publication artifacts are referenced in submitted materials.',
-      source: 'Resume/application currently emphasize coursework and projects over peer-reviewed outputs.',
-      proof: [
-        { label: 'Resume', detail: `${resumeName} does not show accepted publication artifacts.`, href: getProofHref('resume') },
-      ],
-    },
-    {
-      title: 'Limited prior lab research background',
-      because: `Because strongest evidence is coursework (${coursework[0]}) rather than long-form lab tenure.`,
-      source: 'Potential fit is strong, but mentorship ramp-up may be required in first weeks.',
-      proof: [
-        { label: 'Coursework', detail: coursework[0], href: getProofHref('resume') },
-        { label: 'Application note', detail: quickNote, href: getProofHref('note') },
-      ],
-    },
-  ];
-
-  if (score < 80) {
-    strengths[2] = {
-      title: 'Clear motivation for research growth',
-      because: `Because application note expresses growth intent: "${quickNote}"`,
-      source: 'Motivation signal is high even with lighter prior depth in formal research outputs.',
-      proof: [
-        { label: 'Application note', detail: quickNote, href: getProofHref('note') },
-      ],
-    };
-    concerns[1] = {
-      title: 'Portfolio depth appears early-stage',
-      because: `Because current evidence centers around coursework (${coursework[0]}) and class projects.`,
-      source: 'Consider scoped onboarding milestones before assigning independent project ownership.',
-      proof: [
-        { label: 'Coursework', detail: coursework[0], href: getProofHref('resume') },
-      ],
-    };
-  }
-
-  return {
-    strengths,
-    concerns,
-    coursework,
-    summary:
-      score >= 90
-        ? 'Candidate is a strong fit based on technical alignment, consistency, and applied project depth.'
-        : score >= 75
-          ? 'Candidate shows promising fit with good baseline alignment and clear potential with mentorship.'
-          : 'Candidate may fit selective roles with support; recommend clarifying readiness during screening.',
-    recommendation:
-      score >= 90
-        ? 'Advance to final interview and discuss scope ownership from week one.'
-        : score >= 75
-          ? 'Proceed to interview and validate research communication depth.'
-          : 'Consider exploratory interview only if role has onboarding capacity.',
-  };
-}
-
-function parseRequirementItems(raw: string) {
-  return raw
-    .split(/\n|;|\.|\|/)
-    .map((entry) => entry.replace(/^[-*\d)\s]+/, '').trim())
-    .filter((entry) => entry.length >= 4);
-}
-
-function getKeywordHints(text: string) {
-  const normalized = text.toLowerCase();
-  return {
-    python: normalized.includes('python'),
-    ml: normalized.includes('machine learning') || normalized.includes('ml'),
-    stats: normalized.includes('stat') || normalized.includes('regression'),
-    nlp: normalized.includes('nlp') || normalized.includes('language model') || normalized.includes('llm'),
-    research: normalized.includes('research') || normalized.includes('publication') || normalized.includes('paper'),
-    communication: normalized.includes('communication') || normalized.includes('present') || normalized.includes('writing'),
-    data: normalized.includes('data') || normalized.includes('dataset') || normalized.includes('analysis'),
-  };
-}
-
-type RequirementMatchStatus = 'pass' | 'partial' | 'missing';
-
-type RequirementMatch = {
+type RequirementAlignment = {
   requirement: string;
-  priority: 'Required' | 'Preferred';
-  status: RequirementMatchStatus;
+  alignment: AlignmentLevel;
   evidence: string;
-  example: string;
-  gapNote: string;
-  proof: EvidenceProof[];
+  gap: string;
 };
 
-function buildRequirementMatches(
-  requiredItems: string[],
-  preferredItems: string[],
-  major: string,
-  resumeName: string,
-  quickNote: string,
-  coursework: string[]
-): RequirementMatch[] {
-  const profileText = `${major} ${resumeName} ${quickNote} ${coursework.join(' ')}`;
-  const profileHints = getKeywordHints(profileText);
+type EvidenceSource = {
+  source: SourceKind;
+  used: boolean;
+  contribution: string;
+  strength: EvidenceStrength;
+};
 
-  const evaluate = (requirement: string, priority: 'Required' | 'Preferred'): RequirementMatch => {
-    const reqHints = getKeywordHints(requirement);
-    const matchedSignals: string[] = [];
-    const proof: EvidenceProof[] = [];
+type Evaluation = {
+  finalScore: number;
+  fitLevel: FitLevel;
+  recommendationSentence: string;
+  strengths: string[];
+  concerns: string[];
+  components: ScoreComponent[];
+  requirements: RequirementAlignment[];
+  sources: EvidenceSource[];
+  relevantCourses: string[];
+  lessRelevantCourses: string[];
+  areasToStrengthen: string[];
+  decisionAction: string;
+  decisionWhy: string;
+  interviewQuestions: string[];
+};
 
-    if (reqHints.python && profileHints.python) {
-      matchedSignals.push('Resume evidence indicates Python implementation experience.');
-      proof.push({ label: 'Resume', detail: `${resumeName} is the submitted source for Python/project evidence.`, href: getProofHref('resume') });
-    }
-    if (reqHints.ml && profileHints.ml) {
-      matchedSignals.push(`Coursework alignment: ${coursework[0]} and ${coursework[1]}.`);
-      proof.push({ label: 'Coursework', detail: `${coursework[0]} and ${coursework[1]}`, href: getProofHref('resume') });
-    }
-    if (reqHints.stats && profileHints.stats) {
-      matchedSignals.push('Statistical methods signal appears in coursework/background.');
-      proof.push({ label: 'Coursework', detail: coursework[0], href: getProofHref('resume') });
-    }
-    if (reqHints.nlp && profileHints.nlp) {
-      matchedSignals.push(`Domain-fit signal present for language-model tasks in ${quickNote}.`);
-      proof.push({ label: 'Application note', detail: quickNote, href: getProofHref('note') });
-    }
-    if (reqHints.research && profileHints.research) {
-      matchedSignals.push('Research intent is explicit in application note and profile.');
-      proof.push({ label: 'Application note', detail: quickNote, href: getProofHref('note') });
-    }
-    if (reqHints.communication && profileHints.communication) {
-      matchedSignals.push('Communication/readout signal found in applicant narrative.');
-      proof.push({ label: 'Application note', detail: quickNote, href: getProofHref('note') });
-    }
-    if (reqHints.data && profileHints.data) {
-      matchedSignals.push('Data workflow signal appears in resume/project framing.');
-      proof.push({ label: 'Resume', detail: `${resumeName} supports data workflow review.`, href: getProofHref('resume') });
-    }
+const COMPONENT_WEIGHTS = {
+  requirementMatch: 40,
+  researchEvidence: 20,
+  technicalSkills: 15,
+  coursework: 10,
+  evidenceQuality: 10,
+  writingQuality: 5,
+};
 
-    const status: RequirementMatchStatus =
-      matchedSignals.length >= 2 ? 'pass' : matchedSignals.length === 1 ? 'partial' : 'missing';
+const PLACEHOLDER_PATTERNS = [
+  /up to \d+ concise/i,
+  /up to \d+ constructive/i,
+  /short exact evidence phrase/i,
+  /\b(?:student_role|skills_needed|fit_reasoning|required_qualifications|preferred_qualifications)\b/i,
+];
 
-    let example = `Example: personal statement says "${quickNote}".`;
-    if (reqHints.ml) {
-      example = `Example: completed ${coursework[0]} and ${coursework[1]} for model training and evaluation workflows.`;
-    } else if (reqHints.python) {
-      example = `Example: ${resumeName} references Python-based implementation for experiment pipelines.`;
-    } else if (reqHints.research) {
-      example = `Example: application note states "${quickNote}", indicating explicit research intent.`;
-    } else if (reqHints.stats) {
-      example = `Example: quantitative preparation is reflected through ${coursework[0]} in the submitted profile.`;
-    } else if (reqHints.communication) {
-      example = `Example: applicant narrative in the quick note demonstrates communication of research goals.`;
-    } else if (reqHints.data) {
-      example = `Example: coursework path (${coursework[0]}) supports data analysis and evidence interpretation tasks.`;
-    }
+function cleanText(value: string) {
+  return value
+    .replace(/\bstudent_role\b/gi, 'Student background')
+    .replace(/\bskills_needed\b/gi, 'Required skills')
+    .replace(/\brequired_qualifications\b/gi, 'Required qualifications')
+    .replace(/\bpreferred_qualifications\b/gi, 'Preferred qualifications')
+    .trim();
+}
 
-    if (status === 'missing') {
-      example = `Example gap: no direct mention of "${requirement}" was found in ${resumeName} or the submitted quick note.`;
-    }
+function isUsableText(value: string) {
+  const cleaned = cleanText(value);
+  return cleaned.length > 0 && !PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(cleaned));
+}
 
-    const gapNote =
-      status === 'missing'
-        ? 'No direct evidence found in this submission; validate explicitly during interview.'
-        : status === 'partial'
-          ? 'Some evidence exists, but depth should be verified with concrete examples.'
-          : 'Multiple aligned signals found in submitted materials.';
+function splitItems(value: string) {
+  return value
+    .split(/\n|;|\||\.(?=\s+[A-Z0-9])/)
+    .map((entry) => cleanText(entry.replace(/^[-*\d)\s]+/, '').trim()))
+    .filter((entry) => entry.length >= 4)
+    .filter(isUsableText);
+}
 
+function tokenize(value: string) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9+#\s]/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word.length >= 3)
+    .filter(
+      (word) =>
+        ![
+          'and',
+          'the',
+          'for',
+          'with',
+          'from',
+          'this',
+          'that',
+          'role',
+          'student',
+          'research',
+          'project',
+          'experience',
+          'work',
+          'using',
+        ].includes(word)
+    );
+}
+
+function overlap(requirement: string, evidence: string) {
+  const reqTokens = new Set(tokenize(requirement));
+  const evidenceTokens = new Set(tokenize(evidence));
+  let score = 0;
+  reqTokens.forEach((token) => {
+    if (evidenceTokens.has(token)) score += 1;
+  });
+  return score;
+}
+
+function courseLabel(course: Application['coursework'][number]) {
+  if (typeof course === 'string') return course.trim();
+  return [course.courseNumber, course.courseName].filter(Boolean).join(' - ').trim();
+}
+
+function classifyFit(score: number): FitLevel {
+  if (score >= 85) return 'Strong Fit';
+  if (score >= 70) return 'Good Fit';
+  if (score >= 55) return 'Possible Fit';
+  if (score >= 40) return 'Weak Fit';
+  return 'Low Fit';
+}
+
+function fitBadgeClass(level: FitLevel) {
+  if (level === 'Strong Fit') return 'status-success';
+  if (level === 'Good Fit') return 'status-info';
+  if (level === 'Possible Fit') return 'status-warning';
+  return 'status-danger';
+}
+
+function evidenceBadgeClass(strength: EvidenceStrength | AlignmentLevel) {
+  if (strength === 'Strong' || strength === 'Strong Alignment') return 'status-success';
+  if (strength === 'Moderate' || strength === 'Moderate Alignment') return 'status-info';
+  if (strength === 'Limited' || strength === 'Limited Alignment') return 'status-warning';
+  return 'status-danger';
+}
+
+function alignmentScore(alignment: AlignmentLevel) {
+  if (alignment === 'Strong Alignment') return 1;
+  if (alignment === 'Moderate Alignment') return 0.6;
+  if (alignment === 'Limited Alignment') return 0.25;
+  return 0;
+}
+
+function buildRequirementText(posting?: ResearchPosting) {
+  if (!posting) return [];
+  const structured = [
+    ...splitItems(posting.requiredQualifications),
+    ...splitItems(posting.preferredQualifications),
+    ...splitItems(posting.studentRoleDescription),
+  ];
+  const fromSkills = posting.skillsNeeded.map((skill) => `${skill} experience or preparation`);
+  return [...structured, ...fromSkills]
+    .filter((item, index, arr) => arr.findIndex((other) => other.toLowerCase() === item.toLowerCase()) === index)
+    .slice(0, 8);
+}
+
+function inferCourseRelevance(courses: string[], posting?: ResearchPosting) {
+  const projectText = [
+    posting?.title,
+    posting?.overview,
+    posting?.category,
+    ...(posting?.researchAreas ?? []),
+    ...(posting?.skillsNeeded ?? []),
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const scored = courses.map((course) => ({
+    course,
+    score:
+      overlap(projectText, course) +
+      (/\b(probability|statistics|regression|data|machine learning|ai|programming|sql|database|linear algebra|nlp|vision|robotics|computing)\b/i.test(course)
+        ? 2
+        : 0),
+  }));
+
+  const relevant = scored
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map((entry) => entry.course)
+    .slice(0, 6);
+  const lessRelevant = courses.filter((course) => !relevant.includes(course));
+  return { relevant, lessRelevant };
+}
+
+function evaluateRequirement(requirement: string, evidenceText: string, courseworkText: string, githubProvided: boolean): RequirementAlignment {
+  const evidenceOverlap = overlap(requirement, evidenceText);
+  const courseOverlap = overlap(requirement, courseworkText);
+  const normalizedRequirement = requirement.toLowerCase();
+
+  const hasDirectEvidence = evidenceOverlap >= 3;
+  const hasRelatedEvidence = evidenceOverlap >= 1 || courseOverlap >= 2;
+  const hasWeakEvidence = courseOverlap >= 1 || /research|analysis|programming|software|data/.test(evidenceText.toLowerCase());
+
+  if (hasDirectEvidence) {
     return {
       requirement,
-      priority,
-      status,
-      evidence:
-        matchedSignals.length > 0
-          ? matchedSignals.join(' ')
-          : `Requirement appears in posting, but current profile (${major}) and note do not explicitly reference it.`,
-      example,
-      gapNote,
-      proof:
-        proof.length > 0
-          ? proof
-          : [
-              {
-                label: 'Evidence gap',
-                detail: `No direct proof found in ${resumeName} or the submitted application note.`,
-                href: getProofHref('resume'),
-              },
-            ],
-    };
-  };
-
-  const requiredMatches = requiredItems.slice(0, 5).map((item) => evaluate(item, 'Required'));
-  const preferredMatches = preferredItems.slice(0, 3).map((item) => evaluate(item, 'Preferred'));
-  return [...requiredMatches, ...preferredMatches];
-}
-
-function getReadinessVerdict(
-  matches: Array<{ priority: 'Required' | 'Preferred'; status: RequirementMatchStatus }>
-) {
-  const totals = {
-    requiredMissing: 0,
-    requiredPartial: 0,
-    preferredMissing: 0,
-    preferredPartial: 0,
-  };
-
-  for (const match of matches) {
-    if (match.priority === 'Required') {
-      if (match.status === 'missing') {
-        totals.requiredMissing += 1;
-      }
-      if (match.status === 'partial') {
-        totals.requiredPartial += 1;
-      }
-    } else {
-      if (match.status === 'missing') {
-        totals.preferredMissing += 1;
-      }
-      if (match.status === 'partial') {
-        totals.preferredPartial += 1;
-      }
-    }
-  }
-
-  const riskScore =
-    totals.requiredMissing * 3 + totals.requiredPartial * 2 + totals.preferredMissing + totals.preferredPartial;
-
-  if (totals.requiredMissing >= 2 || riskScore >= 7) {
-    return {
-      label: 'Blocked',
-      toneClass: 'border border-red-200 bg-red-50 text-red-700',
-      reason:
-        'Too many required capability gaps are currently unproven in the submitted materials. Prioritize evidence collection before advancing.',
+      alignment: 'Strong Alignment',
+      evidence: `Direct evidence overlaps with this requirement through the resume/application materials and ${courseOverlap > 0 ? 'related coursework' : 'submitted statement'}.`,
+      gap: 'Validate depth and independence during interview.',
     };
   }
 
-  if (totals.requiredMissing >= 1 || riskScore >= 3) {
+  if (hasRelatedEvidence) {
+    const githubNote = githubProvided
+      ? ' GitHub may provide related project context, but the submitted evidence is not direct enough to mark this strongly met.'
+      : '';
     return {
-      label: 'Conditional',
-      toneClass: 'border border-amber-200 bg-amber-50 text-amber-700',
-      reason:
-        'Candidate has promising signals, but at least one key requirement needs stronger validation in interview or a scoped trial task.',
+      requirement,
+      alignment: 'Moderate Alignment',
+      evidence: `Related evidence exists, especially through coursework or general project preparation.${githubNote}`,
+      gap: `Ask for a concrete example proving ${cleanText(requirement).toLowerCase()}.`,
+    };
+  }
+
+  if (hasWeakEvidence) {
+    return {
+      requirement,
+      alignment: 'Limited Alignment',
+      evidence: 'Only indirect preparation was found. This does not strongly satisfy the requirement.',
+      gap: `No direct artifact or coursework clearly proves ${cleanText(requirement).toLowerCase()}.`,
     };
   }
 
   return {
-    label: 'Ready',
-    toneClass: 'border border-green-200 bg-green-50 text-green-700',
-    reason: 'Requirements evidence is consistently strong across required criteria with manageable preferred-skill gaps.',
+    requirement,
+    alignment: 'No Evidence',
+    evidence: 'No clear evidence was found in the submitted application materials.',
+    gap: `Collect evidence for ${cleanText(requirement).toLowerCase()} before relying on this requirement.`,
   };
 }
 
-function getMatchStatusIcon(status: RequirementMatchStatus) {
-  if (status === 'pass') {
-    return { Icon: CheckCircle, iconClass: 'text-emerald-600' };
-  }
-  if (status === 'partial') {
-    return { Icon: AlertCircle, iconClass: 'text-amber-600' };
-  }
-  return { Icon: XCircle, iconClass: 'text-red-600' };
+function evaluateApplication({
+  application,
+  posting,
+  fallbackScore,
+}: {
+  application?: Application;
+  posting?: ResearchPosting;
+  fallbackScore: number;
+}): Evaluation {
+  const quickNote = application?.quickNote?.trim() ?? '';
+  const answerText = Object.values(application?.answers ?? {}).join(' ');
+  const coursework = (application?.coursework ?? []).map(courseLabel).filter(Boolean);
+  const { relevant, lessRelevant } = inferCourseRelevance(coursework, posting);
+  const requirements = buildRequirementText(posting);
+  const resumeName = application?.resume?.name ?? '';
+  const evidenceText = [
+    application?.studentMajor,
+    resumeName,
+    quickNote,
+    answerText,
+    relevant.join(' '),
+    posting?.skillsNeeded.join(' '),
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const courseworkText = coursework.join(' ');
+  const githubProvided = false;
+  const linkedinProvided = false;
+  const progressProvided = false;
+  const facultyProvided = false;
+
+  const requirementRows =
+    requirements.length > 0
+      ? requirements.map((requirement) => evaluateRequirement(requirement, evidenceText, courseworkText, githubProvided))
+      : [
+          {
+            requirement: 'Project requirements were not specified',
+            alignment: 'No Evidence' as AlignmentLevel,
+            evidence: 'This posting does not include structured requirements, so requirement match could not be scored from direct criteria.',
+            gap: 'Add required and preferred qualifications to make future scoring more precise.',
+          },
+        ];
+
+  const requirementRatio =
+    requirements.length > 0
+      ? requirementRows.reduce((sum, row) => sum + alignmentScore(row.alignment), 0) / requirementRows.length
+      : 0;
+  const requirementPoints = Math.round(requirementRatio * COMPONENT_WEIGHTS.requirementMatch);
+
+  const researchEvidenceSignals = [
+    /\bresearch|lab|paper|publication|poster|study|experiment|dataset|analysis\b/i.test(evidenceText),
+    progressProvided,
+    facultyProvided,
+  ].filter(Boolean).length;
+  const researchEvidencePoints = Math.round((researchEvidenceSignals / 3) * COMPONENT_WEIGHTS.researchEvidence);
+
+  const requestedSkills = posting?.skillsNeeded ?? [];
+  const matchedSkills = requestedSkills.filter((skill) => overlap(skill, evidenceText) > 0).length;
+  const technicalSkillRatio = requestedSkills.length > 0 ? matchedSkills / requestedSkills.length : 0;
+  const technicalSkillPoints = Math.round(technicalSkillRatio * COMPONENT_WEIGHTS.technicalSkills);
+
+  const courseworkPoints = Math.round(Math.min(1, relevant.length / 4) * COMPONENT_WEIGHTS.coursework);
+
+  const evidenceSourcesUsed = [
+    Boolean(resumeName),
+    coursework.length > 0,
+    quickNote.length > 0 || answerText.length > 0,
+    githubProvided,
+    linkedinProvided,
+    progressProvided,
+    facultyProvided,
+  ].filter(Boolean).length;
+  const evidenceQualityPoints = Math.round(Math.min(1, evidenceSourcesUsed / 5) * COMPONENT_WEIGHTS.evidenceQuality);
+
+  const statementLength = `${quickNote} ${answerText}`.trim().length;
+  const writingQualityPoints =
+    statementLength >= 160 ? 5 : statementLength >= 80 ? 4 : statementLength >= 30 ? 2 : 0;
+
+  const computedScore =
+    requirementPoints +
+    researchEvidencePoints +
+    technicalSkillPoints +
+    courseworkPoints +
+    evidenceQualityPoints +
+    writingQualityPoints;
+  const finalScore = requirements.length > 0 || evidenceSourcesUsed > 0 ? computedScore : Math.max(0, Math.min(39, fallbackScore));
+  const fitLevel = classifyFit(finalScore);
+
+  const strongCount = requirementRows.filter((row) => row.alignment === 'Strong Alignment').length;
+  const partialCount = requirementRows.filter((row) => row.alignment === 'Moderate Alignment' || row.alignment === 'Limited Alignment').length;
+  const missingCount = requirementRows.filter((row) => row.alignment === 'No Evidence').length;
+
+  const strengths = [
+    relevant.length > 0 ? `Relevant coursework appears in ${relevant.slice(0, 2).join(', ')}.` : '',
+    technicalSkillPoints > 0 ? `${matchedSkills} required skill${matchedSkills === 1 ? '' : 's'} have at least related evidence.` : '',
+    writingQualityPoints >= 4 ? 'The application statement gives usable context for professor review.' : '',
+  ].filter(Boolean);
+
+  const concerns = [
+    strongCount === 0 ? 'No project requirement is strongly met by direct evidence.' : '',
+    missingCount > 0 ? `${missingCount} requirement${missingCount === 1 ? ' is' : 's are'} missing clear evidence.` : '',
+    !githubProvided ? 'GitHub was not provided, so code/project depth was not included in this score.' : '',
+    researchEvidencePoints < 10 ? 'Research experience evidence is limited or indirect.' : '',
+  ].filter(Boolean);
+
+  const areasToStrengthen = [
+    ...requirementRows
+      .filter((row) => row.alignment !== 'Strong Alignment')
+      .map((row) => row.gap)
+      .slice(0, 5),
+    !githubProvided ? 'Add a GitHub project or artifact that demonstrates relevant technical work.' : '',
+    relevant.length < 2 ? 'Add clearer transcript or coursework evidence tied to this research area.' : '',
+    writingQualityPoints < 4 ? 'Add a more specific research statement with methods, datasets, or project outcomes.' : '',
+  ].filter(Boolean);
+
+  const decisionAction = finalScore >= 70 ? 'Interview' : finalScore >= 55 ? 'Interview if mentoring capacity exists' : finalScore >= 40 ? 'Waitlist' : 'Pass';
+  const decisionWhy =
+    finalScore >= 70
+      ? 'The candidate has enough direct or related evidence to justify a focused interview.'
+      : finalScore >= 55
+        ? 'The candidate has plausible preparation, but key requirements need validation before acceptance.'
+        : finalScore >= 40
+          ? 'The candidate has limited evidence and should be considered only after stronger applicants are reviewed.'
+          : 'The submitted materials do not currently support the research requirements.';
+
+  const interviewQuestions = [
+    ...requirementRows
+      .filter((row) => row.alignment !== 'Strong Alignment')
+      .slice(0, 3)
+      .map((row) => `Can you describe concrete experience with ${row.requirement.toLowerCase()}?`),
+    'Which prior project best demonstrates your readiness for this research position?',
+    'What support would you need in the first month to contribute independently?',
+  ].slice(0, 5);
+
+  return {
+    finalScore,
+    fitLevel,
+    recommendationSentence:
+      `${fitLevel} - ${finalScore}/100. ` +
+      (fitLevel === 'Strong Fit' || fitLevel === 'Good Fit'
+        ? 'The candidate shows credible preparation for this research position, with remaining details to validate in interview.'
+        : 'The candidate shows some preparation, but direct evidence is missing for important research requirements.'),
+    strengths: strengths.length > 0 ? strengths : ['The application includes enough basic profile information to begin review.'],
+    concerns: concerns.length > 0 ? concerns : ['No major concerns were detected from the available evidence.'],
+    components: [
+      { key: 'requirementMatch', label: 'Requirement Match', earned: requirementPoints, possible: 40, explanation: `${strongCount} strongly met, ${partialCount} partially met, ${missingCount} missing evidence.` },
+      { key: 'researchEvidence', label: 'Research Experience / Project Evidence', earned: researchEvidencePoints, possible: 20, explanation: 'Based on research, lab, project, dataset, publication, or progress-report evidence.' },
+      { key: 'technicalSkills', label: 'Technical Skills', earned: technicalSkillPoints, possible: 15, explanation: `${matchedSkills} of ${requestedSkills.length || 0} requested skills had related evidence.` },
+      { key: 'coursework', label: 'Coursework / Academic Preparation', earned: courseworkPoints, possible: 10, explanation: `${relevant.length} relevant courses found.` },
+      { key: 'evidenceQuality', label: 'Evidence Quality', earned: evidenceQualityPoints, possible: 10, explanation: `${evidenceSourcesUsed} usable evidence source${evidenceSourcesUsed === 1 ? '' : 's'} contributed.` },
+      { key: 'writingQuality', label: 'Writing / Statement Quality', earned: writingQualityPoints, possible: 5, explanation: statementLength > 0 ? 'Based on specificity and usefulness of written application context.' : 'No written statement was available.' },
+    ],
+    requirements: requirementRows,
+    sources: [
+      { source: 'Resume', used: Boolean(resumeName), contribution: resumeName ? `${resumeName} provided the baseline application artifact.` : 'No resume file name was available.', strength: resumeName ? 'Moderate' : 'Missing' },
+      { source: 'Transcript', used: coursework.length > 0, contribution: coursework.length > 0 ? `${relevant.length} relevant courses summarized from submitted coursework.` : 'Transcript/coursework was not provided, so it was not included in this score.', strength: relevant.length >= 3 ? 'Strong' : coursework.length > 0 ? 'Moderate' : 'Missing' },
+      { source: 'GitHub', used: githubProvided, contribution: 'GitHub was not provided, so stars, repositories, commits, and languages were not included in this score.', strength: 'Missing' },
+      { source: 'LinkedIn', used: linkedinProvided, contribution: 'LinkedIn was not provided, so professional context was not included in this score.', strength: 'Missing' },
+      { source: 'Progress Reports', used: progressProvided, contribution: 'No verified progress reports were available for this applicant in this context.', strength: 'Missing' },
+      { source: 'Faculty Verification', used: facultyProvided, contribution: 'No faculty verification was available for this applicant in this context.', strength: 'Missing' },
+    ],
+    relevantCourses: relevant,
+    lessRelevantCourses: lessRelevant,
+    areasToStrengthen,
+    decisionAction,
+    decisionWhy,
+    interviewQuestions,
+  };
 }
 
-function ProofLinks({ proof }: { proof: EvidenceProof[] }) {
+function FitBadge({ level }: { level: FitLevel }) {
+  return <Badge className={`rounded-full border px-3 py-1 ${fitBadgeClass(level)}`}>{level}</Badge>;
+}
+
+function EvidenceStrengthBadge({ strength }: { strength: EvidenceStrength | AlignmentLevel }) {
+  return <Badge className={`rounded-full border px-2.5 py-0.5 text-xs ${evidenceBadgeClass(strength)}`}>{strength}</Badge>;
+}
+
+function FitSummaryHeader({
+  studentName,
+  studentMajor,
+  project,
+  evaluation,
+}: {
+  studentName: string;
+  studentMajor: string;
+  project: string;
+  evaluation: Evaluation;
+}) {
   return (
-    <div className="mt-2 flex flex-wrap gap-2">
-      {proof.map((item) =>
-        item.href ? (
-          <a
-            key={`${item.label}-${item.detail}-${item.href}`}
-            href={item.href}
-            target={item.href.startsWith('#') ? undefined : '_blank'}
-            rel={item.href.startsWith('#') ? undefined : 'noreferrer'}
-            className="inline-flex max-w-full items-center gap-1 rounded-full border border-red-200 bg-white px-2 py-1 text-[11px] font-medium text-red-800 underline-offset-2 hover:underline"
-            title={item.detail}
-          >
-            <span className="truncate">{item.label}: {item.detail}</span>
-            {!item.href.startsWith('#') ? <ExternalLink className="h-3 w-3 shrink-0" /> : null}
-          </a>
-        ) : (
-          <span
-            key={`${item.label}-${item.detail}`}
-            className="inline-flex max-w-full rounded-full border border-red-100 bg-white px-2 py-1 text-[11px] font-medium text-red-800"
-            title={item.detail}
-          >
-            <span className="truncate">{item.label}: {item.detail}</span>
-          </span>
-        )
-      )}
+    <Card className="dashboard-surface rounded-2xl">
+      <CardContent className="grid gap-5 p-5 lg:grid-cols-[260px_1fr]">
+        <div className="rounded-2xl border border-[#ececec] bg-[#fbfaf8] p-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#777777]">Candidate Fit Summary</p>
+          <p className="mt-3 text-5xl font-semibold tracking-tight text-[#111111]">{evaluation.finalScore}</p>
+          <p className="text-sm text-[#666666]">/100 confidence score</p>
+          <div className="mt-4">
+            <FitBadge level={evaluation.fitLevel} />
+          </div>
+        </div>
+        <div className="min-w-0 space-y-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-[#111111]">{studentName}</h1>
+            <p className="mt-1 text-sm text-[#666666]">{studentMajor} - {project}</p>
+            <p className="mt-3 text-sm leading-6 text-[#333333]">{evaluation.recommendationSentence}</p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border border-[#e8eee9] bg-[#f8fcf9] p-3">
+              <p className="text-sm font-semibold text-[#166534]">Key strengths</p>
+              <ul className="mt-2 space-y-1 text-sm leading-5 text-[#31533c]">
+                {evaluation.strengths.slice(0, 3).map((item) => <li key={item}>- {item}</li>)}
+              </ul>
+            </div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+              <p className="text-sm font-semibold text-amber-900">Main concerns</p>
+              <ul className="mt-2 space-y-1 text-sm leading-5 text-amber-900">
+                {evaluation.concerns.slice(0, 3).map((item) => <li key={item}>- {item}</li>)}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ScoreBreakdownCard({ components, total }: { components: ScoreComponent[]; total: number }) {
+  return (
+    <Card className="dashboard-surface rounded-2xl">
+      <CardHeader className="pb-3">
+        <CardTitle>Score Breakdown</CardTitle>
+        <CardDescription>Deterministic weighted calculation used for this research fit score.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {components.map((component) => (
+          <div key={component.key} className="rounded-xl border border-[#ececec] bg-white p-3">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <div>
+                <p className="font-semibold text-[#111111]">{component.label}</p>
+                <p className="mt-0.5 text-xs leading-5 text-[#666666]">{component.explanation}</p>
+              </div>
+              <p className="shrink-0 font-semibold text-[#111111]">{component.earned}/{component.possible}</p>
+            </div>
+            <Progress value={(component.earned / component.possible) * 100} className="mt-2 h-2" indicatorClassName={component.earned === 0 ? 'bg-red-500' : component.earned / component.possible >= 0.7 ? 'bg-green-600' : 'bg-amber-500'} />
+          </div>
+        ))}
+        <div className="flex items-center justify-between rounded-xl border border-[#d8d5cf] bg-[#fbfaf8] p-3">
+          <p className="font-semibold text-[#111111]">Total</p>
+          <p className="text-xl font-semibold text-[#111111]">{total}/100</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RequirementAlignmentTable({ rows }: { rows: RequirementAlignment[] }) {
+  const stronglyMet = rows.filter((row) => row.alignment === 'Strong Alignment').length;
+  const partiallyMet = rows.filter((row) => row.alignment === 'Moderate Alignment' || row.alignment === 'Limited Alignment').length;
+  const missing = rows.filter((row) => row.alignment === 'No Evidence').length;
+
+  return (
+    <Card className="dashboard-surface rounded-2xl">
+      <CardHeader className="pb-3">
+        <CardTitle>Requirement Alignment</CardTitle>
+        <CardDescription>Moderate and limited alignment are partial evidence, not strongly met requirements.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <SummaryMetric label="Strongly Met" value={stronglyMet} tone="success" />
+          <SummaryMetric label="Partially Met" value={partiallyMet} tone="warning" />
+          <SummaryMetric label="Missing Evidence" value={missing} tone="danger" />
+        </div>
+        <div className="overflow-hidden rounded-xl border border-[#ececec]">
+          <div className="hidden grid-cols-[1.1fr_0.7fr_1.2fr_1.2fr] gap-3 bg-[#fbfaf8] px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#777777] md:grid">
+            <span>Requirement</span>
+            <span>Alignment</span>
+            <span>Evidence</span>
+            <span>Gap</span>
+          </div>
+          {rows.map((row) => (
+            <div key={row.requirement} className="grid gap-2 border-t border-[#eeeeee] px-4 py-3 text-sm md:grid-cols-[1.1fr_0.7fr_1.2fr_1.2fr]">
+              <p className="font-medium text-[#111111]">{row.requirement}</p>
+              <div><EvidenceStrengthBadge strength={row.alignment} /></div>
+              <p className="leading-6 text-[#444444]">{row.evidence}</p>
+              <p className="leading-6 text-[#666666]">{row.gap}</p>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SummaryMetric({ label, value, tone }: { label: string; value: number; tone: 'success' | 'warning' | 'danger' }) {
+  const className = tone === 'success' ? 'status-success' : tone === 'warning' ? 'status-warning' : 'status-danger';
+  return (
+    <div className={`rounded-xl border p-3 ${className}`}>
+      <p className="text-2xl font-semibold">{value}</p>
+      <p className="text-xs font-medium uppercase tracking-[0.12em]">{label}</p>
     </div>
+  );
+}
+
+function EvidenceSourceCard({ source }: { source: EvidenceSource }) {
+  const Icon =
+    source.source === 'GitHub'
+      ? Github
+      : source.source === 'LinkedIn'
+        ? Linkedin
+        : source.source === 'Transcript'
+          ? GraduationCap
+          : source.source === 'Progress Reports'
+            ? FileSearch
+            : source.source === 'Faculty Verification'
+              ? ShieldCheck
+              : FileSearch;
+  return (
+    <div className="rounded-xl border border-[#ececec] bg-white p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Icon className="h-4 w-4 text-[#555555]" />
+          <p className="font-semibold text-[#111111]">{source.source}</p>
+        </div>
+        <Badge variant="outline" className="rounded-full">{source.used ? 'Used in score' : 'Not used'}</Badge>
+      </div>
+      <p className="mt-2 text-sm leading-6 text-[#555555]">{source.contribution}</p>
+      <div className="mt-2">
+        <EvidenceStrengthBadge strength={source.strength} />
+      </div>
+    </div>
+  );
+}
+
+function CourseworkEvidenceSummary({
+  relevant,
+  lessRelevant,
+}: {
+  relevant: string[];
+  lessRelevant: string[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <Card className="dashboard-surface rounded-2xl">
+      <CardHeader className="pb-3">
+        <CardTitle>Coursework Evidence</CardTitle>
+        <CardDescription>Transcript evidence is summarized instead of dumped into the page.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div>
+          <p className="text-sm font-semibold text-[#111111]">Relevant Coursework</p>
+          {relevant.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {relevant.slice(0, 6).map((course) => (
+                <Badge key={course} variant="secondary" className="rounded-full bg-[#f2f2f2] text-[#555555]">{course}</Badge>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-[#666666]">No clearly relevant coursework was found.</p>
+          )}
+        </div>
+        {lessRelevant.length > 0 ? (
+          <div>
+            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setExpanded((value) => !value)}>
+              {expanded ? <ChevronUp className="mr-2 h-4 w-4" /> : <ChevronDown className="mr-2 h-4 w-4" />}
+              {expanded ? 'Hide full transcript evidence' : 'View full transcript evidence'}
+            </Button>
+            {expanded ? (
+              <div className="mt-3 max-h-56 overflow-y-auto rounded-xl border border-[#ececec] bg-white p-3 text-sm leading-6 text-[#555555]">
+                {[...relevant, ...lessRelevant].map((course) => <p key={course}>{course}</p>)}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function GitHubEvidenceSummary() {
+  return (
+    <Card className="dashboard-surface rounded-2xl">
+      <CardHeader className="pb-3">
+        <CardTitle>GitHub Evidence</CardTitle>
+        <CardDescription>Repository evidence is evaluated by relevance, languages, project names, and activity. Stars are not used as a major signal.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="rounded-xl border border-[#ececec] bg-white p-3 text-sm leading-6 text-[#555555]">
+          GitHub was not provided, so repositories, languages, README quality, commits, topics, and recent activity were not included in this score.
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AreasToStrengthenCard({ items }: { items: string[] }) {
+  return (
+    <Card className="dashboard-surface rounded-2xl">
+      <CardHeader className="pb-3">
+        <CardTitle>Areas to Strengthen</CardTitle>
+        <CardDescription>Specific missing evidence that would raise confidence for this research position.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {items.slice(0, 7).map((item) => (
+          <div key={item} className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-sm leading-6 text-amber-900">
+            <AlertCircle className="mt-1 h-4 w-4 shrink-0" />
+            <span>{item}</span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProfessorDecisionSupportCard({ evaluation }: { evaluation: Evaluation }) {
+  return (
+    <Card className="dashboard-surface rounded-2xl">
+      <CardHeader className="pb-3">
+        <CardTitle>Professor Decision Support</CardTitle>
+        <CardDescription>Suggested action and interview prompts based on this research-fit evidence.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-xl border border-[#ececec] bg-[#fbfaf8] p-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#777777]">Recommended Action</p>
+          <p className="mt-1 text-xl font-semibold text-[#111111]">{evaluation.decisionAction}</p>
+          <p className="mt-2 text-sm leading-6 text-[#555555]">{evaluation.decisionWhy}</p>
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-[#111111]">Suggested interview questions</p>
+          <div className="mt-2 space-y-2">
+            {evaluation.interviewQuestions.map((question) => (
+              <div key={question} className="flex gap-2 rounded-xl border border-[#ececec] bg-white p-3 text-sm text-[#444444]">
+                <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+                <span>{question}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -380,297 +715,94 @@ export default function ApplicantReasoningPage() {
   const { applicantId } = useParams();
   const [searchParams] = useSearchParams();
 
-  const application = useMemo(
-    () => applications.find((entry) => entry.id === applicantId),
-    [applications, applicantId]
-  );
+  const application = useMemo(() => applications.find((entry) => entry.id === applicantId), [applications, applicantId]);
+  const posting = application ? postings.find((entry) => entry.id === application.postingId) : undefined;
 
-  const score = Number(searchParams.get('score') ?? '0') || 0;
+  const fallbackScore = Number(searchParams.get('score') ?? '0') || 0;
   const studentName = application?.studentName ?? searchParams.get('name') ?? 'Unknown Student';
   const studentMajor = application?.studentMajor ?? searchParams.get('major') ?? 'Unknown Major';
-  const matchingPosting = application ? postings.find((posting) => posting.id === application.postingId) : undefined;
-  const project = searchParams.get('project') ?? matchingPosting?.title ?? 'Unknown Project';
-  const projectOverview = searchParams.get('overview') ?? matchingPosting?.overview ?? '';
-  const requiredQualifications =
-    searchParams.get('requiredQualifications') ?? matchingPosting?.requiredQualifications ?? '';
-  const preferredQualifications =
-    searchParams.get('preferredQualifications') ?? matchingPosting?.preferredQualifications ?? '';
+  const project = posting?.title ?? searchParams.get('project') ?? 'Unknown Research Position';
   const status = application?.status ?? searchParams.get('status') ?? 'Pending';
   const submittedAt = application?.submittedAt ?? searchParams.get('submittedAt') ?? '';
-  const resumeName = application?.resume?.name ?? `${studentName.toLowerCase().replace(/\s+/g, '_')}_resume.pdf`;
-  const quickNote = application?.quickNote?.trim() || 'Interested in contributing to research delivery and publication-oriented outcomes.';
 
-  const insights = buildAiInsights(score, project, studentMajor, resumeName, quickNote);
-  const requirementsLine = [requiredQualifications, preferredQualifications].filter(Boolean).join(' | ');
-  const projectContextLine = projectOverview || requirementsLine;
-  const requiredItems = parseRequirementItems(requiredQualifications);
-  const preferredItems = parseRequirementItems(preferredQualifications);
-  const requirementMatches = buildRequirementMatches(
-    requiredItems,
-    preferredItems,
-    studentMajor,
-    resumeName,
-    quickNote,
-    insights.coursework
+  const evaluation = useMemo(
+    () => evaluateApplication({ application, posting, fallbackScore }),
+    [application, posting, fallbackScore]
   );
-  const readinessVerdict = getReadinessVerdict(requirementMatches);
 
   return (
-    <div className="min-h-screen bg-[#f7f7f7] px-4 py-8">
-      <main className="mx-auto max-w-5xl space-y-4">
-        <Button
-          variant="outline"
-          className="rounded-xl border-[#d8d8d8] bg-white text-[#575757] hover:bg-[#f7f7f7]"
-          onClick={() => navigate('/professor/dashboard')}
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Professor Dashboard
-        </Button>
-
-        <Card className="border-red-200 bg-[linear-gradient(120deg,#fff4ef_0%,#fff9f5_45%,#ffffff_100%)]">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-[#111111]">
-              <Brain className="h-5 w-5 text-red-700" />
-              Applicant AI Match Reasoning
-            </CardTitle>
-            <CardDescription>
-              Detailed explanation of why this applicant received their current AI match score.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2 rounded-xl border border-[#ebd9d2] bg-white p-4">
-              <p className="text-xs uppercase tracking-[0.12em] text-[#8a6f66]">Applicant</p>
-              <p className="text-lg font-semibold text-[#111111]">{studentName}</p>
-              <p className="text-sm text-[#555555]">{studentMajor}</p>
-              <p className="text-sm text-[#555555]">Project: {project}</p>
-            </div>
-            <div className="space-y-2 rounded-xl border border-[#ebd9d2] bg-white p-4">
-              <p className="text-xs uppercase tracking-[0.12em] text-[#8a6f66]">Evaluation</p>
-              <Badge className="border border-red-200 bg-red-50 text-red-700">AI Match Score: {score}%</Badge>
-              <p className="text-sm text-[#555555]">Status: {status}</p>
-              <p className="text-sm text-[#555555]">
-                Submitted: {submittedAt ? new Date(submittedAt).toLocaleDateString() : 'Unknown'}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <Card id="submitted-materials" className="border-[#d0ceca] bg-white lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileSearch className="h-4 w-4 text-red-700" />
-                Submitted Evidence Sources
-              </CardTitle>
-              <CardDescription>
-                Proof links used below. Resume links jump to this submitted-materials section when no hosted resume URL is available.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3 text-sm text-[#333333] md:grid-cols-3">
-              <a
-                id="submitted-resume"
-                href="#submitted-resume"
-                className="rounded-xl border border-[#ececec] bg-[#fafafa] p-3 underline-offset-2 hover:underline"
-              >
-                <p className="font-semibold text-[#111111]">Resume</p>
-                <p className="mt-1 text-xs text-[#555555]">{resumeName}</p>
-              </a>
-              <a
-                href="https://github.com/student-profile"
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-xl border border-[#ececec] bg-[#fafafa] p-3 underline-offset-2 hover:underline"
-              >
-                <p className="inline-flex items-center gap-1 font-semibold text-[#111111]">
-                  GitHub profile <ExternalLink className="h-3 w-3" />
-                </p>
-                <p className="mt-1 text-xs text-[#555555]">Project links open directly when a repo is cited.</p>
-              </a>
-              <a
-                id="application-note"
-                href="#application-note"
-                className="rounded-xl border border-[#ececec] bg-[#fafafa] p-3 underline-offset-2 hover:underline"
-              >
-                <p className="font-semibold text-[#111111]">Application note</p>
-                <p className="mt-1 line-clamp-2 text-xs text-[#555555]">{quickNote}</p>
-              </a>
-            </CardContent>
-          </Card>
-
-          <Card className="border-[#d0ceca] bg-white lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Target className="h-4 w-4 text-red-700" />
-                Requirements Match Matrix
-              </CardTitle>
-              <CardDescription>
-                Requirement-by-requirement evidence with explicit pass/partial/missing status.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-[#333333]">
-              <div className="rounded-xl border border-[#ececec] bg-[#fafafa] p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-semibold text-[#111111]">Overall readiness verdict</p>
-                  <Badge className={readinessVerdict.toneClass}>{readinessVerdict.label}</Badge>
-                </div>
-                <p className="mt-1 text-xs text-[#555555]">{readinessVerdict.reason}</p>
-              </div>
-
-              {requirementMatches.length === 0 ? (
-                <p className="rounded-xl border border-[#ececec] bg-[#fafafa] p-3 text-[#555555]">
-                  No structured requirements were provided with this posting, so match details are inferred from project context.
-                </p>
-              ) : (
-                requirementMatches.map((match) => (
-                  <div key={`${match.priority}-${match.requirement}`} className="rounded-xl border border-[#ececec] bg-[#fafafa] p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold text-[#111111]">{match.requirement}</p>
-                      <Badge variant="outline" className="border-[#d8d8d8] text-[#666666]">
-                        {match.priority}
-                      </Badge>
-                      <Badge
-                        className={
-                          match.status === 'pass'
-                            ? 'border border-green-200 bg-green-50 text-green-700'
-                            : match.status === 'partial'
-                              ? 'border border-amber-200 bg-amber-50 text-amber-700'
-                              : 'border border-red-200 bg-red-50 text-red-700'
-                        }
-                      >
-                        {match.status === 'pass' ? 'Pass' : match.status === 'partial' ? 'Partial' : 'Missing'}
-                      </Badge>
-                    </div>
-                    <p className="mt-1 text-xs text-[#555555]">Evidence: {match.evidence}</p>
-                    <p className="mt-1 text-xs text-[#555555]">{match.example}</p>
-                    <p className="mt-1 text-xs text-[#7b7b7b]">Interview focus: {match.gapNote}</p>
-                    <ProofLinks proof={match.proof} />
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-[#d0ceca] bg-white">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-red-700" />
-                Summary Reasoning
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm text-[#333333]">
-              <p>{insights.summary}</p>
-              <div>
-                <p className="font-semibold text-[#111111]">Requirements Analysis</p>
-                <div className="mt-2 overflow-x-auto rounded-xl border border-[#ececec] bg-[#fafafa]">
-                  <table className="min-w-full border-collapse text-left text-sm">
-                    <thead>
-                      <tr className="border-b border-[#e7d9d2] bg-[#fff4ef] text-xs font-semibold uppercase tracking-[0.08em] text-[#8a6f66]">
-                        <th className="px-3 py-2">Research Requirements</th>
-                        <th className="px-3 py-2">Candidate Fit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {requirementMatches.length === 0 ? (
-                        <tr>
-                          <td className="px-3 py-3 text-[#555555]" colSpan={2}>
-                            No structured requirements were provided for this posting.
-                          </td>
-                        </tr>
-                      ) : (
-                        requirementMatches.map((match) => {
-                          const statusMeta = getMatchStatusIcon(match.status);
-                          const StatusIcon = statusMeta.Icon;
-
-                          return (
-                            <tr key={`summary-${match.priority}-${match.requirement}`} className="border-b border-[#ececec] last:border-b-0">
-                              <td className="px-3 py-3 align-top text-[#111111]">• {match.requirement}</td>
-                              <td className="px-3 py-3 align-top text-[#333333]">
-                                <div className="flex items-start gap-2">
-                                  <StatusIcon className={`mt-0.5 h-4 w-4 shrink-0 ${statusMeta.iconClass}`} />
-                                  <div className="space-y-1">
-                                    <p className="text-xs leading-relaxed">{match.evidence}</p>
-                                    <p className="text-xs leading-relaxed text-[#555555]">{match.example}</p>
-                                    <ProofLinks proof={match.proof} />
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              <p className="rounded-xl border border-[#f0d9d2] bg-[#fff7f4] p-3">
-                Recommendation: {insights.recommendation}
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-[#d0ceca] bg-white">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Target className="h-4 w-4 text-red-700" />
-                Strength Signals
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-[#333333]">
-              {insights.strengths.map((strength) => (
-                <div key={strength.title} className="rounded-xl border border-[#ececec] bg-[#fafafa] p-3">
-                  <p className="font-semibold">{strength.title}</p>
-                  <p className="mt-1 text-xs text-[#555555]">{strength.because}</p>
-                  <p className="mt-1 text-xs text-[#7b7b7b]">
-                    Evidence: {strength.source}
-                    {projectContextLine
-                      ? ` Specifically for ${project}, this aligns with: ${projectContextLine}`
-                      : ''}
-                  </p>
-                  <ProofLinks proof={strength.proof} />
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card className="border-[#d0ceca] bg-white">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ShieldAlert className="h-4 w-4 text-red-700" />
-                Potential Concerns
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-[#333333]">
-              {insights.concerns.map((concern) => (
-                <div key={concern.title} className="rounded-xl border border-[#ececec] bg-[#fafafa] p-3">
-                  <p className="font-semibold">{concern.title}</p>
-                  <p className="mt-1 text-xs text-[#555555]">{concern.because}</p>
-                  <p className="mt-1 text-xs text-[#7b7b7b]">
-                    Evidence: {concern.source}
-                    {projectContextLine
-                      ? ` In context of ${project}, watch for gaps against: ${projectContextLine}`
-                      : ''}
-                  </p>
-                  <ProofLinks proof={concern.proof} />
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card className="border-[#d0ceca] bg-white">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileSearch className="h-4 w-4 text-red-700" />
-                Review Guidance
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-[#333333]">
-              <p>- Validate communication of research methodology in interview.</p>
-              <p>- Confirm consistency between resume projects and role expectations.</p>
-              <p>- Assess readiness for independent weekly deliverables.</p>
-              <p>- Ask candidate to discuss coursework transfer: {insights.coursework[0]} {'->'} current project tasks.</p>
-            </CardContent>
-          </Card>
+    <div className="app-shell min-h-screen px-4 py-7">
+      <main className="mx-auto max-w-6xl space-y-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Button variant="outline" className="w-fit rounded-xl bg-white" onClick={() => navigate('/professor/dashboard')}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Professor Dashboard
+          </Button>
+          <div className="flex flex-wrap items-center gap-2 text-sm text-[#666666]">
+            <Badge variant="outline" className="rounded-full bg-white">Status: {status}</Badge>
+            <Badge variant="outline" className="rounded-full bg-white">
+              Submitted: {submittedAt ? new Date(submittedAt).toLocaleDateString() : 'Unknown'}
+            </Badge>
+          </div>
         </div>
+
+        {!application ? (
+          <Card className="dashboard-surface rounded-2xl">
+            <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
+              <FileQuestion className="h-8 w-8 text-[#777777]" />
+              <p className="font-semibold text-[#111111]">Application data is unavailable</p>
+              <p className="max-w-xl text-sm leading-6 text-[#666666]">
+                The confidence explanation could not find the application record. Return to the dashboard and open the reasoning page from an applicant row.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <FitSummaryHeader studentName={studentName} studentMajor={studentMajor} project={project} evaluation={evaluation} />
+
+            <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+              <ScoreBreakdownCard components={evaluation.components} total={evaluation.finalScore} />
+              <RequirementAlignmentTable rows={evaluation.requirements} />
+            </div>
+
+            <Card className="dashboard-surface rounded-2xl">
+              <CardHeader className="pb-3">
+                <CardTitle>Evidence Signals</CardTitle>
+                <CardDescription>Each source shows whether it contributed to the score and how strong that evidence was.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {evaluation.sources.map((source) => <EvidenceSourceCard key={source.source} source={source} />)}
+              </CardContent>
+            </Card>
+
+            <div className="grid gap-5 lg:grid-cols-2">
+              <CourseworkEvidenceSummary relevant={evaluation.relevantCourses} lessRelevant={evaluation.lessRelevantCourses} />
+              <GitHubEvidenceSummary />
+            </div>
+
+            <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+              <AreasToStrengthenCard items={evaluation.areasToStrengthen} />
+              <ProfessorDecisionSupportCard evaluation={evaluation} />
+            </div>
+
+            <Card className="dashboard-surface rounded-2xl">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 text-red-700" />
+                  Calculation Notes
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm leading-6 text-[#555555]">
+                This score is deterministic and calculated from weighted components: Requirement Match 40%,
+                Research Experience / Project Evidence 20%, Technical Skills 15%, Coursework 10%, Evidence Quality 10%,
+                and Writing / Statement Quality 5%. Components with no evidence receive no points.
+                <a className="ml-1 inline-flex items-center gap-1 text-red-700 underline-offset-2 hover:underline" href="#top">
+                  Review evidence <ExternalLink className="h-3 w-3" />
+                </a>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </main>
     </div>
   );

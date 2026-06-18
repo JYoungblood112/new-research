@@ -1,14 +1,28 @@
-import { useState } from 'react';
-import { useData } from '../../contexts/DataContext';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Input } from '../ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
+import {
+  ArrowUpDown,
+  BadgeDollarSign,
+  BookOpenCheck,
+  Calendar,
+  ChevronDown,
+  Clock,
+  ExternalLink,
+  Search,
+  SlidersHorizontal,
+  Sparkles,
+} from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import { type ResearchPosting, useData } from '../../contexts/DataContext';
+import { RESEARCH_POSTING_CATEGORY_OPTIONS } from '../../lib/researchTaxonomy';
+import { supabase } from '../../lib/supabase';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Search, Calendar, Clock, BadgeDollarSign, SlidersHorizontal, ArrowUpDown, ExternalLink } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardTitle } from '../ui/card';
+import { EmptyState, ErrorState, LoadingState } from '../ui/dashboard';
+import { Input } from '../ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import ApplyToResearchDialog from './ApplyToResearchDialog';
-import { useNavigate } from 'react-router';
-import { RESEARCH_POSTING_CATEGORY_OPTIONS } from '../../lib/researchTaxonomy';
 
 const CATEGORIES = ['All', ...RESEARCH_POSTING_CATEGORY_OPTIONS] as const;
 
@@ -16,19 +30,116 @@ const COMPENSATION_OPTIONS = ['All', 'course credit', 'stipend', 'tbd', 'volunte
 const COMPENSATION_LABELS: Record<(typeof COMPENSATION_OPTIONS)[number], string> = {
   All: 'All Compensation Types',
   'course credit': 'Course Credit',
-  stipend: 'Stipend',
+  stipend: 'Paid',
   tbd: 'To Be Determined',
   volunteer: 'Volunteer',
 };
+
 const SORT_FIELDS = [
-  { value: 'applicationDeadline', label: 'Application deadline' },
-  { value: 'createdAt', label: 'Date posted' },
+  { value: 'applicationDeadline', label: 'Deadline' },
+  { value: 'createdAt', label: 'Posted' },
 ] as const;
 
 const SORT_ORDERS = [
   { value: 'desc', label: 'Newest / Latest first' },
   { value: 'asc', label: 'Oldest / Soonest first' },
 ] as const;
+
+type FitLabel = 'Excellent Fit' | 'Strong Fit' | 'Good Fit' | 'Possible Fit' | 'Low Fit';
+type MatchStatus = 'loading' | 'ready' | 'unavailable';
+
+type MatchScore = {
+  confidence: number;
+  recommendation: string | null;
+  qualifications: string[];
+  fit_reasoning: string[];
+  gaps: string[];
+};
+
+type MatchEntry = {
+  status: MatchStatus;
+  score?: MatchScore;
+};
+
+type RecommendationScore = MatchScore & {
+  postingId?: string;
+};
+
+function asStringList(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean)
+    : [];
+}
+
+function normalizeScore(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(100, Math.round(numeric <= 1 ? numeric * 100 : numeric)));
+}
+
+function normalizeMatchScore(value: Record<string, any>): MatchScore {
+  return {
+    confidence: normalizeScore(value?.confidence),
+    recommendation: typeof value?.recommendation === 'string' ? value.recommendation : null,
+    qualifications: asStringList(value?.qualifications),
+    fit_reasoning: asStringList(value?.fit_reasoning),
+    gaps: asStringList(value?.gaps),
+  };
+}
+
+function getFitLabel(score: number): FitLabel {
+  if (score >= 90) return 'Excellent Fit';
+  if (score >= 80) return 'Strong Fit';
+  if (score >= 65) return 'Good Fit';
+  if (score >= 50) return 'Possible Fit';
+  return 'Low Fit';
+}
+
+function getFitTextClass(score: number) {
+  if (score >= 90) return 'text-emerald-700';
+  if (score >= 80) return 'text-green-700';
+  if (score >= 65) return 'text-blue-700';
+  if (score >= 50) return 'text-amber-800';
+  return 'text-slate-700';
+}
+
+function getDeadlineMeta(value: string) {
+  const deadline = new Date(value);
+  if (Number.isNaN(deadline.getTime())) {
+    return {
+      label: 'Deadline unavailable',
+      detail: '',
+      className: 'border-slate-200 bg-slate-50 text-slate-700',
+    };
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  deadline.setHours(0, 0, 0, 0);
+  const daysLeft = Math.ceil((deadline.getTime() - today.getTime()) / 86_400_000);
+
+  if (daysLeft < 0) {
+    return {
+      label: 'Deadline passed',
+      detail: deadline.toLocaleDateString(),
+      className: 'border-red-200 bg-red-50 text-red-700',
+    };
+  }
+
+  if (daysLeft <= 7) {
+    return {
+      label: 'Closing soon',
+      detail: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`,
+      className: 'border-amber-200 bg-amber-50 text-amber-800',
+    };
+  }
+
+  return {
+    label: `${daysLeft} days left`,
+    detail: `Apply by ${deadline.toLocaleDateString()}`,
+    className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  };
+}
 
 function formatBrowseEndDate(duration: string, startDate: string) {
   const parsedDurationDate = new Date(duration);
@@ -73,8 +184,35 @@ function formatBrowseEndDate(duration: string, startDate: string) {
   return parsedStartDate.toLocaleDateString();
 }
 
+function getDurationLabel(duration: string) {
+  const normalized = duration.toLowerCase();
+  if (/academic\s*year|year|12\s*month/.test(normalized)) return 'Year-long';
+  if (/semester/.test(normalized)) return 'Semester';
+  return duration;
+}
+
+function getCommitmentLabel(value: string) {
+  const hourMatch = value.match(/(\d+)\s*(?:-|to)?\s*(\d+)?\s*(?:hr|hour)/i);
+  if (!hourMatch) return value;
+  const high = hourMatch[2] ? `-${hourMatch[2]}` : '';
+  return `${hourMatch[1]}${high} hrs/week`;
+}
+
+async function getAuthHeaders() {
+  const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+  return data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : undefined;
+}
+
 export default function BrowseResearch() {
-  const { postings, projectsLoading, projectsError, refreshProjects } = useData();
+  const { user, setupState } = useAuth();
+  const {
+    postings,
+    projectsLoading,
+    projectsError,
+    refreshProjects,
+    getApplicationsByStudent,
+    getProgressReportsByStudent,
+  } = useData();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -82,6 +220,21 @@ export default function BrowseResearch() {
   const [sortField, setSortField] = useState<(typeof SORT_FIELDS)[number]['value']>('createdAt');
   const [sortOrder, setSortOrder] = useState<(typeof SORT_ORDERS)[number]['value']>('desc');
   const [selectedPosting, setSelectedPosting] = useState<string | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [matchScores, setMatchScores] = useState<Record<string, MatchEntry>>({});
+  const studentProfile = setupState?.profile as Record<string, any> | null;
+  const hasProfileSignals = Boolean(
+    setupState?.completed &&
+      (
+        studentProfile?.resume ||
+        studentProfile?.resumeText ||
+        studentProfile?.skills?.length ||
+        studentProfile?.interests?.length ||
+        studentProfile?.transcript ||
+        studentProfile?.transcriptText ||
+        studentProfile?.coursework?.length
+      )
+  );
 
   const orderOptions =
     sortField === 'applicationDeadline'
@@ -95,16 +248,18 @@ export default function BrowseResearch() {
         ];
 
   const filteredPostings = postings
-    .filter((p) => p.status === 'published')
-    .filter((p) => {
+    .filter((posting) => posting.status === 'published')
+    .filter((posting) => {
+      const normalizedSearch = searchTerm.toLowerCase();
       const matchesSearch =
-        p.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.overview.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.studentRoleDescription.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.researchAreas.some((area) => area.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        p.skillsNeeded.some((skill) => skill.toLowerCase().includes(searchTerm.toLowerCase()));
-      const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
-      const matchesCompensation = selectedCompensation === 'All' || p.compensation === selectedCompensation;
+        posting.title.toLowerCase().includes(normalizedSearch) ||
+        posting.overview.toLowerCase().includes(normalizedSearch) ||
+        posting.studentRoleDescription.toLowerCase().includes(normalizedSearch) ||
+        posting.professorName.toLowerCase().includes(normalizedSearch) ||
+        posting.researchAreas.some((area) => area.toLowerCase().includes(normalizedSearch)) ||
+        posting.skillsNeeded.some((skill) => skill.toLowerCase().includes(normalizedSearch));
+      const matchesCategory = selectedCategory === 'All' || posting.category === selectedCategory;
+      const matchesCompensation = selectedCompensation === 'All' || posting.compensation === selectedCompensation;
       return matchesSearch && matchesCategory && matchesCompensation;
     });
 
@@ -114,87 +269,153 @@ export default function BrowseResearch() {
     return sortOrder === 'asc' ? left - right : right - left;
   });
 
+  const studentApplications = user?.id ? getApplicationsByStudent(user.id) : [];
+  const studentReports = user?.id ? getProgressReportsByStudent(user.id) : [];
+  const researchHours = studentReports.reduce((total, report) => total + Number(report.hoursWorked ?? 0), 0);
+  const profileSignals = [
+    Boolean(studentProfile?.major),
+    Boolean(studentProfile?.graduationYear),
+    Boolean(studentProfile?.resume),
+    Boolean(studentProfile?.interests?.length),
+    Boolean(studentProfile?.skills?.length || studentProfile?.transcript),
+  ];
+  const profileCompletion = Math.round((profileSignals.filter(Boolean).length / profileSignals.length) * 100);
+  const activeFilterCount = [selectedCategory !== 'All', selectedCompensation !== 'All'].filter(Boolean).length;
+  const visibleMatchPostings = useMemo(() => sortedPostings.slice(0, 12), [sortedPostings.map((posting) => posting.id).join('|')]);
+  const profileMatchKey = useMemo(() => JSON.stringify(studentProfile ?? {}), [studentProfile]);
+
+  useEffect(() => {
+    if (!hasProfileSignals || visibleMatchPostings.length === 0) return;
+
+    let cancelled = false;
+    const abortController = new AbortController();
+    const missingPostings = visibleMatchPostings.filter((posting) => !matchScores[posting.id]);
+    if (missingPostings.length === 0) return;
+
+    setMatchScores((previous) => {
+      const next = { ...previous };
+      missingPostings.forEach((posting) => {
+        next[posting.id] = { status: 'loading' };
+      });
+      return next;
+    });
+
+    const scoreVisiblePostings = async () => {
+      const timeoutId = window.setTimeout(() => abortController.abort(), 15_000);
+
+      try {
+        const headers = await getAuthHeaders();
+        const response = await fetch('/api/ai/recommendations', {
+          method: 'POST',
+          credentials: 'include',
+          signal: abortController.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(headers ?? {}),
+          },
+          body: JSON.stringify({ profile: studentProfile ?? {}, postings: missingPostings }),
+        });
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(`recommendations failed with ${response.status}`);
+        }
+
+        const byPostingId = new Map<string, RecommendationScore>();
+        (Array.isArray(payload.recommendations) ? payload.recommendations : []).forEach((item: RecommendationScore) => {
+          if (item?.postingId) byPostingId.set(String(item.postingId), item);
+        });
+
+        if (cancelled) return;
+
+        setMatchScores((previous) => {
+          const next = { ...previous };
+          missingPostings.forEach((posting) => {
+            const score = byPostingId.get(posting.id);
+            next[posting.id] = score
+              ? { status: 'ready', score: normalizeMatchScore(score) }
+              : { status: 'unavailable' };
+          });
+          return next;
+        });
+      } catch (error) {
+        console.error('[browse match scores]', error);
+        if (!cancelled) {
+          setMatchScores((previous) => {
+            const next = { ...previous };
+            missingPostings.forEach((posting) => {
+              next[posting.id] = { status: 'unavailable' };
+            });
+            return next;
+          });
+        }
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    };
+
+    void scoreVisiblePostings();
+
+    return () => {
+      cancelled = true;
+      abortController.abort();
+    };
+  }, [hasProfileSignals, profileMatchKey, visibleMatchPostings]);
+
   return (
-    <div className="space-y-6">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-        <Input
-          placeholder="Search research opportunities..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10"
-        />
+    <div className="space-y-3">
+      <div className="space-y-1.5">
+        <h1 className="text-2xl font-semibold tracking-tight text-[#111111]">Find Research Opportunities</h1>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-[#655f5a]">
+          <span>{postings.filter((posting) => posting.status === 'published').length} Opportunities</span>
+          <span className="text-[#b8aaa4]">•</span>
+          <span>{studentApplications.length} Applications</span>
+          <span className="text-[#b8aaa4]">•</span>
+          <span>{profileCompletion}% Profile Complete</span>
+          <span className="text-[#b8aaa4]">•</span>
+          <span>{researchHours} Research Hours</span>
+        </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-        <div className="rounded-2xl border border-[#dedede] bg-white p-4">
-          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#575757]">
-            <SlidersHorizontal className="h-4 w-4 text-red-700" />
-            Filters
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-1">
-              <p className="text-xs font-medium uppercase tracking-[0.15em] text-[#8f8f8f]">Category</p>
-              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All categories" />
-                </SelectTrigger>
-                <SelectContent>
-                  {CATEGORIES.map((cat) => (
-                    <SelectItem key={cat} value={cat}>
-                      {cat}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+      <div className="rounded-lg bg-white/70 p-2.5">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#777777]" />
+              <Input
+                placeholder="Search by title, skill, topic, professor, or research area"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                className="h-10 rounded-lg border-[#e4d8d3] bg-white pl-10 shadow-none"
+              />
             </div>
-
-            <div className="space-y-1">
-              <p className="text-xs font-medium uppercase tracking-[0.15em] text-[#8f8f8f]">Compensation</p>
-              <Select
-                value={selectedCompensation}
-                onValueChange={(value) =>
-                  setSelectedCompensation(value as (typeof COMPENSATION_OPTIONS)[number])
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="All compensation types" />
-                </SelectTrigger>
-                <SelectContent>
-                  {COMPENSATION_OPTIONS.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {COMPENSATION_LABELS[option]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <p className="whitespace-nowrap text-sm font-medium text-[#555555]">{sortedPostings.length} opportunities visible.</p>
           </div>
-        </div>
 
-        <div className="rounded-2xl border border-[#dedede] bg-white p-4">
-          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#575757]">
-            <ArrowUpDown className="h-4 w-4 text-red-700" />
-            Sort
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-1">
-              <p className="text-xs font-medium uppercase tracking-[0.15em] text-[#8f8f8f]">Sort by</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 rounded-lg border-[#e4d8d3] bg-white shadow-none"
+              onClick={() => setFiltersOpen((open) => !open)}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Filters
+              {activeFilterCount > 0 ? <span className="rounded-full bg-red-700 px-1.5 py-0.5 text-[10px] text-white">{activeFilterCount}</span> : null}
+              <ChevronDown className={`h-4 w-4 transition-transform ${filtersOpen ? 'rotate-180' : ''}`} />
+            </Button>
+
+            <div className="flex items-center gap-2">
+              <ArrowUpDown className="h-4 w-4 text-red-700" />
               <Select
                 value={sortField}
                 onValueChange={(value) => {
                   const nextSortField = value as (typeof SORT_FIELDS)[number]['value'];
                   setSortField(nextSortField);
-
-                  // Use intuitive defaults per field.
-                  if (nextSortField === 'applicationDeadline') {
-                    setSortOrder('asc');
-                  } else {
-                    setSortOrder('desc');
-                  }
+                  setSortOrder(nextSortField === 'applicationDeadline' ? 'asc' : 'desc');
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger className="h-10 w-[150px] rounded-lg border-[#e4d8d3] bg-white shadow-none">
                   <SelectValue placeholder="Select field" />
                 </SelectTrigger>
                 <SelectContent>
@@ -205,15 +426,12 @@ export default function BrowseResearch() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
 
-            <div className="space-y-1">
-              <p className="text-xs font-medium uppercase tracking-[0.15em] text-[#8f8f8f]">Order</p>
               <Select
                 value={sortOrder}
                 onValueChange={(value) => setSortOrder(value as (typeof SORT_ORDERS)[number]['value'])}
               >
-                <SelectTrigger>
+                <SelectTrigger className="h-10 w-[138px] rounded-lg border-[#e4d8d3] bg-white shadow-none">
                   <SelectValue placeholder="Select order" />
                 </SelectTrigger>
                 <SelectContent>
@@ -227,124 +445,191 @@ export default function BrowseResearch() {
             </div>
           </div>
         </div>
+
+        {filtersOpen ? (
+          <div className="mt-3 grid gap-3 border-t border-[#f0e8e4] pt-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <p className="text-xs font-medium uppercase tracking-[0.15em] text-[#8f8f8f]">Category</p>
+              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <SelectTrigger className="h-10 rounded-lg border-[#e4d8d3] bg-white shadow-none">
+                  <SelectValue placeholder="All categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {category}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-xs font-medium uppercase tracking-[0.15em] text-[#8f8f8f]">Compensation</p>
+              <Select
+                value={selectedCompensation}
+                onValueChange={(value) => setSelectedCompensation(value as (typeof COMPENSATION_OPTIONS)[number])}
+              >
+                <SelectTrigger className="h-10 rounded-lg border-[#e4d8d3] bg-white shadow-none">
+                  <SelectValue placeholder="All compensation types" />
+                </SelectTrigger>
+                <SelectContent>
+                  {COMPENSATION_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {COMPENSATION_LABELS[option]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        ) : null}
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-2">
         {projectsLoading ? (
-          <Card>
-            <CardContent className="space-y-3 py-12">
-              <div className="mx-auto h-4 w-48 animate-pulse rounded bg-[#efefef]" />
-              <div className="mx-auto h-4 w-72 max-w-full animate-pulse rounded bg-[#f4f4f4]" />
-            </CardContent>
-          </Card>
+          <LoadingState label="Loading research opportunities..." />
         ) : projectsError ? (
-          <Card>
-            <CardContent className="space-y-4 py-12 text-center">
-              <div>
-                <p className="font-medium text-[#111111]">Unable to load research opportunities</p>
-                <p className="mt-1 text-sm text-gray-500">{projectsError}</p>
-              </div>
+          <ErrorState
+            title="Unable to load research opportunities"
+            description="Research opportunities could not be loaded right now. Please try again in a moment."
+            action={
               <Button variant="outline" onClick={() => void refreshProjects()}>
                 Try again
               </Button>
-            </CardContent>
-          </Card>
+            }
+          />
         ) : sortedPostings.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <p className="text-gray-500">No research opportunities found</p>
-            </CardContent>
-          </Card>
+          <EmptyState
+            icon={BookOpenCheck}
+            title={searchTerm || activeFilterCount > 0 ? 'No opportunities match your filters' : 'No research opportunities are available'}
+            description={searchTerm || activeFilterCount > 0 ? 'Try broadening your search, clearing a filter, or checking back after more faculty projects are published.' : 'Published faculty projects will appear here when they become available.'}
+            action={
+              searchTerm || activeFilterCount > 0 ? (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchTerm('');
+                    setSelectedCategory('All');
+                    setSelectedCompensation('All');
+                  }}
+                >
+                  Clear filters
+                </Button>
+              ) : undefined
+            }
+          />
         ) : (
-          sortedPostings.map((posting) => (
-            <Card key={posting.id} className="border-[#d0ceca] transition-shadow hover:shadow-md">
-              <CardHeader>
-                {/** Show bio link only when a non-empty URL exists. */}
-                {(() => {
-                  const professorBioUrl = posting.professorBioUrl?.trim() ?? '';
-                  return (
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <CardTitle>{posting.title}</CardTitle>
-                    <CardDescription>
-                      {posting.professorName} • {posting.professorDepartment}
-                    </CardDescription>
-                    {professorBioUrl ? (
-                      <a
-                        href={professorBioUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-800"
-                      >
-                        Professor bio
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </a>
-                    ) : null}
-                  </div>
-                  <Badge className="rounded-full border border-red-700/20 bg-red-700/[0.08] text-red-800">
-                    {posting.category}
-                  </Badge>
-                </div>
-                  );
-                })()}
-              </CardHeader>
+          sortedPostings.map((posting) => {
+            const professorBioUrl = posting.professorBioUrl?.trim() ?? '';
+            const match = matchScores[posting.id];
+            const score = match?.score;
+            const deadlineMeta = getDeadlineMeta(posting.applicationDeadline);
+            const matchBadgeText = score
+              ? `${score.confidence}% Match • ${getFitLabel(score.confidence)}`
+              : hasProfileSignals && match?.status === 'loading'
+                ? 'Calculating match...'
+                : hasProfileSignals
+                  ? 'Match unavailable'
+                  : 'Profile incomplete • Improve profile';
 
-              <CardContent className="space-y-4">
-                <p className="text-sm">{posting.overview}</p>
-                {posting.researchAreas.length > 0 || posting.skillsNeeded.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {posting.researchAreas.slice(0, 4).map((area) => (
-                      <Badge key={`area-${area}`} variant="secondary" className="rounded-full">
-                        {area}
-                      </Badge>
-                    ))}
-                    {posting.skillsNeeded.slice(0, 4).map((skill) => (
-                      <Badge key={`skill-${skill}`} className="rounded-full border border-[#d8d8d8] bg-white text-[#4f4a46] hover:bg-white">
-                        {skill}
-                      </Badge>
-                    ))}
+            return (
+              <Card key={posting.id} className="rounded-lg border-[#eee6e1] bg-white shadow-none transition hover:border-[#dfd3cc] hover:shadow-[0_10px_22px_rgba(0,0,0,0.05)]">
+                <CardContent className="space-y-2.5 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="rounded-full border border-red-700/15 bg-red-700/[0.08] px-2.5 py-1 text-xs text-red-800">
+                      {posting.category}
+                    </Badge>
+                    <Badge className={`rounded-full border px-2.5 py-1 text-xs ${deadlineMeta.className}`}>
+                      {deadlineMeta.label}
+                    </Badge>
                   </div>
-                ) : null}
 
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <Calendar className="h-4 w-4" />
-                    Date posted: {new Date(posting.createdAt).toLocaleDateString()}
-                  </div>
-                  <div className="flex items-center gap-4 text-gray-600">
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4" />
-                      End date: {formatBrowseEndDate(posting.duration, posting.startDate)}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4" />
-                      Apply by {new Date(posting.applicationDeadline).toLocaleDateString()}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <BadgeDollarSign className="h-4 w-4" />
-                    Compensation: {COMPENSATION_LABELS[posting.compensation]}
-                  </div>
-                </div>
+                  <CardTitle className="text-lg leading-snug text-[#111111]">{posting.title}</CardTitle>
 
-                <div className="flex items-center justify-between gap-2">
-                  <Button
+                  <Badge
                     variant="outline"
-                    className="rounded-md px-3 py-1.5 text-sm transition-all duration-150 active:translate-y-0.5 active:bg-muted focus-visible:ring-2 focus-visible:ring-red-700/20"
-                    onClick={() => navigate(`/student/research/${posting.id}`)}
+                    className={`w-fit rounded-full px-2.5 py-1 text-xs font-semibold ${
+                      score ? `${getFitTextClass(score.confidence)} border-current bg-white` : 'border-slate-200 bg-slate-50 text-slate-700'
+                    }`}
                   >
-                    View Details
-                  </Button>
-                  <Button
-                    className="rounded-md bg-[#c92e1f] px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:bg-[#b3271b] active:translate-y-0.5 active:bg-[#a92318] focus-visible:ring-2 focus-visible:ring-red-700/25"
-                    onClick={() => setSelectedPosting(posting.id)}
-                  >
-                    Apply →
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))
+                    <Sparkles className="mr-1 h-3.5 w-3.5" />
+                    {matchBadgeText}
+                  </Badge>
+
+                  <CardDescription className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
+                    <span className="font-medium text-[#4d4743]">{posting.professorName}</span>
+                    <span className="text-[#b8aaa4]">•</span>
+                    <span>{posting.professorDepartment}</span>
+                    {professorBioUrl ? (
+                      <>
+                        <span className="text-[#b8aaa4]">•</span>
+                        <a
+                          href={professorBioUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 font-medium text-red-700 hover:text-red-800"
+                        >
+                          View Profile
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      </>
+                    ) : null}
+                  </CardDescription>
+
+                  <p className="line-clamp-2 text-sm leading-6 text-[#444444]">{posting.overview}</p>
+
+                  <div className="flex flex-wrap gap-2">
+                    {posting.skillsNeeded.slice(0, 4).map((skill) => (
+                      <span key={`skill-${posting.id}-${skill}`} className="inline-flex items-center rounded-full border border-[#dddddd] bg-white px-2.5 py-1 text-xs font-medium text-[#555555]">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm font-medium text-[#5d5753]">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Clock className="h-4 w-4 text-red-700" />
+                      {getCommitmentLabel(posting.timeCommitmentExpected)}
+                    </span>
+                    <span className="text-[#b8aaa4]">•</span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <BadgeDollarSign className="h-4 w-4 text-red-700" />
+                      {COMPENSATION_LABELS[posting.compensation]}
+                    </span>
+                    <span className="text-[#b8aaa4]">•</span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Calendar className="h-4 w-4 text-red-700" />
+                      {getDurationLabel(posting.duration)}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col gap-2.5 border-t border-[#f1ebe7] pt-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs font-medium text-[#777777]">
+                      {deadlineMeta.detail || `Posted ${new Date(posting.createdAt).toLocaleDateString()}`} • Ends {formatBrowseEndDate(posting.duration, posting.startDate)}
+                    </p>
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 rounded-md border-[#e4d8d3] bg-white px-3.5 shadow-none"
+                        onClick={() => navigate(`/student/research/${posting.id}`)}
+                      >
+                        Details
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-9 rounded-md bg-[#c92e1f] px-3.5 text-white shadow-none hover:bg-[#b3271b]"
+                        onClick={() => setSelectedPosting(posting.id)}
+                      >
+                        Apply
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })
         )}
       </div>
 

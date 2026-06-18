@@ -1,5 +1,5 @@
 import { BookOpen, Camera, CheckCircle, FileText, Loader2, Upload, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useAuth } from '../../contexts/AuthContext';
 import { RESEARCH_SUBJECT_GROUPS } from '../../lib/researchTaxonomy';
@@ -13,6 +13,47 @@ import { toast } from 'sonner';
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function normalizeProfileUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function isValidLinkedInUrl(value: string) {
+  if (!value.trim()) return true;
+  try {
+    const normalized = normalizeProfileUrl(value);
+    const url = new URL(normalized);
+    return /(^|\.)linkedin\.com$/i.test(url.hostname) && /^\/in\/[^/]+\/?$/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function isValidGithubUrl(value: string) {
+  if (!value.trim()) return true;
+  try {
+    const normalized = normalizeProfileUrl(value);
+    const url = new URL(normalized);
+    return /(^|\.)github\.com$/i.test(url.hostname) && /^\/[A-Za-z0-9-]+\/?$/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeDisplaySkill(value: string) {
+  return value
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map((part) => {
+      if (/^[A-Z0-9+#.]+$/.test(part)) return part;
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(' ');
 }
 
 const YEARS = ['Freshman', 'Sophomore', 'Junior', 'Senior', "Master's", 'PhD'];
@@ -98,6 +139,91 @@ function groupCourseworkBySemester(coursework: CourseworkEntry[]) {
   }, []);
 }
 
+function ProfileSection({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-xl border border-[#e6e1dd] bg-white p-4 shadow-none">
+      <div className="mb-4">
+        <h3 className="text-base font-semibold text-[#111111]">{title}</h3>
+        {description ? <p className="mt-1 text-sm text-[#6f6a66]">{description}</p> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ValidationMessage({ children }: { children?: React.ReactNode }) {
+  if (!children) return null;
+  return <p className="mt-1 text-xs font-medium text-destructive">{children}</p>;
+}
+
+function StatusPill({ tone, children }: { tone: 'success' | 'warning' | 'neutral' | 'danger'; children: React.ReactNode }) {
+  const classes = {
+    success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    warning: 'border-amber-200 bg-amber-50 text-amber-800',
+    neutral: 'border-slate-200 bg-slate-50 text-slate-700',
+    danger: 'border-red-200 bg-red-50 text-red-700',
+  }[tone];
+  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>{children}</span>;
+}
+
+function DocumentCard({
+  title,
+  fileName,
+  uploadDate,
+  required,
+  uploading,
+  onReplace,
+  onRemove,
+}: {
+  title: string;
+  fileName?: string;
+  uploadDate?: string;
+  required?: boolean;
+  uploading?: boolean;
+  onReplace: () => void;
+  onRemove?: () => void;
+}) {
+  const hasFile = Boolean(fileName);
+  return (
+    <div className="rounded-lg border border-[#e6e1dd] bg-[#fcfbfa] p-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className={`rounded-lg p-2 ${hasFile ? 'bg-emerald-50' : required ? 'bg-amber-50' : 'bg-slate-100'}`}>
+            {uploading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-amber-700" />
+            ) : hasFile ? (
+              <CheckCircle className="h-4 w-4 text-emerald-600" />
+            ) : (
+              <FileText className="h-4 w-4 text-slate-500" />
+            )}
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-medium text-[#111111]">{title}</p>
+              <StatusPill tone={uploading ? 'warning' : hasFile ? 'success' : required ? 'warning' : 'neutral'}>
+                {uploading ? 'Processing' : hasFile ? 'Uploaded' : required ? 'Missing' : 'Optional'}
+              </StatusPill>
+            </div>
+            <p className="mt-1 truncate text-sm text-[#625c57]">{fileName || (required ? 'Required for stronger matching' : 'Upload to improve match evidence')}</p>
+            {uploadDate ? <p className="mt-0.5 text-xs text-[#8a8580]">Uploaded {new Date(uploadDate).toLocaleDateString()}</p> : null}
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {hasFile && onRemove ? (
+            <Button type="button" variant="outline" size="sm" className="h-8 rounded-md border-[#e2d8d2] bg-white text-[#6b625d]" onClick={onRemove}>
+              Remove
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" size="sm" className="h-8 rounded-md border-[#e2d8d2] bg-white text-[#6b625d]" onClick={onReplace} disabled={uploading}>
+            <Upload className="mr-1.5 h-3.5 w-3.5" />
+            {hasFile ? 'Replace' : 'Upload'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface StudentProfileProps {
   mode?: 'edit' | 'setup';
   onSetupComplete?: () => void;
@@ -181,6 +307,8 @@ export default function StudentProfile({
   const [hasUploadedResume, setHasUploadedResume] = useState(Boolean(studentProfile?.resume));
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const [photoFormatError, setPhotoFormatError] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [showAllCoursework, setShowAllCoursework] = useState(false);
   const resumeUploadRef = useRef<ResumeUploadHandle | null>(null);
   const transcriptInputRef = useRef<HTMLInputElement | null>(null);
   const trimmedDisplayName = displayName.trim();
@@ -203,6 +331,33 @@ export default function StudentProfile({
   const shouldRequireInterests = includeInterestsSection;
   const missingInterests = shouldRequireInterests && showValidationErrors && interests.length === 0;
   const missingResume = showValidationErrors && !hasResume;
+  const normalizedLinkedInUrl = normalizeProfileUrl(linkedInUrl);
+  const normalizedGithubUrl = normalizeProfileUrl(githubUrl);
+  const hasInvalidLinkedInUrl = Boolean(linkedInUrl.trim()) && !isValidLinkedInUrl(linkedInUrl);
+  const hasInvalidGithubUrl = Boolean(githubUrl.trim()) && !isValidGithubUrl(githubUrl);
+  const profileCompletionItems = [
+    Boolean(trimmedDisplayName),
+    Boolean(trimmedDisplayEmail) && !hasInvalidDisplayEmail,
+    Boolean(trimmedMajor),
+    Boolean(year),
+    interests.length > 0,
+    skills.length > 0,
+    hasResume,
+    Boolean(studentProfile?.transcript),
+  ];
+  const profileCompletion = Math.round((profileCompletionItems.filter(Boolean).length / profileCompletionItems.length) * 100);
+  const hasUnsavedChanges = Boolean(
+    displayName !== (user?.name || studentProfile?.name || '') ||
+      displayEmail !== (user?.email || '') ||
+      major !== (studentProfile?.major || '') ||
+      year !== (studentProfile?.graduationYear || '') ||
+      linkedInUrl !== (studentProfile?.linkedInUrl || '') ||
+      githubUrl !== (studentProfile?.githubUrl || '') ||
+      JSON.stringify(interests) !== JSON.stringify(studentProfile?.interests || []) ||
+      JSON.stringify(skills) !== JSON.stringify(studentProfile?.skills || []) ||
+      uploadedResume !== (studentProfile?.resume ?? null) ||
+      photoBase64 !== (studentProfile?.photoBase64 ?? null)
+  );
   const initials = (() => {
     const parts = (displayName || '')
       .trim()
@@ -219,8 +374,8 @@ export default function StudentProfile({
   })();
 
   const inputClassName =
-    'h-12 rounded-2xl border-[#d9d9d9] bg-white px-4 text-[#111111] shadow-none placeholder:text-[#9b9b9b] disabled:cursor-default disabled:bg-[#fafafa] disabled:opacity-100 disabled:text-[#111111]';
-  const labelClassName = 'text-sm font-semibold text-[#575757]';
+    'h-10 rounded-lg border-[#d9d9d9] bg-white px-3 text-sm text-[#111111] shadow-none placeholder:text-[#9b9b9b] disabled:cursor-default disabled:bg-[#fafafa] disabled:opacity-100 disabled:text-[#111111]';
+  const labelClassName = 'text-xs font-semibold uppercase tracking-[0.08em] text-[#6c6560]';
   const tagInputRef = useRef<HTMLDivElement | null>(null);
   const isAiBusy = false;
   const normalizedSkillSet = new Set(skills.map((skill) => skill.toLowerCase()));
@@ -236,6 +391,33 @@ export default function StudentProfile({
       suggestion.toLowerCase().includes(debouncedSkillInput.trim().toLowerCase())
     );
   }).slice(0, 8);
+  const courseworkGroups = useMemo(() => {
+    const groups = [
+      { title: 'Relevant to AI/ML', pattern: /ai|artificial|machine|learning|deep|neural|nlp|natural language|vision/i, courses: [] as CourseworkEntry[] },
+      { title: 'Relevant to Data/Statistics', pattern: /data|stat|probability|analytics|model|linear|database|sql/i, courses: [] as CourseworkEntry[] },
+      { title: 'Relevant to Business', pattern: /business|econ|marketing|accounting|operations|strategy|management|finance/i, courses: [] as CourseworkEntry[] },
+      { title: 'Other coursework', pattern: /.*/i, courses: [] as CourseworkEntry[] },
+    ];
+
+    coursework.forEach((course) => {
+      const label = formatCourseworkEntry(course);
+      const group = groups.find((entry) => entry.title !== 'Other coursework' && entry.pattern.test(label)) ?? groups[3];
+      group.courses.push(course);
+    });
+
+    return groups.filter((group) => group.courses.length > 0);
+  }, [coursework]);
+  const visibleCourseworkGroups = useMemo(() => {
+    if (showAllCoursework) return courseworkGroups;
+    let remaining = 10;
+    return courseworkGroups
+      .map((group) => {
+        const courses = group.courses.slice(0, remaining);
+        remaining -= courses.length;
+        return { ...group, courses };
+      })
+      .filter((group) => group.courses.length > 0);
+  }, [courseworkGroups, showAllCoursework]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -312,7 +494,7 @@ export default function StudentProfile({
   }, []);
 
   const addSkill = (value: string) => {
-    const normalized = value.trim();
+    const normalized = normalizeDisplaySkill(value);
     if (!normalized) {
       return;
     }
@@ -434,7 +616,8 @@ export default function StudentProfile({
       setHasUploadedResume(false);
       toast.success('Resume removed.');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to remove resume');
+      console.error('[student profile] remove resume failed:', error);
+      toast.error('Could not remove resume. Please try again.');
     }
   };
 
@@ -443,6 +626,15 @@ export default function StudentProfile({
     setIsUploadingTranscript(true);
 
     try {
+      if (!/\.(pdf|txt)$/i.test(file.name)) {
+        throw new Error('Unsupported transcript file type.');
+      }
+      if (file.size === 0) {
+        throw new Error('Transcript file is empty.');
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        throw new Error('Transcript file is too large.');
+      }
       const formData = new FormData();
       formData.append('transcript', file);
       const { data: sessionData } = supabase
@@ -469,7 +661,14 @@ export default function StudentProfile({
       await refreshSession();
       toast.success('Transcript uploaded and coursework extracted.');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Transcript upload failed.';
+      console.error('[student profile] transcript upload failed:', error);
+      const message = error instanceof Error && error.message === 'Unsupported transcript file type.'
+        ? 'Upload a PDF or text transcript.'
+        : error instanceof Error && error.message === 'Transcript file is empty.'
+          ? 'Choose a transcript file that is not empty.'
+          : error instanceof Error && error.message === 'Transcript file is too large.'
+            ? 'Transcript must be under 10 MB.'
+            : 'Could not upload transcript. Please try again.';
       setTranscriptError(message);
       toast.error(message);
     } finally {
@@ -483,7 +682,8 @@ export default function StudentProfile({
       setCoursework([]);
       toast.success('Transcript removed.');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to remove transcript');
+      console.error('[student profile] remove transcript failed:', error);
+      toast.error('Could not remove transcript. Please try again.');
     }
   };
 
@@ -509,18 +709,29 @@ export default function StudentProfile({
       return false;
     }
 
+    if (hasInvalidLinkedInUrl) {
+      toast.error('Enter a valid LinkedIn profile URL, such as https://linkedin.com/in/your-name');
+      return false;
+    }
+
+    if (hasInvalidGithubUrl) {
+      toast.error('Enter a valid GitHub profile URL, such as https://github.com/your-username');
+      return false;
+    }
+
     try {
+      setIsSavingProfile(true);
       await updateStudentProfile({
         name: resumeValues.name.trim() || trimmedDisplayName || user?.name,
         email: resumeValues.email.trim() || trimmedDisplayEmail || undefined,
         photoBase64: photoBase64 ?? undefined,
-        linkedin: resumeValues.linkedin.trim() || undefined,
-        github: resumeValues.github.trim() || undefined,
+        linkedin: normalizedLinkedInUrl || undefined,
+        github: normalizedGithubUrl || undefined,
         major: resumeValues.major.trim() || trimmedMajor || undefined,
         degree: resumeValues.degree.trim() || undefined,
         graduationYear: year || undefined,
-        linkedInUrl: linkedInUrl.trim() || undefined,
-        githubUrl: githubUrl.trim() || undefined,
+        linkedInUrl: normalizedLinkedInUrl || undefined,
+        githubUrl: normalizedGithubUrl || undefined,
         interests: includeInterestsSection ? interests : undefined,
         skills,
         resume: uploadedResume ?? studentProfile?.resume ?? undefined,
@@ -532,18 +743,21 @@ export default function StudentProfile({
           includeInterestsSection ? 'Setup completed successfully!' : 'Profile saved. Continue to research interests.'
         );
       } else {
-        toast.success('Profile updated successfully!');
+        toast.success('Profile saved.');
       }
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to save profile';
+      console.error('[student profile] save failed:', error);
       if (message.toLowerCase().includes('session expired') || message.toLowerCase() === 'unauthorized') {
         toast.error('Your session expired. Please sign in again.');
         window.location.assign('/');
         return false;
       }
-      toast.error(message);
+      toast.error('Could not save profile. Please try again.');
       return false;
+    } finally {
+      setIsSavingProfile(false);
     }
   };
 
@@ -657,31 +871,21 @@ export default function StudentProfile({
   };
 
   return (
-    <section className="overflow-hidden rounded-[28px] border border-[#d9d9d9] bg-white text-[#111111] shadow-[0_18px_36px_rgba(15,15,15,0.06)]">
-      <div className="relative h-28 bg-[linear-gradient(120deg,#faf1ef_0%,#f7f4f1_55%,#f2f2f0_100%)]">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,#ffffff90,transparent_58%)]" />
-        <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-b from-transparent to-white" />
-      </div>
-
-      <div className="relative -mt-10 px-6 pb-6">
-        <div className="mx-auto max-w-4xl">
-          <div className="flex flex-col items-center gap-5 border-b border-[#ececec] pb-7 md:flex-row md:items-end md:gap-6 md:pb-6">
-            <div className="flex shrink-0 flex-col items-center gap-2">
-              <div data-interactive="true" className="relative group flex cursor-pointer" onClick={() => document.getElementById('photo-upload')?.click()}>
-              <div className={`flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-4 bg-[linear-gradient(145deg,#d86666,#b4232f)] text-2xl font-medium text-white shadow-[0_12px_24px_rgba(180,35,47,0.18)] ${photoFormatError ? 'border-destructive/80' : 'border-white'}`}>
-                {photoBase64 ? (
-                  <img src={`data:image/jpeg;base64,${photoBase64}`} alt="Profile" className="size-full object-cover" />
-                ) : (
-                  initials
-                )}
+    <section className="pb-20 text-[#111111]">
+      <div className="rounded-xl border border-[#e6e1dd] bg-white p-5 shadow-[0_12px_28px_rgba(15,15,15,0.05)]">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-4">
+            <div data-interactive="true" className="group relative flex cursor-pointer" onClick={() => document.getElementById('photo-upload')?.click()}>
+              <div className={`flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-[linear-gradient(145deg,#d86666,#b4232f)] text-xl font-semibold text-white shadow-sm ${photoFormatError ? 'border-destructive/80' : 'border-white'}`}>
+                {photoBase64 ? <img src={`data:image/jpeg;base64,${photoBase64}`} alt="Profile" className="size-full object-cover" /> : initials}
               </div>
               <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
-                <Camera className="size-6 text-white" />
+                <Camera className="size-4 text-white" />
               </div>
-              {photoBase64 && (
+              {photoBase64 ? (
                 <button
                   type="button"
-                  className="absolute -right-1 -top-1 z-10 inline-flex size-6 items-center justify-center rounded-full bg-red-700 text-white shadow hover:bg-red-800"
+                  className="absolute -right-1 -top-1 z-10 inline-flex size-5 items-center justify-center rounded-full bg-red-700 text-white shadow hover:bg-red-800"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -690,28 +894,92 @@ export default function StudentProfile({
                   }}
                   aria-label="Remove profile photo"
                 >
-                  <X className="size-3.5" />
+                  <X className="size-3" />
                 </button>
-              )}
-              </div>
-              {photoFormatError && <p className="text-xs text-destructive">Only JPG, PNG, or WEBP files are accepted</p>}
+              ) : null}
             </div>
 
-            <div className="flex-1 space-y-2 text-center md:text-left">
-              <p className="text-xs font-medium uppercase tracking-[0.32em] text-[#8c8c8c]">Student Profile</p>
-              <div>
-                <h2 className="text-3xl font-semibold tracking-tight text-[#111111]">
-                  {mode === 'setup' ? 'Input Information' : 'Edit your profile'}
-                </h2>
-                <p className="mt-2 max-w-2xl text-sm text-[#6f6f6f]">
-                  Keep your academic details current and maintain a resume ready for research applications.
-                </p>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8a8580]">Student Profile</p>
+              <h2 className="mt-1 truncate text-2xl font-semibold tracking-tight text-[#111111]">
+                {trimmedDisplayName || 'Complete your profile'}
+              </h2>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[#6f6a66]">
+                <span>{trimmedMajor || 'Major missing'}</span>
+                <span className="text-[#b8aaa4]">•</span>
+                <span>{year || 'Academic year missing'}</span>
+                <span className="text-[#b8aaa4]">•</span>
+                <span>{profileCompletion}% complete</span>
               </div>
+              {photoFormatError ? <ValidationMessage>Only JPG, PNG, or WEBP files are accepted</ValidationMessage> : null}
             </div>
           </div>
 
-          <div className="mt-7 space-y-6">
-            <div className="grid gap-6 md:grid-cols-2">
+          <div className="min-w-[220px] rounded-lg border border-[#ebe4df] bg-[#fcfbfa] p-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium text-[#4d4743]">Profile completeness</span>
+              <span className="font-semibold text-[#111111]">{profileCompletion}%</span>
+            </div>
+            <div className="mt-2 h-2 rounded-full bg-[#eee8e4]">
+              <div className="h-full rounded-full bg-emerald-500" style={{ width: `${profileCompletion}%` }} />
+            </div>
+            <p className="mt-2 text-xs text-[#756f6a]">
+              {studentProfile?.resume?.uploadDate || studentProfile?.transcript?.uploadDate
+                ? `Last updated ${new Date(studentProfile?.resume?.uploadDate || studentProfile?.transcript?.uploadDate || '').toLocaleDateString()}`
+                : 'Add documents and interests to improve matches.'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="space-y-3">
+          <ProfileSection title="Status">
+            <div className="space-y-3">
+              <div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-[#625c57]">Resume</span>
+                  <StatusPill tone={hasResume ? 'success' : 'warning'}>{hasResume ? 'Uploaded' : 'Missing'}</StatusPill>
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-[#625c57]">Transcript</span>
+                  <StatusPill tone={studentProfile?.transcript ? 'success' : 'neutral'}>{studentProfile?.transcript ? 'Uploaded' : 'Optional'}</StatusPill>
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-[#625c57]">Research interests</span>
+                  <StatusPill tone={interests.length ? 'success' : 'warning'}>{interests.length || 'Missing'}</StatusPill>
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-[#625c57]">Skills</span>
+                  <StatusPill tone={skills.length ? 'success' : 'warning'}>{skills.length || 'Recommended'}</StatusPill>
+                </div>
+              </div>
+            </div>
+          </ProfileSection>
+
+          <ProfileSection title="Quick actions">
+            <div className="space-y-2">
+              <Button type="button" variant="outline" className="w-full justify-start rounded-md border-[#e2d8d2] bg-white" onClick={() => resumeUploadRef.current?.triggerReplace()}>
+                <Upload className="mr-2 h-4 w-4" />
+                Replace resume
+              </Button>
+              <Button type="button" variant="outline" className="w-full justify-start rounded-md border-[#e2d8d2] bg-white" onClick={() => transcriptInputRef.current?.click()}>
+                <BookOpen className="mr-2 h-4 w-4" />
+                Upload transcript
+              </Button>
+            </div>
+          </ProfileSection>
+        </aside>
+
+        <main className="space-y-4">
+          <ProfileSection title="Basic Information" description="Keep your contact details accurate for research applications.">
+            <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label className={labelClassName}>Full Name <span className="text-red-700">*</span></Label>
                 <Input
@@ -726,27 +994,7 @@ export default function StudentProfile({
                       : ''
                   }`}
                 />
-                {missingDisplayName && <p className="mt-2 text-xs text-destructive">This field is required</p>}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="major" className={labelClassName}>
-                  Major <span className="text-red-700">*</span>
-                </Label>
-                <Input
-                  id="major"
-                  value={major}
-                  onChange={(e) => setMajor(e.target.value)}
-                  placeholder="Computer Science"
-                  aria-invalid={missingMajor}
-                  className={`${inputClassName} ${
-                    missingMajor
-                      ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
-                      : ''
-                  }`}
-                  disabled={isAiBusy}
-                />
-                {missingMajor && <p className="mt-2 text-xs text-destructive">This field is required</p>}
+                <ValidationMessage>{missingDisplayName ? 'Full name is required.' : null}</ValidationMessage>
               </div>
 
               <div className="space-y-2">
@@ -763,12 +1011,53 @@ export default function StudentProfile({
                       : ''
                   }`}
                 />
-                {missingDisplayEmail && <p className="mt-2 text-xs text-destructive">This field is required</p>}
-                {hasInvalidDisplayEmail && (
-                  <p className="mt-2 text-xs text-destructive" role="alert" aria-live="polite">
-                    Email is invalid
-                  </p>
-                )}
+                <ValidationMessage>{missingDisplayEmail ? 'Email is required.' : hasInvalidDisplayEmail ? 'Enter a valid email address.' : null}</ValidationMessage>
+              </div>
+
+              <div className="space-y-2">
+                <Label className={labelClassName}>LinkedIn</Label>
+                <Input
+                  value={linkedInUrl}
+                  onChange={(e) => setLinkedInUrl(e.target.value.trimStart())}
+                  disabled={isAiBusy}
+                  placeholder="https://www.linkedin.com/in/your-profile"
+                  aria-invalid={showValidationErrors && hasInvalidLinkedInUrl}
+                  className={`${inputClassName} ${showValidationErrors && hasInvalidLinkedInUrl ? 'border-destructive/80' : ''}`}
+                />
+                <ValidationMessage>{showValidationErrors && hasInvalidLinkedInUrl ? 'Enter a valid LinkedIn profile URL, such as https://linkedin.com/in/your-name' : null}</ValidationMessage>
+              </div>
+
+              <div className="space-y-2">
+                <Label className={labelClassName}>GitHub</Label>
+                <Input
+                  value={githubUrl}
+                  onChange={(e) => setGithubUrl(e.target.value.trimStart())}
+                  disabled={isAiBusy}
+                  placeholder="https://github.com/your-username"
+                  aria-invalid={showValidationErrors && hasInvalidGithubUrl}
+                  className={`${inputClassName} ${showValidationErrors && hasInvalidGithubUrl ? 'border-destructive/80' : ''}`}
+                />
+                <ValidationMessage>{showValidationErrors && hasInvalidGithubUrl ? 'Enter a valid GitHub profile URL, such as https://github.com/your-username' : null}</ValidationMessage>
+              </div>
+            </div>
+          </ProfileSection>
+
+          <ProfileSection title="Academic Information" description="These fields help faculty understand your academic context.">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="major" className={labelClassName}>
+                  Major <span className="text-red-700">*</span>
+                </Label>
+                <Input
+                  id="major"
+                  value={major}
+                  onChange={(e) => setMajor(e.target.value)}
+                  placeholder="Computer Science"
+                  aria-invalid={missingMajor}
+                  className={`${inputClassName} ${missingMajor ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20' : ''}`}
+                  disabled={isAiBusy}
+                />
+                <ValidationMessage>{missingMajor ? 'Major is required.' : null}</ValidationMessage>
               </div>
 
               <div className="space-y-2">
@@ -778,432 +1067,255 @@ export default function StudentProfile({
                 <Select value={year} onValueChange={setYear}>
                   <SelectTrigger
                     id="year"
-                    className={`h-12 rounded-2xl bg-white px-4 text-[#111111] shadow-none data-[placeholder]:text-[#9b9b9b] ${
-                      missingYear
-                        ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20'
-                        : 'border-[#d9d9d9]'
-                    }`}
+                    className={`h-10 rounded-lg bg-white px-3 text-sm text-[#111111] shadow-none data-[placeholder]:text-[#9b9b9b] ${missingYear ? 'border-destructive/80 text-destructive focus-visible:border-destructive/80 focus-visible:ring-destructive/20' : 'border-[#d9d9d9]'}`}
                     disabled={isAiBusy}
                   >
                     <SelectValue placeholder="Select year" />
                   </SelectTrigger>
                   <SelectContent>
                     {YEARS.map((y) => (
-                      <SelectItem key={y} value={y}>
-                        {y}
-                      </SelectItem>
+                      <SelectItem key={y} value={y}>{y}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {missingYear && <p className="mt-2 text-xs text-destructive">This field is required</p>}
-              </div>
-
-              <div className="space-y-2">
-                <Label className={labelClassName}>LinkedIn</Label>
-                <Input
-                  value={linkedInUrl}
-                  onChange={(e) => setLinkedInUrl(e.target.value)}
-                  disabled={isAiBusy}
-                  placeholder="https://www.linkedin.com/in/your-profile"
-                  className={inputClassName}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label className={labelClassName}>GitHub</Label>
-                <Input
-                  value={githubUrl}
-                  onChange={(e) => setGithubUrl(e.target.value)}
-                  disabled={isAiBusy}
-                  placeholder="https://github.com/your-username"
-                  className={inputClassName}
-                />
+                <ValidationMessage>{missingYear ? 'Academic year is required.' : null}</ValidationMessage>
               </div>
 
               <div className="space-y-2">
                 <Label className={labelClassName}>Degree</Label>
                 <Input {...register('degree')} className={inputClassName} placeholder="B.S., M.S., PhD" />
               </div>
+            </div>
+          </ProfileSection>
 
-              <div />
-
-              {includeInterestsSection ? (
-                <div className="space-y-2 md:col-span-2">
-                  <Label className={labelClassName}>Research Interests <span className="text-red-700">*</span></Label>
-                  <p className="text-xs text-[#8a8a8a]">
-                    Select all research areas you are interested in. You can update this anytime.
-                  </p>
-
-                  {mode === 'edit' && !isEditingResearchInterests ? (
-                    <div
-                      className={`cursor-pointer rounded-2xl border p-4 ${missingInterests ? 'border-destructive/80' : 'border-[#d9d9d9]'}`}
-                      onClick={() => {
-                        setDraftInterests(interests);
-                        setCustomInterestInput('');
-                        setIsEditingResearchInterests(true);
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          setDraftInterests(interests);
-                          setCustomInterestInput('');
-                          setIsEditingResearchInterests(true);
-                        }
-                      }}
-                    >
-                      {interests.length > 0 ? (
-                        <div className="mb-4 flex flex-wrap gap-2">
-                          {interests.map((interest) => (
-                            <span
-                              key={interest}
-                              className="inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-700"
-                            >
-                              {interest}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="mb-4 text-sm text-[#7a7a7a]">No research interests saved yet.</p>
-                      )}
-
-                      <div className="flex justify-end">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="rounded-2xl border-[#d8d8d8] bg-white px-4 text-[#575757] hover:bg-[#f7f7f7] hover:text-[#111111]"
-                          onClick={() => {
-                            setDraftInterests(interests);
-                            setCustomInterestInput('');
-                            setIsEditingResearchInterests(true);
-                          }}
-                          disabled={isAiBusy}
-                        >
-                          Edit Research Interests
-                        </Button>
-                      </div>
+          {includeInterestsSection ? (
+            <ProfileSection title="Research Interests" description="Selected interests help prioritize recommendations.">
+              {mode === 'edit' && !isEditingResearchInterests ? (
+                <div className={`rounded-lg border p-3 ${missingInterests ? 'border-destructive/80' : 'border-[#e6e1dd]'}`}>
+                  {interests.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {interests.map((interest) => (
+                        <span key={interest} className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
+                          {interest}
+                        </span>
+                      ))}
                     </div>
                   ) : (
-                    <div className={`rounded-2xl border p-4 ${missingInterests ? 'border-destructive/80' : 'border-[#d9d9d9]'}`}>
-                      {(mode === 'edit' ? draftInterests : interests).length > 0 && (
-                        <div className="mb-4 flex flex-wrap gap-2">
-                          {(mode === 'edit' ? draftInterests : interests).map((interest) => (
-                            <span
-                              key={interest}
-                              className="inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-700"
-                            >
-                              {interest}
-                              <button
-                                type="button"
-                                className="text-red-500 transition-colors hover:text-red-700"
-                                onClick={() =>
-                                  mode === 'edit' ? removeDraftInterest(interest) : removeInterest(interest)
-                                }
-                                disabled={isAiBusy}
-                                aria-label={`Remove ${interest}`}
-                              >
-                                <X className="size-3.5" />
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                      <div className="mb-4 flex gap-2">
-                        <Input
-                          value={customInterestInput}
-                          onChange={(e) => setCustomInterestInput(e.target.value)}
-                          onKeyDown={mode === 'edit' ? handleDraftInterestKeyDown : handleInterestKeyDown}
-                          placeholder="Add custom interest (e.g. Health AI)"
-                          className="h-10 rounded-xl"
-                          disabled={isAiBusy}
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={mode === 'edit' ? addCustomDraftInterest : addCustomInterest}
-                          disabled={isAiBusy}
-                        >
-                          Add
-                        </Button>
-                      </div>
-
-                      <div className="space-y-4">
-                        {RESEARCH_INTEREST_GROUPS.map((group) => (
-                          <div key={group.title} className="space-y-2">
-                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7b7b7b]">{group.title}</p>
-                            <div className="flex flex-wrap gap-2">
-                              {group.subjects.map((subject) => {
-                                const selected = mode === 'edit'
-                                  ? normalizedDraftInterestSet.has(subject.toLowerCase())
-                                  : normalizedInterestSet.has(subject.toLowerCase());
-                                return (
-                                  <button
-                                    key={subject}
-                                    type="button"
-                                    onClick={() =>
-                                      mode === 'edit' ? toggleDraftInterest(subject) : toggleInterest(subject)
-                                    }
-                                    className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
-                                      selected
-                                        ? 'border-red-600 bg-red-600 text-white'
-                                        : 'border-[#d2d2d2] bg-[#f8f8f8] text-[#3f3f3f] hover:bg-red-50 hover:border-red-300'
-                                    }`}
-                                    disabled={isAiBusy}
-                                  >
-                                    {subject}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {mode === 'edit' ? (
-                        <div className="mt-4 flex justify-end gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="rounded-2xl border-[#d8d8d8] bg-white px-4 text-[#575757] hover:bg-[#f7f7f7] hover:text-[#111111]"
-                            onClick={handleCancelResearchInterests}
-                            disabled={isAiBusy}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="button"
-                            className="rounded-2xl bg-red-700 px-4 text-white hover:bg-red-800"
-                            onClick={handleSaveResearchInterests}
-                            disabled={isAiBusy}
-                          >
-                            Save Research Interests
-                          </Button>
-                        </div>
-                      ) : null}
-                    </div>
+                    <p className="text-sm text-[#7a7470]">No research interests saved yet.</p>
                   )}
-
-                  {missingInterests && <p className="mt-2 text-xs text-destructive">This field is required</p>}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-3 rounded-md border-[#e2d8d2] bg-white"
+                    onClick={() => {
+                      setDraftInterests(interests);
+                      setCustomInterestInput('');
+                      setIsEditingResearchInterests(true);
+                    }}
+                    disabled={isAiBusy}
+                  >
+                    Edit interests
+                  </Button>
                 </div>
-              ) : null}
-
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="skills" className={labelClassName}>
-                  Skills
-                </Label>
-                <div className="space-y-3">
-                  <div ref={tagInputRef} className="relative">
-                    <div className="flex min-h-12 flex-wrap items-center gap-2 rounded-[22px] border border-[#d9d9d9] bg-white px-3 py-2">
-                      {skills.map((skill) => (
-                        <span
-                          key={skill}
-                          className="inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-700"
-                        >
-                          {skill}
+              ) : (
+                <div className={`rounded-lg border p-3 ${missingInterests ? 'border-destructive/80' : 'border-[#e6e1dd]'}`}>
+                  {(mode === 'edit' ? draftInterests : interests).length > 0 ? (
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {(mode === 'edit' ? draftInterests : interests).map((interest) => (
+                        <span key={interest} className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
+                          {interest}
                           <button
                             type="button"
-                            className="text-red-500 transition-colors hover:text-red-700"
-                            onClick={() => removeSkill(skill)}
+                            className="text-red-600 transition-colors hover:text-red-700"
+                            onClick={() => mode === 'edit' ? removeDraftInterest(interest) : removeInterest(interest)}
                             disabled={isAiBusy}
-                            aria-label={`Remove ${skill}`}
+                            aria-label={`Remove ${interest}`}
                           >
                             <X className="size-3.5" />
                           </button>
                         </span>
                       ))}
-                      <input
-                        id="skills"
-                        value={skillInput}
-                        onChange={(e) => setSkillInput(e.target.value)}
-                        onKeyDown={handleSkillKeyDown}
-                        placeholder={skills.length ? 'Add another skill' : 'Type to add skills'}
-                        className="h-8 min-w-[180px] flex-1 border-0 bg-transparent p-0 text-sm text-[#111111] outline-none placeholder:text-[#9b9b9b]"
-                        disabled={isAiBusy}
-                      />
                     </div>
+                  ) : null}
 
-                    {filteredSuggestions.length > 0 && debouncedSkillInput.trim() ? (
-                      <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 rounded-2xl border border-[#e5e5e5] bg-white p-2 shadow-[0_12px_30px_rgba(15,15,15,0.08)]">
-                        {filteredSuggestions.map((suggestion) => (
-                          <button
-                            key={suggestion}
-                            type="button"
-                            className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm text-[#333333] transition-colors hover:bg-red-50 hover:text-red-700"
-                            onClick={() => addSkill(suggestion)}
-                          >
-                            {suggestion}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
+                  <div className="mb-4 flex gap-2">
+                    <Input
+                      value={customInterestInput}
+                      onChange={(e) => setCustomInterestInput(e.target.value)}
+                      onKeyDown={mode === 'edit' ? handleDraftInterestKeyDown : handleInterestKeyDown}
+                      placeholder="Add custom interest"
+                      className="h-10 rounded-lg"
+                      disabled={isAiBusy}
+                    />
+                    <Button type="button" variant="outline" onClick={mode === 'edit' ? addCustomDraftInterest : addCustomInterest} disabled={isAiBusy}>
+                      Add
+                    </Button>
                   </div>
-                </div>
-              </div>
 
-              <div className="space-y-3 md:col-span-2">
-                <Label className={labelClassName}>Resume <span className="text-red-700">*</span></Label>
-                <ResumeUpload
-                  ref={resumeUploadRef}
-                  onAutofill={handleAutofill}
-                  onResumeUploaded={(resume) => {
-                    setUploadedResume(resume);
-                    setHasUploadedResume(true);
-                  }}
-                />
-                {missingResume ? <p className="mt-2 text-xs text-destructive">This field is required</p> : null}
-
-                {studentProfile?.resume ? (
-                  <div className="mt-3 flex items-center justify-between rounded-xl border p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-lg bg-green-50 p-2">
-                        <CheckCircle className="h-5 w-5 text-green-600" />
+                  <div className="space-y-3">
+                    {RESEARCH_INTEREST_GROUPS.map((group) => (
+                      <div key={group.title} className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#7b7772]">{group.title}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {group.subjects.map((subject) => {
+                            const selected = mode === 'edit'
+                              ? normalizedDraftInterestSet.has(subject.toLowerCase())
+                              : normalizedInterestSet.has(subject.toLowerCase());
+                            return (
+                              <button
+                                key={subject}
+                                type="button"
+                                onClick={() => mode === 'edit' ? toggleDraftInterest(subject) : toggleInterest(subject)}
+                                className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                                  selected
+                                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                    : 'border-[#d8d2cd] bg-white text-[#4d4743] hover:bg-slate-50'
+                                }`}
+                                disabled={isAiBusy}
+                              >
+                                {subject}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium">{studentProfile.resume.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Uploaded {new Date(studentProfile.resume.uploadDate).toLocaleDateString()}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => resumeUploadRef.current?.triggerReplace()}
-                      className="flex items-center gap-2 rounded-full border px-4 py-2 text-sm hover:bg-muted transition-colors"
-                    >
-                      <Upload className="h-4 w-4" />
-                      Replace Resume
-                    </button>
+                    ))}
                   </div>
-                ) : null}
-              </div>
 
-              <div className="space-y-3 md:col-span-2">
-                <Label className={labelClassName}>Transcript</Label>
-                <div className="rounded-2xl border border-[#d9d9d9] bg-[#fcfbfa] p-4">
-                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                    <div className="flex items-start gap-3">
-                      <div className="rounded-lg bg-red-50 p-2">
-                        <BookOpen className="h-5 w-5 text-red-700" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-[#111111]">
-                          {studentProfile?.transcript ? studentProfile.transcript.name : 'Upload transcript for coursework scoring'}
-                        </p>
-                        <p className="mt-1 text-sm text-[#666666]">
-                          Coursework from your transcript will be used as evidence in the AI confidence score.
-                        </p>
-                        {studentProfile?.transcript ? (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Uploaded {new Date(studentProfile.transcript.uploadDate).toLocaleDateString()}
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      {studentProfile?.transcript ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="rounded-2xl border-[#d8d8d8] bg-white px-4 text-[#575757] hover:bg-[#f7f7f7] hover:text-[#111111]"
-                          onClick={handleRemoveTranscript}
-                          disabled={isAiBusy || isUploadingTranscript}
-                        >
-                          Remove
-                        </Button>
-                      ) : null}
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="rounded-2xl border-[#d8d8d8] bg-white px-4 text-[#575757] hover:bg-[#f7f7f7] hover:text-[#111111]"
-                        onClick={() => transcriptInputRef.current?.click()}
-                        disabled={isAiBusy || isUploadingTranscript}
-                      >
-                        {isUploadingTranscript ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Extracting
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="mr-2 h-4 w-4" />
-                            {studentProfile?.transcript ? 'Replace Transcript' : 'Upload Transcript'}
-                          </>
-                        )}
+                  {mode === 'edit' ? (
+                    <div className="mt-4 flex justify-end gap-2">
+                      <Button type="button" variant="outline" className="rounded-md border-[#e2d8d2] bg-white" onClick={handleCancelResearchInterests} disabled={isAiBusy}>
+                        Cancel
+                      </Button>
+                      <Button type="button" className="rounded-md bg-red-700 text-white hover:bg-red-800" onClick={handleSaveResearchInterests} disabled={isAiBusy}>
+                        Save interests
                       </Button>
                     </div>
-                  </div>
+                  ) : null}
+                </div>
+              )}
+              <ValidationMessage>{missingInterests ? 'Choose at least one research interest.' : null}</ValidationMessage>
+            </ProfileSection>
+          ) : null}
 
-                  {transcriptError ? <p className="mt-3 text-sm text-red-600" role="alert">{transcriptError}</p> : null}
+          <ProfileSection title="Skills" description="Add technical and research skills. Press Enter to add a skill.">
+            <div ref={tagInputRef} className="relative">
+              <div className="flex min-h-10 flex-wrap items-center gap-2 rounded-lg border border-[#d9d9d9] bg-white px-3 py-2">
+                {skills.map((skill) => (
+                  <span key={skill} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-medium text-slate-700">
+                    {skill}
+                    <button type="button" className="text-red-600 transition-colors hover:text-red-700" onClick={() => removeSkill(skill)} disabled={isAiBusy} aria-label={`Remove ${skill}`}>
+                      <X className="size-3.5" />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  id="skills"
+                  value={skillInput}
+                  onChange={(e) => setSkillInput(e.target.value)}
+                  onKeyDown={handleSkillKeyDown}
+                  placeholder={skills.length ? 'Add another skill' : 'Type to add skills'}
+                  className="h-7 min-w-[180px] flex-1 border-0 bg-transparent p-0 text-sm text-[#111111] outline-none placeholder:text-[#9b9b9b]"
+                  disabled={isAiBusy}
+                />
+              </div>
 
-                  {coursework.length > 0 ? (
-                    <div className="mt-4 space-y-3">
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#7b7b7b]">
-                        Extracted coursework ({coursework.length})
-                      </p>
-                      {groupCourseworkBySemester(coursework).map((group) => (
-                        <div key={group.semester} className="space-y-2">
-                          <p className="text-xs font-semibold text-[#555555]">{group.semester}</p>
-                          <div className="flex flex-wrap gap-2">
-                            {group.courses.map((course, index) => (
-                              <span
-                                key={getCourseworkKey(course, index)}
-                                className="inline-flex items-center rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-700"
-                              >
-                                {formatCourseworkEntry(course)}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
+              {filteredSuggestions.length > 0 && debouncedSkillInput.trim() ? (
+                <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 rounded-lg border border-[#e5e5e5] bg-white p-2 shadow-[0_12px_30px_rgba(15,15,15,0.08)]">
+                  {filteredSuggestions.map((suggestion) => (
+                    <button key={suggestion} type="button" className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm text-[#333333] transition-colors hover:bg-blue-50 hover:text-blue-700" onClick={() => addSkill(suggestion)}>
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            {skills.length === 0 ? <p className="mt-2 text-xs text-amber-700">Adding at least one skill is recommended for better matches.</p> : null}
+          </ProfileSection>
+
+          <ProfileSection title="Documents" description="Documents help power resume autofill, coursework extraction, and match scoring.">
+            <div className="space-y-3">
+              <DocumentCard
+                title="Resume"
+                fileName={(uploadedResume ?? studentProfile?.resume ?? undefined)?.name}
+                uploadDate={(uploadedResume ?? studentProfile?.resume ?? undefined)?.uploadDate}
+                required
+                onReplace={() => resumeUploadRef.current?.triggerReplace()}
+                onRemove={handleRemoveResume}
+              />
+              <ResumeUpload
+                ref={resumeUploadRef}
+                onAutofill={handleAutofill}
+                onResumeUploaded={(resume) => {
+                  setUploadedResume(resume);
+                  setHasUploadedResume(true);
+                  toast.success('Resume updated profile fields.');
+                }}
+              />
+              <ValidationMessage>{missingResume ? 'Resume is required for stronger profile matching.' : null}</ValidationMessage>
+
+              <DocumentCard
+                title="Transcript"
+                fileName={studentProfile?.transcript?.name}
+                uploadDate={studentProfile?.transcript?.uploadDate}
+                uploading={isUploadingTranscript}
+                onReplace={() => transcriptInputRef.current?.click()}
+                onRemove={studentProfile?.transcript ? handleRemoveTranscript : undefined}
+              />
+              {transcriptError ? <ValidationMessage>{transcriptError}</ValidationMessage> : null}
+            </div>
+          </ProfileSection>
+
+          <ProfileSection title="Extracted Coursework" description="Showing the most relevant extracted courses by default.">
+            {coursework.length > 0 ? (
+              <div className="space-y-4">
+                {visibleCourseworkGroups.map((group) => (
+                  <div key={group.title} className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#7b7772]">{group.title}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {group.courses.map((course, index) => (
+                        <span key={getCourseworkKey(course, index)} className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-medium text-slate-700">
+                          {formatCourseworkEntry(course)}
+                        </span>
                       ))}
                     </div>
-                  ) : (
-                    <p className="mt-4 text-sm text-[#777777]">No transcript coursework stored yet.</p>
-                  )}
-                </div>
+                  </div>
+                ))}
+                {coursework.length > 10 ? (
+                  <Button type="button" variant="outline" className="rounded-md border-[#e2d8d2] bg-white" onClick={() => setShowAllCoursework((open) => !open)}>
+                    {showAllCoursework ? 'Show fewer courses' : `View all ${coursework.length} courses`}
+                  </Button>
+                ) : null}
               </div>
+            ) : (
+              <p className="text-sm text-[#777777]">No transcript coursework stored yet.</p>
+            )}
+          </ProfileSection>
+        </main>
+      </div>
+
+      {(hasUnsavedChanges || isSetupMode) ? (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[#e6e1dd] bg-white/95 px-4 py-3 shadow-[0_-10px_24px_rgba(15,15,15,0.06)] backdrop-blur">
+          <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-medium text-[#625c57]">{isSetupMode ? 'Complete required profile fields to continue.' : 'Unsaved changes'}</p>
+            <div className="flex justify-end gap-2">
+              {!isSetupMode ? (
+                <Button type="button" variant="outline" className="rounded-md border-[#d8d0ca] bg-white" onClick={handleResetForm} disabled={isAiBusy || isSavingProfile}>
+                  Discard Changes
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                className="rounded-md bg-red-700 text-white hover:bg-red-800"
+                onClick={isSetupMode ? handleSetupSubmit : handleSaveProfile}
+                disabled={isAiBusy || isSavingProfile || (isSetupMode && !isSetupFormReady)}
+              >
+                {isSavingProfile ? 'Saving...' : isSetupMode ? setupSubmitLabel ?? 'Complete Setup' : 'Save Changes'}
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
-
-      </div>
-
-      <div className="border-t border-[#ececec] bg-[#fcfcfc] px-6 py-4">
-        <div className="mx-auto flex max-w-4xl items-center justify-end gap-3">
-          {isSetupMode ? (
-            <Button
-              type="button"
-              className="rounded-2xl bg-red-700 px-6 text-white shadow-[0_10px_20px_rgba(185,28,28,0.16)] hover:bg-red-800"
-              onClick={handleSetupSubmit}
-              disabled={isAiBusy || !isSetupFormReady}
-            >
-              {setupSubmitLabel ?? 'Complete Setup'}
-            </Button>
-          ) : (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-2xl border-[#d8d8d8] bg-white px-6 text-[#575757] hover:bg-[#f7f7f7] hover:text-[#111111]"
-                onClick={handleResetForm}
-                disabled={isAiBusy}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                className="rounded-2xl bg-red-700 px-6 text-white shadow-[0_10px_20px_rgba(185,28,28,0.16)] hover:bg-red-800"
-                onClick={handleSaveProfile}
-                disabled={isAiBusy}
-              >
-                Save Changes
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
+      ) : null}
 
       <input
         id="photo-upload"
