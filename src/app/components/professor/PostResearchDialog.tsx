@@ -11,6 +11,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Switch } from '../ui/switch';
 import { PlusCircle, X } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  IMPORTANCE_TO_WEIGHT,
+  buildDefaultRequirements,
+  type OpportunityRequirement,
+  type RequirementImportance,
+  type RequirementType,
+} from '../../lib/opportunityScoring';
 import ResearchMetadataPicker, { normalizeResearchInterests } from './ResearchMetadataPicker';
 import {
   getResearchAreasForPostingCategory,
@@ -40,6 +47,22 @@ const COMPENSATION_LABELS: Record<ResearchPosting['compensation'], string> = {
 };
 
 const MAX_START_DATE_YEARS_AHEAD = 2;
+const IMPORTANCE_OPTIONS: RequirementImportance[] = ['Low', 'Medium', 'High', 'Critical'];
+const REQUIREMENT_TYPE_OPTIONS: Array<{ value: RequirementType; label: string }> = [
+  { value: 'must_have', label: 'Must-have' },
+  { value: 'preferred', label: 'Preferred' },
+];
+
+const BLANK_REQUIREMENT: OpportunityRequirement = {
+  title: '',
+  description: '',
+  requirementType: 'preferred',
+  importance: 'Medium',
+  weight: IMPORTANCE_TO_WEIGHT.Medium,
+  minimumThreshold: '',
+  evidenceSources: ['Resume', 'Transcript'],
+  displayOrder: 0,
+};
 
 function toLocalDateInputValue(date: Date) {
   const year = date.getFullYear();
@@ -97,6 +120,7 @@ export default function PostResearchDialog({
   const [applicationDeadline, setApplicationDeadline] = useState(postingToEdit?.applicationDeadline ?? '');
   const [compensation, setCompensation] = useState<ResearchPosting['compensation']>(postingToEdit?.compensation ?? 'tbd');
   const [questions, setQuestions] = useState<ApplicationQuestion[]>(postingToEdit?.questions ?? []);
+  const [requirements, setRequirements] = useState<OpportunityRequirement[]>(postingToEdit?.requirements ?? []);
   const [quickNoteEnabled, setQuickNoteEnabled] = useState(postingToEdit?.quickNoteEnabled ?? true);
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [currentWordLimit, setCurrentWordLimit] = useState('');
@@ -151,6 +175,11 @@ export default function PostResearchDialog({
       setApplicationDeadline(postingToEdit.applicationDeadline ?? '');
       setCompensation(postingToEdit.compensation ?? 'tbd');
       setQuestions(postingToEdit.questions ?? []);
+      setRequirements(
+        postingToEdit.requirements?.length
+          ? postingToEdit.requirements
+          : buildDefaultRequirements(postingToEdit)
+      );
       setQuickNoteEnabled(postingToEdit.quickNoteEnabled ?? true);
       setCurrentQuestion('');
       setCurrentWordLimit('');
@@ -340,6 +369,16 @@ export default function PostResearchDialog({
       compensation,
       questions,
       quickNoteEnabled,
+      requirements: requirements
+        .map((requirement, index) => ({
+          ...requirement,
+          title: requirement.title.trim(),
+          description: requirement.description.trim(),
+          minimumThreshold: requirement.minimumThreshold?.trim() || undefined,
+          evidenceSources: requirement.evidenceSources.map((source) => source.trim()).filter(Boolean),
+          displayOrder: index,
+        }))
+        .filter((requirement) => requirement.title),
       status: 'published' as const,
     };
 
@@ -380,6 +419,7 @@ export default function PostResearchDialog({
     setApplicationDeadline('');
     setCompensation('tbd');
     setQuestions([]);
+    setRequirements([]);
     setQuickNoteEnabled(true);
     setCurrentQuestion('');
     setCurrentWordLimit('');
@@ -544,6 +584,131 @@ export default function PostResearchDialog({
 
           {step === 4 && (
             <div className="space-y-2">
+              <div className="rounded-lg border border-[#eadbd4] bg-[#fffaf7] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-[#3f342f]">Weighted requirements</p>
+                    <p className="text-xs text-[#76665f]">Students see names, descriptions, and public thresholds. Internal weights stay professor-only.</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const draftPosting = {
+                        id: postingToEdit?.id ?? 'draft',
+                        professorId: user?.id ?? '',
+                        professorName: user?.name ?? '',
+                        professorEmail: user?.email ?? '',
+                        professorDepartment: professorProfile?.department ?? '',
+                        category,
+                        researchAreas,
+                        skillsNeeded,
+                        title,
+                        overview,
+                        studentRoleDescription,
+                        studentGain,
+                        requiredQualifications,
+                        preferredQualifications,
+                        timeCommitmentExpected,
+                        startDate,
+                        duration: endDate,
+                        applicationDeadline,
+                        compensation,
+                        questions,
+                        quickNoteEnabled,
+                        createdAt: new Date().toISOString(),
+                        status: 'published' as const,
+                      };
+                      setRequirements(buildDefaultRequirements(draftPosting));
+                    }}
+                  >
+                    Generate from qualifications
+                  </Button>
+                </div>
+
+                <div className="mt-3 space-y-3">
+                  {requirements.map((requirement, index) => (
+                    <div key={`${requirement.id ?? 'draft'}-${index}`} className="rounded-lg border border-[#e6ded9] bg-white p-3">
+                      <div className="grid gap-2 md:grid-cols-[1fr_150px_130px_auto]">
+                        <Input
+                          value={requirement.title}
+                          placeholder="Requirement title"
+                          onChange={(event) => setRequirements((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, title: event.target.value } : entry))}
+                        />
+                        <Select
+                          value={requirement.requirementType}
+                          onValueChange={(value) => setRequirements((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, requirementType: value as RequirementType } : entry))}
+                        >
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {REQUIREMENT_TYPE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={requirement.importance}
+                          onValueChange={(value) => {
+                            const importance = value as RequirementImportance;
+                            setRequirements((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, importance, weight: IMPORTANCE_TO_WEIGHT[importance] } : entry));
+                          }}
+                        >
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {IMPORTANCE_OPTIONS.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setRequirements((current) => current.filter((_, entryIndex) => entryIndex !== index))}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <Textarea
+                        className="mt-2"
+                        rows={2}
+                        value={requirement.description}
+                        placeholder="What evidence should satisfy this requirement?"
+                        onChange={(event) => setRequirements((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, description: event.target.value } : entry))}
+                      />
+                      <div className="mt-2 grid gap-2 md:grid-cols-[1fr_1fr_auto_auto]">
+                        <Input
+                          value={requirement.minimumThreshold ?? ''}
+                          placeholder="Public threshold, optional"
+                          onChange={(event) => setRequirements((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, minimumThreshold: event.target.value } : entry))}
+                        />
+                        <Input
+                          value={requirement.evidenceSources.join(', ')}
+                          placeholder="Evidence sources"
+                          onChange={(event) => setRequirements((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, evidenceSources: event.target.value.split(',') } : entry))}
+                        />
+                        <Button type="button" variant="outline" size="sm" disabled={index === 0} onClick={() => setRequirements((current) => {
+                          const next = [...current];
+                          [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                          return next;
+                        })}>Up</Button>
+                        <Button type="button" variant="outline" size="sm" disabled={index === requirements.length - 1} onClick={() => setRequirements((current) => {
+                          const next = [...current];
+                          [next[index + 1], next[index]] = [next[index], next[index + 1]];
+                          return next;
+                        })}>Down</Button>
+                      </div>
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => setRequirements((current) => [...current, { ...BLANK_REQUIREMENT, displayOrder: current.length }])}
+                  >
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    Add Requirement
+                  </Button>
+                  {requirements.length > 0 ? (
+                    <div className="rounded-lg border border-[#e6ded9] bg-white p-3 text-xs leading-5 text-[#5f5651]">
+                      Preview formula: each requirement contributes <span className="font-semibold">weight x evidence match x evidence confidence</span>, then the total is normalized to 100. Current total raw weight: {requirements.reduce((sum, requirement) => sum + requirement.weight, 0)}.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
               <div className="mb-3 flex items-center justify-between rounded-lg border border-[#e7e7e7] bg-[#fafafa] p-3">
                 <div>
                   <p className="text-sm font-medium">Ask for quick note from students</p>

@@ -24,6 +24,7 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
 import { Progress } from '../../components/ui/progress';
+import { scoreApplicationAgainstRequirements } from '../../lib/opportunityScoring';
 
 type FitLevel = 'Strong Fit' | 'Good Fit' | 'Possible Fit' | 'Weak Fit' | 'Low Fit';
 type AlignmentLevel = 'Strong Alignment' | 'Moderate Alignment' | 'Limited Alignment' | 'No Evidence';
@@ -729,6 +730,10 @@ export default function ApplicantReasoningPage() {
     () => evaluateApplication({ application, posting, fallbackScore }),
     [application, posting, fallbackScore]
   );
+  const weightedScore = useMemo(
+    () => application ? scoreApplicationAgainstRequirements({ application, posting, fallbackScore }) : null,
+    [application, posting, fallbackScore]
+  );
 
   return (
     <div className="app-shell min-h-screen px-4 py-7">
@@ -759,6 +764,43 @@ export default function ApplicantReasoningPage() {
         ) : (
           <>
             <FitSummaryHeader studentName={studentName} studentMajor={studentMajor} project={project} evaluation={evaluation} />
+
+            {weightedScore && weightedScore.coverage.length > 0 ? (
+              <Card className="dashboard-surface rounded-2xl">
+                <CardHeader className="pb-3">
+                  <CardTitle>Professor Weighted Requirements</CardTitle>
+                  <CardDescription>{weightedScore.explanation} Internal weights are visible only to faculty reviewers.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <SummaryMetric label="Weighted Score" value={weightedScore.score} tone={weightedScore.score >= 70 ? 'success' : weightedScore.score >= 50 ? 'warning' : 'danger'} />
+                    <SummaryMetric label="Must-Haves Met" value={weightedScore.mustHaveMet} tone={weightedScore.mustHaveMet === weightedScore.mustHaveTotal ? 'success' : 'warning'} />
+                    <SummaryMetric label="Must-Haves Total" value={weightedScore.mustHaveTotal} tone="warning" />
+                  </div>
+                  <div className="overflow-hidden rounded-xl border border-[#ececec]">
+                    <div className="hidden grid-cols-[1fr_0.7fr_0.7fr_0.8fr_1.2fr] gap-3 bg-[#fbfaf8] px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#777777] md:grid">
+                      <span>Requirement</span>
+                      <span>Weight</span>
+                      <span>Match</span>
+                      <span>Status</span>
+                      <span>Evidence</span>
+                    </div>
+                    {weightedScore.coverage.map((row) => (
+                      <div key={`${row.requirement.title}-${row.requirement.displayOrder}`} className="grid gap-2 border-t border-[#eeeeee] px-4 py-3 text-sm md:grid-cols-[1fr_0.7fr_0.7fr_0.8fr_1.2fr]">
+                        <div>
+                          <p className="font-medium text-[#111111]">{row.requirement.title}</p>
+                          <p className="text-xs text-[#666666]">{row.requirement.requirementType === 'must_have' ? 'Must-have' : 'Preferred'}</p>
+                        </div>
+                        <Badge variant="outline" className="w-fit rounded-full">{row.requirement.importance} ({row.requirement.weight})</Badge>
+                        <span>{row.matchScore}%</span>
+                        <EvidenceStrengthBadge strength={row.satisfied ? 'Strong' : row.matchScore > 0 ? 'Limited' : 'Missing'} />
+                        <p className="leading-6 text-[#555555]">{row.satisfied ? row.evidence : row.missingEvidence}</p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
 
             <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
               <ScoreBreakdownCard components={evaluation.components} total={evaluation.finalScore} />

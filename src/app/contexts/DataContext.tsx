@@ -15,6 +15,7 @@ import {
   listProjectApplications,
   listProfessorProjects,
   listPublicProjects,
+  replaceOpportunityRequirements,
   updateProgressReport,
   updateProgressReportReview,
   updateProject,
@@ -34,6 +35,12 @@ import type {
   ProjectRow,
   ProjectStatus,
 } from '../lib/database.types';
+import {
+  IMPORTANCE_TO_WEIGHT,
+  type OpportunityRequirement,
+  type RequirementImportance,
+  type RequirementType,
+} from '../lib/opportunityScoring';
 
 export interface ApplicationQuestion {
   question: string;
@@ -65,6 +72,7 @@ export interface ResearchPosting {
   compensation: 'stipend' | 'volunteer' | 'course credit' | 'tbd';
   questions: ApplicationQuestion[];
   quickNoteEnabled?: boolean;
+  requirements?: OpportunityRequirement[];
   createdAt: string;
   status: 'published' | 'pending_approval' | 'closed';
 }
@@ -279,6 +287,44 @@ function asQuestionArray(value: Json): ApplicationQuestion[] {
     .filter((entry): entry is ApplicationQuestion => Boolean(entry));
 }
 
+function mapRequirementRows(value: unknown): OpportunityRequirement[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry, index) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return null;
+      }
+
+      const row = entry as Record<string, any>;
+      const title = asString(row.title);
+      if (!title) {
+        return null;
+      }
+
+      const importance = asString(row.importance, 'Medium') as RequirementImportance;
+      const requirementType = asString(row.requirement_type, 'preferred') as RequirementType;
+      const numericWeight = Number(row.weight ?? IMPORTANCE_TO_WEIGHT[importance] ?? 2);
+
+      return {
+        id: asString(row.id) || undefined,
+        opportunityId: asString(row.opportunity_id) || undefined,
+        title,
+        description: asString(row.description),
+        requirementType,
+        importance,
+        weight: Number.isFinite(numericWeight) ? numericWeight : IMPORTANCE_TO_WEIGHT[importance] ?? 2,
+        minimumThreshold: asString(row.minimum_threshold) || undefined,
+        evidenceSources: asStringArray(row.evidence_sources),
+        displayOrder: Number.isFinite(Number(row.display_order)) ? Number(row.display_order) : index,
+      };
+    })
+    .filter((entry): entry is OpportunityRequirement => Boolean(entry))
+    .sort((left, right) => left.displayOrder - right.displayOrder);
+}
+
 function getProfessorDisplayName(professor: SupabasePublicProject['professors']) {
   const metadata = professor && typeof professor.metadata === 'object' && !Array.isArray(professor.metadata)
     ? professor.metadata
@@ -321,12 +367,14 @@ function mapSupabaseProjectToPosting(project: SupabasePublicProject): ResearchPo
     compensation: (project.compensation ?? 'tbd') as ProjectCompensation,
     questions: asQuestionArray(project.questions),
     quickNoteEnabled: project.quick_note_enabled,
+    requirements: mapRequirementRows(projectRecord.opportunity_requirements),
     createdAt: project.created_at,
     status: (project.status === 'archived' ? 'closed' : project.status) as Exclude<ProjectStatus, 'archived'>,
   });
 }
 
 function mapProjectRowToPosting(project: ProjectRow, professor: ProfessorSnapshot): ResearchPosting {
+  const projectRecord = project as ProjectRow & Record<string, any>;
   return withProfessorBioUrl({
     id: project.id,
     professorId: project.professor_id ?? '',
@@ -352,6 +400,7 @@ function mapProjectRowToPosting(project: ProjectRow, professor: ProfessorSnapsho
     compensation: (project.compensation ?? 'tbd') as ProjectCompensation,
     questions: asQuestionArray(project.questions),
     quickNoteEnabled: project.quick_note_enabled,
+    requirements: mapRequirementRows(projectRecord.opportunity_requirements),
     createdAt: project.created_at,
     status: (project.status === 'archived' ? 'closed' : project.status) as Exclude<ProjectStatus, 'archived'>,
   });
@@ -414,6 +463,20 @@ function postingUpdatesToProjectUpdate(updates: Partial<ResearchPosting>): Proje
   if (updates.status !== undefined) projectUpdate.status = updates.status;
 
   return projectUpdate;
+}
+
+function requirementsToRows(postingId: string, requirements: OpportunityRequirement[] | undefined) {
+  return (requirements ?? []).map((requirement, index) => ({
+    opportunity_id: postingId,
+    title: requirement.title.trim(),
+    description: requirement.description.trim() || null,
+    requirement_type: requirement.requirementType,
+    importance: requirement.importance,
+    weight: requirement.weight || IMPORTANCE_TO_WEIGHT[requirement.importance],
+    minimum_threshold: requirement.minimumThreshold?.trim() || null,
+    evidence_sources: requirement.evidenceSources as Json,
+    display_order: index,
+  }));
 }
 
 function asRecord(value: Json): Record<string, unknown> {
@@ -627,6 +690,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       console.debug('Create Opportunity insert payload', insertPayload);
     }
     const row = await createProject(insertPayload);
+    if (posting.requirements?.length) {
+      await replaceOpportunityRequirements(row.id, requirementsToRows(row.id, posting.requirements));
+    }
     const newPosting = withProfessorBioUrl({
       ...posting,
       professorId: row.professor_id ?? user.id,
@@ -640,6 +706,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const updatePosting = async (id: string, updates: Partial<ResearchPosting>) => {
     const row = await updateProject(id, postingUpdatesToProjectUpdate(updates));
+    if (updates.requirements) {
+      await replaceOpportunityRequirements(id, requirementsToRows(id, updates.requirements));
+    }
     setPostings((prev) =>
       prev.map((posting) =>
         posting.id === id

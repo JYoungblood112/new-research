@@ -9,6 +9,7 @@ import {
   Clock,
   ExternalLink,
   Search,
+  Share2,
   SlidersHorizontal,
   Sparkles,
 } from 'lucide-react';
@@ -23,6 +24,7 @@ import { EmptyState, ErrorState, LoadingState } from '../ui/dashboard';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import ApplyToResearchDialog from './ApplyToResearchDialog';
+import ShareOpportunityDialog from '../shared/ShareOpportunityDialog';
 
 const CATEGORIES = ['All', ...RESEARCH_POSTING_CATEGORY_OPTIONS] as const;
 
@@ -220,6 +222,7 @@ export default function BrowseResearch() {
   const [sortField, setSortField] = useState<(typeof SORT_FIELDS)[number]['value']>('createdAt');
   const [sortOrder, setSortOrder] = useState<(typeof SORT_ORDERS)[number]['value']>('desc');
   const [selectedPosting, setSelectedPosting] = useState<string | null>(null);
+  const [sharePosting, setSharePosting] = useState<ResearchPosting | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [matchScores, setMatchScores] = useState<Record<string, MatchEntry>>({});
   const studentProfile = setupState?.profile as Record<string, any> | null;
@@ -613,6 +616,15 @@ export default function BrowseResearch() {
                         variant="outline"
                         size="sm"
                         className="h-9 rounded-md border-[#e4d8d3] bg-white px-3.5 shadow-none"
+                        onClick={() => setSharePosting(posting)}
+                      >
+                        <Share2 className="mr-1.5 h-4 w-4" />
+                        Share
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 rounded-md border-[#e4d8d3] bg-white px-3.5 shadow-none"
                         onClick={() => navigate(`/student/research/${posting.id}`)}
                       >
                         Details
@@ -640,6 +652,7 @@ export default function BrowseResearch() {
           onOpenChange={(open) => !open && setSelectedPosting(null)}
         />
       )}
+      <ShareOpportunityDialog posting={sharePosting} open={Boolean(sharePosting)} onOpenChange={(open) => !open && setSharePosting(null)} />
     </div>
   );
 }

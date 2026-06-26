@@ -1,272 +1,241 @@
 import { MOCK_PROGRESS_REPORTS } from './progressReports';
 
-// TODO: Replace this mock dataset with API-backed department, faculty, grant, progress-report, and outcome metrics.
-export const deanOverviewStats = [
-  { label: 'Active Research Projects', value: '64', detail: '+12% from last semester' },
-  { label: 'Completed Projects', value: '38', detail: 'This academic year' },
-  { label: 'Student Researchers', value: '142', detail: '27% participation growth' },
-  { label: 'Participating Faculty', value: '36', detail: '78% of eligible faculty' },
-  { label: 'Publications', value: '41', detail: 'Peer-reviewed outputs' },
-  { label: 'Presentations', value: '57', detail: 'Conference and symposium talks' },
-  { label: 'Grant Funding', value: '$4.2M', detail: 'Active awards' },
-  { label: 'Research Hours Logged', value: '11,840', detail: 'Student-reported hours' },
-];
+export const lastUpdated = 'June 24, 2026, 10:15 PM CT';
+export const reportingTerm = 'Spring 2026';
 
-export const deanKeyQuestions = [
-  {
-    question: 'How many students participate in research?',
-    answer: '142 student researchers are currently placed into research, representing a 31% participation rate.',
-    proof: 'Student Researchers, Student Participation Rate, Students Placed Into Research',
-  },
-  {
-    question: 'Which departments are growing?',
-    answer: 'Computer Science leads current growth with 64 active projects and a 27% participation increase, while Applied ML and Robotics show the fastest demand growth.',
-    proof: 'Department Comparison, Research Output by Semester, Supply and Demand',
-  },
-  {
-    question: 'Which faculty are mentoring students?',
-    answer: 'Dr. Emily Watson, Dr. Priya Shah, Dr. Marcus Lee, and Dr. Lina Huang are the top visible mentors, collectively mentoring 56 students.',
-    proof: 'Faculty Research Impact table',
-  },
-  {
-    question: 'Are research opportunities being utilized?',
-    answer: '142 of 174 available positions are filled, leaving 32 unfilled positions and showing 82% utilization.',
-    proof: 'Research Opportunity Supply and Demand',
-  },
-  {
-    question: 'Are students producing outcomes?',
-    answer: 'Students have produced 118 verified contributions, 34 publications, 49 conference presentations, 52 internships, and 21 full-time offers.',
-    proof: 'Student Outcomes and Research Portfolio Analytics',
-  },
-  {
-    question: 'Can we justify additional funding?',
-    answer: 'The department has $4.2M in active grants, 9.8 outputs per $1M, and student demand exceeding capacity in robotics and applied ML.',
-    proof: 'Funding and Grants, Research Gaps Analysis',
-  },
-  {
-    question: 'How does our institution compare to peers?',
-    answer: 'Computer Science ranks #1 against listed university peers and exceeds the peer institution average in projects per faculty, students mentored per faculty, and verified contributions per student.',
-    proof: 'Department Comparison',
-  },
-];
+export const metricSources = {
+  opportunityPlatform: 'Research opportunity postings, application records, and placement status in the platform.',
+  progressReports: 'Student progress reports and faculty approval status.',
+  outcomeReports: 'Student-reported outcomes with faculty verification where available.',
+  profileData: 'Student profile, major, class-year, and application history fields available in the platform.',
+};
 
-export const researchOutputMetrics = [
-  ['Active Projects', '64'],
-  ['Completed Projects', '38'],
-  ['Student Participation Rate', '31%'],
-  ['Faculty Participation Rate', '78%'],
-  ['Total Research Hours', '11,840'],
-  ['Publications Produced', '41'],
-  ['Conference Presentations', '57'],
-  ['Posters Presented', '73'],
-  ['Patent Applications', '6'],
-  ['Grant Funding', '$4.2M'],
-];
-
-export const semesterOutputTrend = [
-  { label: 'Fall 2024', projects: 42, publications: 19, participation: 21, grants: 2.6 },
-  { label: 'Spring 2025', projects: 48, publications: 24, participation: 24, grants: 3.1 },
-  { label: 'Fall 2025', projects: 56, publications: 31, participation: 27, grants: 3.6 },
-  { label: 'Spring 2026', projects: 64, publications: 41, participation: 31, grants: 4.2 },
-];
-
-export const departmentComparisons = [
+export const overviewKpis = [
   {
-    name: 'Computer Science',
-    type: 'Current department',
-    ranking: '#1 university',
-    projectsPerFaculty: 1.8,
-    studentsMentoredPerFaculty: 4.0,
-    publicationsPerProject: 0.64,
-    grantFundingPerFaculty: '$117K',
-    participationRate: '31%',
-    verifiedContributionsPerStudent: 3.4,
+    label: 'Students seeking research',
+    value: '386',
+    comparison: '+18% vs Fall 2025',
+    definition: 'Unique students who saved, applied to, or marked interest in a research opportunity this term.',
+    source: metricSources.opportunityPlatform,
+    coverage: '92% coverage',
   },
   {
-    name: 'Electrical and Computer Engineering',
-    type: 'University peer',
-    ranking: '#2 university',
-    projectsPerFaculty: 1.5,
-    studentsMentoredPerFaculty: 3.1,
-    publicationsPerProject: 0.48,
-    grantFundingPerFaculty: '$96K',
-    participationRate: '24%',
-    verifiedContributionsPerStudent: 2.7,
+    label: 'Available positions',
+    value: '174',
+    comparison: '+9% vs Fall 2025',
+    definition: 'Total student slots listed on published research opportunities.',
+    source: metricSources.opportunityPlatform,
+    coverage: '89% coverage',
   },
   {
-    name: 'Statistics and Data Science',
-    type: 'University peer',
-    ranking: '#3 university',
-    projectsPerFaculty: 1.2,
-    studentsMentoredPerFaculty: 2.8,
-    publicationsPerProject: 0.52,
-    grantFundingPerFaculty: '$74K',
-    participationRate: '22%',
-    verifiedContributionsPerStudent: 2.4,
+    label: 'Students placed',
+    value: '142',
+    comparison: '+12% vs Fall 2025',
+    definition: 'Students accepted into a research opportunity and marked as placed.',
+    source: metricSources.opportunityPlatform,
+    coverage: '91% coverage',
   },
   {
-    name: 'Peer Institution Average',
-    type: 'External benchmark',
-    ranking: 'Benchmark',
-    projectsPerFaculty: 1.1,
-    studentsMentoredPerFaculty: 2.6,
-    publicationsPerProject: 0.43,
-    grantFundingPerFaculty: '$81K',
-    participationRate: '19%',
-    verifiedContributionsPerStudent: 2.1,
+    label: 'Opportunity fill rate',
+    value: '82%',
+    comparison: '+3 pts vs Fall 2025',
+    definition: 'Filled positions divided by available positions.',
+    source: metricSources.opportunityPlatform,
+    coverage: '89% coverage',
+  },
+  {
+    label: 'Median time to placement',
+    value: '18 days',
+    comparison: '-4 days vs Fall 2025',
+    definition: 'Median days from application submission to accepted placement.',
+    source: metricSources.opportunityPlatform,
+    coverage: '84% coverage',
   },
 ];
 
-export const facultyImpactRows = [
+export const executiveAttention = [
   {
-    name: 'Dr. Emily Watson',
-    department: 'Robotics Institute',
-    activeProjects: 7,
-    studentsMentored: 18,
-    publications: 8,
-    presentations: 11,
-    grantsSecured: '$840K',
-    reportsApproved: 46,
-    verifiedContributions: 73,
-    impactScore: 96,
+    title: 'Robotics demand exceeds capacity',
+    evidence: '94 applicants for 22 positions',
+    explanation: 'Student demand exceeds available positions by 72, creating the largest visible capacity gap.',
+    action: 'Consider additional mentored roles, cohort projects, or referrals to adjacent labs.',
+    cta: 'View demand details',
+    target: 'demand',
   },
   {
-    name: 'Dr. Priya Shah',
-    department: 'AI + Business Research Group',
-    activeProjects: 5,
-    studentsMentored: 16,
-    publications: 6,
-    presentations: 9,
-    grantsSecured: '$620K',
-    reportsApproved: 39,
-    verifiedContributions: 58,
-    impactScore: 92,
+    title: 'Climate AI positions are underutilized',
+    evidence: '12 applicants for 18 positions',
+    explanation: 'Available roles exist, but students are not finding or selecting them at the same rate as adjacent areas.',
+    action: 'Promote these opportunities in discovery flows and advising outreach.',
+    cta: 'View underused capacity',
+    target: 'demand',
   },
   {
-    name: 'Dr. Marcus Lee',
-    department: 'Health Data Science Lab',
-    activeProjects: 4,
-    studentsMentored: 13,
-    publications: 7,
-    presentations: 8,
-    grantsSecured: '$710K',
-    reportsApproved: 31,
-    verifiedContributions: 49,
-    impactScore: 89,
+    title: 'First-year entry needs attention',
+    evidence: '17 first-time participants; 46 repeated applicants remain unplaced',
+    explanation: 'Early access and repeat application support are both visible friction points.',
+    action: 'Create early-entry projects and structured matching support before the next application cycle.',
+    cta: 'View access details',
+    target: 'access',
   },
   {
-    name: 'Dr. Lina Huang',
-    department: 'Embedded Intelligence Lab',
-    activeProjects: 3,
-    studentsMentored: 9,
-    publications: 4,
-    presentations: 6,
-    grantsSecured: '$390K',
-    reportsApproved: 24,
-    verifiedContributions: 32,
-    impactScore: 81,
+    title: 'Outcome verification is incomplete',
+    evidence: '34 reported publications; 19 faculty verified',
+    explanation: 'Reported outcomes are useful signals, but executive reporting should separate them from verified evidence.',
+    action: 'Ask faculty mentors to review pending outcome claims before executive export.',
+    cta: 'View outcome evidence',
+    target: 'outcomes',
   },
 ];
 
-export const studentOutcomeMetrics = [
-  ['Students Placed Into Research', '142'],
-  ['Students with Verified Contributions', '118'],
-  ['Students with Publications', '34'],
-  ['Students with Conference Presentations', '49'],
-  ['Students Receiving Internships', '52'],
-  ['Students Receiving Full-Time Offers', '21'],
-  ['Students Admitted to Graduate Programs', '18'],
-  ['Students Continuing Research', '76'],
+export const demandCapacityRows = [
+  { area: 'Robotics', demand: 94, positions: 22, filled: 21, medianTimeToFill: 8, status: 'Oversubscribed' },
+  { area: 'Applied ML', demand: 78, positions: 28, filled: 26, medianTimeToFill: 11, status: 'Oversubscribed' },
+  { area: 'Health AI', demand: 44, positions: 31, filled: 27, medianTimeToFill: 15, status: 'Balanced' },
+  { area: 'Embedded AI', demand: 19, positions: 14, filled: 12, medianTimeToFill: 21, status: 'Balanced' },
+  { area: 'Climate AI', demand: 12, positions: 18, filled: 9, medianTimeToFill: 31, status: 'Underutilized' },
+  { area: 'Public Interest Tech', demand: 9, positions: 16, filled: 7, medianTimeToFill: 28, status: 'Underutilized' },
+];
+
+export const participationFunnel = [
+  { label: 'Students interested', value: 386 },
+  { label: 'Applications submitted', value: 274 },
+  { label: 'Applications reviewed', value: 211 },
+  { label: 'Students placed', value: 142 },
+  { label: 'Verified contributors', value: 118 },
+  { label: 'Completed projects', value: 38 },
+];
+
+export const outcomesSnapshot = [
+  { label: 'Verified contributions', reported: 212, verified: 212, source: metricSources.progressReports },
+  { label: 'Completed projects', reported: 38, verified: 34, source: metricSources.progressReports },
+  { label: 'Publications', reported: 34, verified: 19, source: metricSources.outcomeReports },
+  { label: 'Conference presentations', reported: 49, verified: 31, source: metricSources.outcomeReports },
+  { label: 'Internships', reported: 52, verified: 28, source: metricSources.outcomeReports },
+  { label: 'Full-time offers', reported: 21, verified: 12, source: metricSources.outcomeReports },
+  { label: 'Continued research', reported: 76, verified: 54, source: metricSources.outcomeReports },
+  { label: 'Graduate-school placements', reported: 18, verified: 10, source: metricSources.outcomeReports },
+];
+
+export const dataConfidence = [
+  { label: 'Opportunity coverage', value: '89%', detail: 'Published opportunities with position counts and department metadata.' },
+  { label: 'Projects with progress reports', value: `${MOCK_PROGRESS_REPORTS.length}`, detail: 'Progress reports currently available in the platform.' },
+  { label: 'Outcomes verified', value: '58%', detail: 'Outcome claims with faculty verification or approved progress evidence.' },
+  { label: 'Departments with incomplete data', value: '3', detail: 'Departments missing either capacity, progress report, or outcome verification fields.' },
+  { label: 'Last synchronization', value: lastUpdated, detail: 'Latest platform data refresh visible to this dashboard.' },
+];
+
+export const openOpportunityRows = [
+  { opportunity: 'Climate Policy Data Analysis', department: 'Public Policy', area: 'Climate AI', applicants: 2, positions: 6, filled: 1 },
+  { opportunity: 'Optimization Methods for Smart Grids', department: 'Electrical & Computer Engineering', area: 'Public Interest Tech', applicants: 3, positions: 5, filled: 2 },
+  { opportunity: 'Human-AI Collaboration in Education', department: 'Psychology', area: 'Applied ML', applicants: 4, positions: 4, filled: 2 },
+  { opportunity: 'Data Visualization for Public Health', department: 'Statistics & Data Science', area: 'Health AI', applicants: 5, positions: 7, filled: 4 },
+];
+
+export const oversubscribedOpportunityRows = [
+  { opportunity: 'Autonomous Robot Perception', department: 'Robotics Institute', area: 'Robotics', applicants: 48, positions: 8, filled: 8 },
+  { opportunity: 'Efficient LLM Fine-Tuning for Scientific Text', department: 'Computer Science', area: 'Applied ML', applicants: 35, positions: 6, filled: 6 },
+  { opportunity: 'Computer Vision for Medical Imaging', department: 'Biomedical Engineering', area: 'Health AI', applicants: 29, positions: 5, filled: 5 },
+];
+
+export const unmatchedInterestRows = [
+  { interest: 'Human-centered AI policy', students: 27, closestArea: 'Public Interest Tech', suggestedAction: 'Create policy-facing research roles.' },
+  { interest: 'Robotics hardware prototyping', students: 24, closestArea: 'Robotics', suggestedAction: 'Open cohort-based build projects.' },
+  { interest: 'AI safety evaluations', students: 19, closestArea: 'Applied ML', suggestedAction: 'Add benchmark and evaluation opportunities.' },
+];
+
+export const mentorshipCapacityRows = [
+  { department: 'Computer Science', facultyWithOpenPositions: 11, facultyWithoutResearchers: 4, studentsMentored: 58, pendingReviews: 14, fillRate: '86%' },
+  { department: 'Robotics Institute', facultyWithOpenPositions: 6, facultyWithoutResearchers: 2, studentsMentored: 33, pendingReviews: 9, fillRate: '95%' },
+  { department: 'Statistics & Data Science', facultyWithOpenPositions: 5, facultyWithoutResearchers: 5, studentsMentored: 21, pendingReviews: 6, fillRate: '72%' },
+  { department: 'Biomedical Engineering', facultyWithOpenPositions: 4, facultyWithoutResearchers: 3, studentsMentored: 18, pendingReviews: 4, fillRate: '77%' },
+];
+
+export const facultyOperationsRows = [
+  { faculty: 'Dr. Emily Watson', department: 'Robotics Institute', openOpportunities: 3, applicants: 48, studentsMentored: 18, pendingReviews: 5, verifiedContributions: 73, fillRate: '96%' },
+  { faculty: 'Dr. Priya Shah', department: 'Computer Science', openOpportunities: 2, applicants: 35, studentsMentored: 16, pendingReviews: 4, verifiedContributions: 58, fillRate: '92%' },
+  { faculty: 'Dr. Marcus Lee', department: 'Biomedical Engineering', openOpportunities: 2, applicants: 29, studentsMentored: 13, pendingReviews: 3, verifiedContributions: 49, fillRate: '83%' },
+  { faculty: 'Dr. Lina Huang', department: 'Electrical & Computer Engineering', openOpportunities: 1, applicants: 19, studentsMentored: 9, pendingReviews: 2, verifiedContributions: 32, fillRate: '78%' },
 ];
 
 export const outcomeTrend = [
-  { label: '2023', placed: 82, verified: 58, internships: 29, graduatePrograms: 10 },
-  { label: '2024', placed: 96, verified: 73, internships: 34, graduatePrograms: 13 },
-  { label: '2025', placed: 118, verified: 94, internships: 43, graduatePrograms: 15 },
-  { label: '2026', placed: 142, verified: 118, internships: 52, graduatePrograms: 18 },
+  { label: '2023', completed: 21, verified: 58, presentations: 18, publications: 8, internships: 29, offers: 7, continued: 37, graduate: 10 },
+  { label: '2024', completed: 27, verified: 73, presentations: 26, publications: 11, internships: 34, offers: 10, continued: 46, graduate: 13 },
+  { label: '2025', completed: 32, verified: 94, presentations: 35, publications: 15, internships: 43, offers: 14, continued: 61, graduate: 15 },
+  { label: '2026', completed: 38, verified: 118, presentations: 49, publications: 19, internships: 52, offers: 21, continued: 76, graduate: 18 },
 ];
 
-export const supplyDemandMetrics = [
-  ['Students Seeking Research', '386'],
-  ['Available Research Positions', '174'],
-  ['Filled Positions', '142'],
-  ['Unfilled Positions', '32'],
+export const outcomesByDepartment = [
+  { department: 'Computer Science', completed: 17, verified: 71, presentations: 20, publications: 9 },
+  { department: 'Robotics Institute', completed: 9, verified: 48, presentations: 13, publications: 5 },
+  { department: 'Biomedical Engineering', completed: 6, verified: 31, presentations: 9, publications: 3 },
+  { department: 'Statistics & Data Science', completed: 6, verified: 28, presentations: 7, publications: 2 },
 ];
 
-export const labDemandRows = [
-  { lab: 'Robotics Institute', area: 'Robotics', applicants: 94, positions: 22, status: 'Oversubscribed' },
-  { lab: 'AI + Business Research Group', area: 'Applied ML', applicants: 78, positions: 28, status: 'Oversubscribed' },
-  { lab: 'Embedded Intelligence Lab', area: 'Embedded AI', applicants: 19, positions: 14, status: 'Balanced' },
-  { lab: 'Computational Sustainability Lab', area: 'Climate AI', applicants: 12, positions: 18, status: 'Undersubscribed' },
+export const accessByMajor = [
+  { label: 'Computer Science', value: 42 },
+  { label: 'Business Analytics', value: 21 },
+  { label: 'Electrical and Computer Engineering', value: 18 },
+  { label: 'Statistics', value: 13 },
+  { label: 'Other majors', value: 6 },
 ];
 
-export const researchGapSignals = [
-  'Robotics demand exceeds available student research positions by 72 students.',
-  'Climate AI has open positions but low applicant awareness.',
-  'Three faculty members have no verified student researchers this semester.',
-  'Graduate mentorship capacity is strong, but first-year undergraduate entry points are limited.',
+export const accessByClassYear = [
+  { label: 'First-year', value: 12 },
+  { label: 'Sophomore', value: 24 },
+  { label: 'Junior', value: 34 },
+  { label: 'Senior', value: 20 },
+  { label: 'Graduate', value: 10 },
 ];
 
-export const fundingMetrics = [
-  ['Total Grant Funding', '$4.2M'],
-  ['Pending Grants', '$1.1M'],
-  ['Active Grants', '17'],
-  ['Grant Success Rate', '42%'],
-  ['Student Participation in Funded Projects', '86 students'],
-  ['Output per Dollar Funded', '9.8 outputs per $1M'],
+export const accessMetrics = [
+  { label: 'First-time research participants', value: '17', detail: 'Students with first platform placement this term.' },
+  { label: 'Applicants without placements', value: '132', detail: 'Unique applicants with no accepted placement this term.' },
+  { label: 'Cross-department participation', value: '29 projects', detail: 'Projects with students outside the hosting department.' },
+  { label: 'Early-entry opportunities', value: '14', detail: 'Opportunities marked suitable for first-year or sophomore students.' },
+  { label: 'Repeated application attempts', value: '46 students', detail: 'Students with 3 or more applications and no placement.' },
 ];
 
-export const fundingByArea = [
-  { label: 'Machine Learning', value: 1.4 },
-  { label: 'Robotics', value: 1.1 },
-  { label: 'Health AI', value: 0.8 },
-  { label: 'Embedded AI', value: 0.5 },
-  { label: 'Climate AI', value: 0.4 },
+export const accessRows = [
+  { group: 'First-year students', applicants: 64, placed: 17, placementRate: '27%', gap: 'Need more early-entry roles' },
+  { group: 'Non-CS majors', applicants: 93, placed: 38, placementRate: '41%', gap: 'Need clearer prerequisites and advising pathways' },
+  { group: 'Repeat applicants', applicants: 46, placed: 0, placementRate: '0%', gap: 'Need matching support and feedback loops' },
+  { group: 'Cross-department applicants', applicants: 118, placed: 52, placementRate: '44%', gap: 'Need better visibility into host department expectations' },
 ];
 
-export const accessMetrics = {
-  byMajor: [
-    ['Computer Science', 42],
-    ['Business Analytics', 21],
-    ['Electrical and Computer Engineering', 18],
-    ['Statistics', 13],
-    ['Other Majors', 6],
-  ],
-  byClassYear: [
-    ['First-Year', 12],
-    ['Sophomore', 24],
-    ['Junior', 34],
-    ['Senior', 20],
-    ['Graduate', 10],
-  ],
-  collaboration: [
-    ['Cross-Department Collaborations', '29 active projects'],
-    ['First-Year Research Participation', '17 students'],
-    ['Undergraduate Participation', '128 students'],
-    ['Graduate Participation', '42 students'],
-  ],
-};
+export const reportOptions = [
+  'Semester participation report',
+  'Demand and capacity report',
+  'Student outcomes report',
+  'Research access report',
+  'Department comparison report',
+  'Pilot evaluation report',
+];
 
-export const portfolioAnalytics = {
-  totalProgressReports: MOCK_PROGRESS_REPORTS.length,
-  verifiedProgressReports: MOCK_PROGRESS_REPORTS.filter((report) => report.verificationStatus === 'Approved').length,
-  totalVerifiedContributions: 212,
-  activeAreas: ['Machine Learning', 'Robotics', 'Data Analytics', 'Health AI'],
-  activeLabs: ['Robotics Institute', 'AI + Business Research Group', 'Health Data Science Lab'],
-  activeStudents: ['Jonathan Youngblood', 'Maya Patel', 'Elena Garcia'],
-  activeMentors: ['Dr. Emily Watson', 'Dr. Priya Shah', 'Dr. Marcus Lee'],
-};
+export const unsupportedFutureIntegrations = [
+  'Grant success rate',
+  'Total institutional grant funding',
+  'Patents',
+  'Peer university rankings',
+  'Funding per faculty',
+  'Faculty productivity scores',
+  'University-wide publication totals',
+];
 
 export const deanAiPayload = {
-  overview: deanOverviewStats,
-  keyQuestions: deanKeyQuestions,
-  researchOutput: researchOutputMetrics,
-  departmentComparisons,
-  facultyImpactRows,
-  studentOutcomeMetrics,
-  supplyDemandMetrics,
-  researchGapSignals,
-  fundingMetrics,
+  reportingTerm,
+  lastUpdated,
+  overviewKpis,
+  executiveAttention,
+  demandCapacityRows,
+  participationFunnel,
+  outcomesSnapshot,
+  dataConfidence,
   accessMetrics,
-  portfolioAnalytics,
+  reportRules: [
+    'Use only displayed or retrieved metrics.',
+    'Cite the metric labels used.',
+    'Distinguish verified outcomes from reported outcomes.',
+    'Do not invent explanations or unsupported institutional metrics.',
+  ],
 };

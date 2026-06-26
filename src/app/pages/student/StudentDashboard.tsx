@@ -8,13 +8,17 @@ import AIRecommendations from '../../components/student/AIRecommendations';
 import MyApplications from '../../components/student/MyApplications';
 import StudentProfile from '../../components/student/StudentProfile';
 import ProgressReports from '../../components/student/ProgressReports';
+import ProfessorSearch from '../../components/shared/ProfessorSearch';
+import SharedWithMe from '../../components/shared/SharedWithMe';
 import { Header as AppHeader } from '../../../components/ui/header-1';
 
 const navigationItems = [
   { value: 'browse', label: 'Browse' },
+  { value: 'professors', label: 'Professors' },
   { value: 'recommendations', label: 'Recommendations' },
   { value: 'applications', label: 'Applications' },
-  { value: 'progress', label: 'Reports' },
+  { value: 'shared', label: 'Shared With Me' },
+  { value: 'progress', label: 'Progress Reports' },
   { value: 'profile', label: 'Profile' },
 ];
 
@@ -131,8 +135,16 @@ export default function StudentDashboard() {
             />
           </TabsContent>
 
+          <TabsContent value="professors">
+            <ProfessorSearch />
+          </TabsContent>
+
           <TabsContent value="applications">
             <MyApplications />
+          </TabsContent>
+
+          <TabsContent value="shared">
+            <SharedWithMe />
           </TabsContent>
 
           <TabsContent value="progress">

@@ -20,6 +20,9 @@ export type ProgressEvidenceType =
   | 'research_report'
   | 'other';
 
+export type RequirementType = 'must_have' | 'preferred';
+export type RequirementImportance = 'Low' | 'Medium' | 'High' | 'Critical';
+
 export type ProfileRow = {
   id: string;
   email: string;
@@ -90,6 +93,36 @@ export type ProjectRow = {
   approved_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type OpportunityRequirementRow = {
+  id: string;
+  opportunity_id: string;
+  title: string;
+  description: string | null;
+  requirement_type: RequirementType;
+  weight: number;
+  importance: RequirementImportance;
+  minimum_threshold: string | null;
+  evidence_sources: Json;
+  display_order: number;
+  version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OpportunityShareRow = {
+  id: string;
+  opportunity_id: string;
+  sender_id: string;
+  recipient_id: string;
+  sender_role: AppRole;
+  recipient_role: AppRole;
+  message: string | null;
+  created_at: string;
+  opened_at: string | null;
+  clicked_at: string | null;
+  application_created_at: string | null;
 };
 
 export type ApplicationRow = {
@@ -202,6 +235,16 @@ type Tables = {
     Insert: Pick<ProjectRow, 'professor_id' | 'title'> & Partial<Omit<ProjectRow, 'id' | 'created_at' | 'updated_at'>>;
     Update: Partial<Omit<ProjectRow, 'id' | 'professor_id' | 'created_at' | 'updated_at'>>;
   };
+  opportunity_requirements: {
+    Row: OpportunityRequirementRow;
+    Insert: Pick<OpportunityRequirementRow, 'opportunity_id' | 'title' | 'requirement_type' | 'weight'> & Partial<Omit<OpportunityRequirementRow, 'id' | 'created_at' | 'updated_at'>>;
+    Update: Partial<Omit<OpportunityRequirementRow, 'id' | 'opportunity_id' | 'created_at' | 'updated_at'>>;
+  };
+  opportunity_shares: {
+    Row: OpportunityShareRow;
+    Insert: Pick<OpportunityShareRow, 'opportunity_id' | 'sender_id' | 'recipient_id' | 'sender_role' | 'recipient_role'> & Partial<Omit<OpportunityShareRow, 'id' | 'created_at'>>;
+    Update: Partial<Pick<OpportunityShareRow, 'opened_at' | 'clicked_at' | 'application_created_at'>>;
+  };
   applications: {
     Row: ApplicationRow;
     Insert: Pick<ApplicationRow, 'project_id' | 'student_id'> & Partial<Omit<ApplicationRow, 'id' | 'created_at' | 'updated_at' | 'submitted_at'>>;
@@ -250,6 +293,8 @@ export type Database = {
       application_status: ApplicationStatus;
       project_compensation: ProjectCompensation;
       skill_importance: SkillImportance;
+      requirement_type: RequirementType;
+      requirement_importance: RequirementImportance;
     };
     CompositeTypes: Record<string, never>;
   };

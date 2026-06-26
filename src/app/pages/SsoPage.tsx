@@ -11,6 +11,7 @@ type AuthMode = 'login' | 'signup';
 
 type SavedLogin = {
   email: string;
+  password: string;
   role: UserRole;
   savedAt: string;
 };
@@ -28,6 +29,7 @@ function readSavedLogins(): SavedLogin[] {
       ? parsed.filter(
           (entry): entry is SavedLogin =>
             typeof entry?.email === 'string' &&
+            typeof entry?.password === 'string' &&
             ['student', 'professor', 'recruiter', 'dean'].includes(entry?.role)
         )
       : [];
@@ -51,36 +53,6 @@ function getDashboardPath(role: UserRole, setupCompleted: boolean) {
     return '/recruiter/dashboard';
   }
   return '/dean/dashboard';
-}
-
-function getAuthErrorMessage(error: unknown) {
-  const rawMessage =
-    error instanceof Error
-      ? error.message
-      : error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
-        ? error.message
-        : typeof error === 'string'
-          ? error
-          : '';
-  const message = rawMessage.trim();
-
-  if (/invalid login credentials/i.test(message) || /authentication failed/i.test(message)) {
-    return 'Email or password is incorrect. Re-enter your password or create the account again from Sign up.';
-  }
-
-  if (/email not confirmed/i.test(message)) {
-    return 'Confirm your email address first, then come back and log in.';
-  }
-
-  if (/supabase is not configured/i.test(message)) {
-    return message;
-  }
-
-  if (/setup_completed/i.test(message)) {
-    return 'Your login worked, but the Supabase setup_completed migration has not been applied yet.';
-  }
-
-  return message || 'Login failed. Please check your email and password.';
 }
 
 export default function SsoPage() {
@@ -120,13 +92,14 @@ export default function SsoPage() {
   }, []);
 
   const saveCurrentLogin = () => {
-    if (!role || !email.trim()) {
+    if (!role || !email.trim() || !password) {
       return;
     }
 
     const normalizedEmail = email.trim().toLowerCase();
     const nextLogin: SavedLogin = {
       email: normalizedEmail,
+      password,
       role,
       savedAt: new Date().toISOString(),
     };
@@ -151,7 +124,7 @@ export default function SsoPage() {
     );
     writeSavedLogins(nextLogins);
     setSavedLogins(nextLogins);
-    if (email.toLowerCase() === loginToRemove.email.toLowerCase()) {
+    if (email.toLowerCase() === loginToRemove.email.toLowerCase() && password === loginToRemove.password) {
       setRememberLogin(false);
     }
   };
@@ -159,7 +132,7 @@ export default function SsoPage() {
   const selectSavedLogin = (savedLogin: SavedLogin) => {
     setMode('login');
     setEmail(savedLogin.email);
-    setPassword('');
+    setPassword(savedLogin.password);
     setRememberLogin(true);
     setError(null);
     setConfirmationNotice(null);
@@ -218,10 +191,7 @@ export default function SsoPage() {
       }
       navigate(getDashboardPath(result.user.role, result.setup.completed), { replace: true });
     } catch (authError) {
-      if (import.meta.env.DEV) {
-        console.error('Login error', authError);
-      }
-      setError(getAuthErrorMessage(authError));
+      setError(authError instanceof Error ? authError.message : 'Authentication failed.');
     } finally {
       setIsSubmitting(false);
     }
@@ -282,7 +252,7 @@ export default function SsoPage() {
                         onClick={() => selectSavedLogin(savedLogin)}
                       >
                         <span className="block truncate text-sm font-medium text-gray-900">{savedLogin.email}</span>
-                        <span className="text-xs text-gray-500">Click to fill email</span>
+                        <span className="text-xs text-gray-500">Click to fill login</span>
                       </button>
                       <Button
                         type="button"
@@ -344,7 +314,7 @@ export default function SsoPage() {
                   onChange={(event) => setRememberLogin(event.target.checked)}
                 />
                 <span>
-                  Save this email on this device so it can be selected next time.
+                  Remember Me
                 </span>
               </label>
             ) : null}

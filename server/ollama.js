@@ -1272,13 +1272,16 @@ Return exactly:
 export async function getDeanDepartmentResearchReport({ metrics }) {
   const prompt = `You write executive research outcomes reports for a university dean. Return RAW JSON only.
 
-Use only the provided metrics. Summarize research production, faculty mentorship, student outcomes, funding impact, access, progress-report activity, and competitive standing.
+Use only the provided metrics. Summarize research opportunity demand, mentorship capacity, student participation, access gaps, progress-report activity, and reported versus verified outcomes.
 
 METRICS:
 ${JSON.stringify(metrics, null, 2)}
 
 Rules:
 - Do not invent numbers.
+- Do not mention grant success rate, institutional grant funding, patents, peer rankings, funding per faculty, faculty productivity scores, or university-wide publication totals unless those exact metrics are present in METRICS.
+- Distinguish facts from recommendations.
+- Distinguish reported outcomes from faculty-verified outcomes.
 - Write in a concise, professional executive style.
 - Include 4 to 6 concrete metric-backed sentences.
 - Every sentence must refer to a provided metric, trend, count, rate, or named category from METRICS.
@@ -1292,7 +1295,7 @@ Return exactly:
   const parsed = parseJsonObjectFromOllama(responseText);
   return typeof parsed?.report === 'string' && parsed.report.trim()
     ? parsed.report.trim()
-    : 'The department shows strong research production, faculty mentorship, student outcomes, and funding activity based on the provided platform metrics.';
+    : 'Displayed platform metrics show current research demand, available positions, student placements, fill rate, participation funnel movement, and reported versus verified outcomes. Recommendations should be reviewed against the cited dashboard metrics before export.';
 }
 
 export async function getDeanInsights({ metrics }) {

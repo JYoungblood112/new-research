@@ -17,6 +17,15 @@ function throwSupabaseError(error: { message?: string } | null, fallback: string
   throw new Error(message);
 }
 
+function isMissingRequirementsRelation(error: { message?: string; code?: string } | null) {
+  const message = error?.message ?? '';
+  return (
+    error?.code === 'PGRST200' ||
+    /opportunity_requirements/i.test(message) ||
+    (/relationship/i.test(message) && /projects/i.test(message))
+  );
+}
+
 export async function getCurrentProfile() {
   const client = requireSupabaseClient();
   const { data, error } = await client.from('profiles').select('*').single();
@@ -63,9 +72,18 @@ export async function listPublicProjects() {
   const client = requireSupabaseClient();
   const { data, error } = await client
     .from('projects')
-    .select('*, professors(department,title,contact_email,bio_url,research_areas,research_interests,metadata)')
+    .select('*, professors(department,title,contact_email,bio_url,research_areas,research_interests,metadata), opportunity_requirements(*)')
     .eq('status', 'published')
     .order('application_deadline', { ascending: true, nullsFirst: false });
+  if (error && isMissingRequirementsRelation(error)) {
+    const fallback = await client
+      .from('projects')
+      .select('*, professors(department,title,contact_email,bio_url,research_areas,research_interests,metadata)')
+      .eq('status', 'published')
+      .order('application_deadline', { ascending: true, nullsFirst: false });
+    if (fallback.error) throwSupabaseError(fallback.error, 'Unable to load published projects.');
+    return fallback.data ?? [];
+  }
   if (error) throwSupabaseError(error, 'Unable to load published projects.');
   return data ?? [];
 }
@@ -74,10 +92,63 @@ export async function listProfessorProjects(professorId: string) {
   const client = requireSupabaseClient();
   const { data, error } = await client
     .from('projects')
-    .select('*')
+    .select('*, opportunity_requirements(*)')
     .eq('professor_id', professorId)
     .order('created_at', { ascending: false });
+  if (error && isMissingRequirementsRelation(error)) {
+    const fallback = await client
+      .from('projects')
+      .select('*')
+      .eq('professor_id', professorId)
+      .order('created_at', { ascending: false });
+    if (fallback.error) throwSupabaseError(fallback.error, 'Unable to load professor projects.');
+    return fallback.data ?? [];
+  }
   if (error) throwSupabaseError(error, 'Unable to load professor projects.');
+  return data ?? [];
+}
+
+export async function replaceOpportunityRequirements(
+  opportunityId: string,
+  requirements: InsertRow<'opportunity_requirements'>[]
+) {
+  const client = requireSupabaseClient();
+  const { error: deleteError } = await client.from('opportunity_requirements').delete().eq('opportunity_id', opportunityId);
+  if (deleteError) throwSupabaseError(deleteError, 'Unable to replace opportunity requirements.');
+
+  if (requirements.length === 0) {
+    return [];
+  }
+
+  const rows = requirements.map((requirement, index) => ({
+    ...requirement,
+    opportunity_id: opportunityId,
+    display_order: requirement.display_order ?? index,
+  }));
+  const { data, error } = await client
+    .from('opportunity_requirements')
+    .insert(rows)
+    .select('*')
+    .order('display_order', { ascending: true });
+  if (error) throwSupabaseError(error, 'Unable to save opportunity requirements.');
+  return data ?? [];
+}
+
+export async function createOpportunityShare(share: InsertRow<'opportunity_shares'>) {
+  const client = requireSupabaseClient();
+  const { data, error } = await client.from('opportunity_shares').insert(share).select('*').single();
+  if (error) throwSupabaseError(error, 'Unable to share opportunity.');
+  return data;
+}
+
+export async function listReceivedOpportunityShares(userId: string) {
+  const client = requireSupabaseClient();
+  const { data, error } = await client
+    .from('opportunity_shares')
+    .select('*, projects(title,category,professor_id,professors(department,title,metadata))')
+    .eq('recipient_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throwSupabaseError(error, 'Unable to load shared opportunities.');
   return data ?? [];
 }
 

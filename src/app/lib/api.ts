@@ -275,3 +275,47 @@ export async function generateDeanInsights(payload: {
     body: JSON.stringify(payload),
   });
 }
+
+export type ShareRecipient = {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  department?: string;
+};
+
+export async function searchShareRecipients(payload: {
+  query: string;
+  role?: 'student' | 'professor' | 'all';
+}): Promise<{ recipients: ShareRecipient[] }> {
+  return request('/api/share/recipients', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function shareOpportunity(payload: {
+  opportunityId: string;
+  recipientIds: string[];
+  message?: string;
+}): Promise<{ ok: true; shares: Array<{ id: string; recipientId: string }> }> {
+  return request('/api/share/opportunity', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listReceivedShares(): Promise<{ shares: unknown[] }> {
+  return request('/api/share/received');
+}
+
+export async function heartbeatOpportunityPresence(payload: {
+  opportunityId: string;
+  viewerKey: string;
+  role?: UserRole;
+}): Promise<{ currentViewers: number; studentViewers: number; uniqueViews7d: number; totalViews: number }> {
+  return request('/api/opportunity-presence/heartbeat', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

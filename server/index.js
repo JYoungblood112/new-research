@@ -1984,6 +1984,198 @@ app.get('/api/insights/student-interest-counts', authRequired, (req, res) => {
   });
 });
 
+app.post('/api/share/recipients', authRequired, (req, res) => {
+  const query = typeof req.body?.query === 'string' ? req.body.query.trim().toLowerCase() : '';
+  const role = ['student', 'professor'].includes(req.body?.role) ? req.body.role : null;
+  const store = readStore();
+  const recipients = (Array.isArray(store.users) ? store.users : [])
+    .filter((entry) => ['student', 'professor'].includes(entry.role))
+    .filter((entry) => entry.id !== req.user.id)
+    .filter((entry) => !role || entry.role === role)
+    .filter((entry) => {
+      if (!query) return true;
+      return [entry.name, entry.email, entry.role].filter(Boolean).join(' ').toLowerCase().includes(query);
+    })
+    .slice(0, 25)
+    .map((entry) => {
+      const professorProfile = entry.role === 'professor'
+        ? (store.professorProfiles ?? []).find((profile) => profile.userId === entry.id)
+        : null;
+      return {
+        id: entry.id,
+        name: entry.name,
+        email: entry.email,
+        role: entry.role,
+        department: professorProfile?.department ?? undefined,
+      };
+    });
+
+  return res.json({ recipients });
+});
+
+app.post('/api/share/opportunity', authRequired, (req, res) => {
+  const opportunityId = typeof req.body?.opportunityId === 'string' ? req.body.opportunityId.trim() : '';
+  const recipientIds = Array.isArray(req.body?.recipientIds)
+    ? req.body.recipientIds.map((entry) => String(entry).trim()).filter(Boolean)
+    : [];
+  const message = typeof req.body?.message === 'string' ? req.body.message.trim().slice(0, 1200) : '';
+
+  if (!opportunityId) {
+    return res.status(400).json({ error: 'opportunityId is required.' });
+  }
+  if (recipientIds.length === 0) {
+    return res.status(400).json({ error: 'Select at least one recipient.' });
+  }
+
+  const store = readStore();
+  const postings = Array.isArray(store.postings) ? store.postings : [];
+  const posting = postings.find((entry) => String(entry.id) === opportunityId);
+  if (posting && posting.status !== 'published' && String(posting.professorId) !== String(req.user.id)) {
+    return res.status(403).json({ error: 'You cannot share an opportunity you cannot view.' });
+  }
+
+  const usersById = new Map((store.users ?? []).map((entry) => [String(entry.id), entry]));
+  const sender = usersById.get(String(req.user.id));
+  const shares = recipientIds
+    .filter((recipientId) => recipientId !== req.user.id)
+    .map((recipientId) => usersById.get(String(recipientId)))
+    .filter(Boolean)
+    .filter((recipient) => ['student', 'professor'].includes(recipient.role))
+    .map((recipient) => ({
+      id: randomId('share'),
+      opportunity_id: opportunityId,
+      opportunityId,
+      sender_id: req.user.id,
+      senderId: req.user.id,
+      recipient_id: recipient.id,
+      recipientId: recipient.id,
+      sender_role: sender?.role ?? req.user.role,
+      senderRole: sender?.role ?? req.user.role,
+      recipient_role: recipient.role,
+      recipientRole: recipient.role,
+      senderName: sender?.name ?? req.user.name,
+      recipientName: recipient.name,
+      message,
+      created_at: new Date().toISOString(),
+      opened_at: null,
+      clicked_at: null,
+      application_created_at: null,
+    }));
+
+  store.opportunityShares = [...(Array.isArray(store.opportunityShares) ? store.opportunityShares : []), ...shares];
+  store.notifications = [
+    ...(Array.isArray(store.notifications) ? store.notifications : []),
+    ...shares.map((share) => ({
+      id: randomId('notification'),
+      userId: share.recipientId,
+      type: 'opportunity_share',
+      title: 'Research opportunity shared',
+      body: `${share.senderName} shared ${posting?.title ?? 'a research opportunity'} with you.`,
+      opportunityId,
+      shareId: share.id,
+      readAt: null,
+      createdAt: share.created_at,
+    })),
+  ];
+  writeStore(store);
+
+  return res.json({ ok: true, shares: shares.map((share) => ({ id: share.id, recipientId: share.recipientId })) });
+});
+
+app.get('/api/share/received', authRequired, (req, res) => {
+  const store = readStore();
+  const postingsById = new Map((store.postings ?? []).map((posting) => [String(posting.id), posting]));
+  const shares = (Array.isArray(store.opportunityShares) ? store.opportunityShares : [])
+    .filter((share) => String(share.recipientId ?? share.recipient_id) === String(req.user.id))
+    .sort((left, right) => new Date(right.created_at ?? right.createdAt ?? 0).getTime() - new Date(left.created_at ?? left.createdAt ?? 0).getTime())
+    .map((share) => {
+      const opportunityId = share.opportunityId ?? share.opportunity_id;
+      const posting = postingsById.get(String(opportunityId));
+      return {
+        ...share,
+        opportunity_id: opportunityId,
+        projects: posting ? {
+          title: posting.title,
+          category: posting.category,
+          professor_id: posting.professorId,
+          professors: {
+            department: posting.professorDepartment,
+            title: posting.professorName,
+            metadata: { name: posting.professorName },
+          },
+        } : null,
+      };
+    });
+
+  return res.json({ shares });
+});
+
+app.post('/api/opportunity-presence/heartbeat', authRequired, (req, res) => {
+  const opportunityId = typeof req.body?.opportunityId === 'string' ? req.body.opportunityId.trim() : '';
+  const viewerKey = typeof req.body?.viewerKey === 'string' ? req.body.viewerKey.trim().slice(0, 160) : '';
+  const role = ['student', 'professor', 'recruiter', 'dean'].includes(req.body?.role) ? req.body.role : req.user.role;
+  if (!opportunityId || !viewerKey) {
+    return res.status(400).json({ error: 'opportunityId and viewerKey are required.' });
+  }
+
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  const store = readStore();
+  const presences = Array.isArray(store.opportunityPresence) ? store.opportunityPresence : [];
+  const views = Array.isArray(store.opportunityViews) ? store.opportunityViews : [];
+  const active = presences.filter((entry) => now - new Date(entry.lastActiveAt ?? 0).getTime() < 60_000);
+  const existingIndex = active.findIndex((entry) => entry.opportunityId === opportunityId && entry.viewerKey === viewerKey);
+
+  const presence = {
+    opportunityId,
+    viewerKey,
+    role,
+    viewerRole: role,
+    lastActiveAt: nowIso,
+  };
+  if (existingIndex >= 0) {
+    active[existingIndex] = presence;
+  } else {
+    active.push(presence);
+  }
+
+  const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+  const hasRecentView = views.some(
+    (entry) =>
+      entry.opportunityId === opportunityId &&
+      entry.viewerKey === viewerKey &&
+      now - new Date(entry.timestamp ?? 0).getTime() < 30 * 60 * 1000
+  );
+  if (!hasRecentView) {
+    views.push({
+      id: randomId('view'),
+      opportunityId,
+      viewerKey,
+      viewerRole: role,
+      source: req.headers.referer ?? 'direct',
+      timestamp: nowIso,
+    });
+  }
+
+  store.opportunityPresence = active;
+  store.opportunityViews = views;
+  writeStore(store);
+
+  const currentForOpportunity = active.filter((entry) => entry.opportunityId === opportunityId);
+  const unique7d = new Set(
+    views
+      .filter((entry) => entry.opportunityId === opportunityId && new Date(entry.timestamp ?? 0).getTime() >= sevenDaysAgo)
+      .map((entry) => entry.viewerKey)
+  ).size;
+
+  return res.json({
+    currentViewers: currentForOpportunity.length,
+    studentViewers: currentForOpportunity.filter((entry) => entry.viewerRole === 'student').length,
+    uniqueViews7d: unique7d,
+    totalViews: views.filter((entry) => entry.opportunityId === opportunityId).length,
+  });
+});
+
 function handleStudentRecommendationsRequest(req, res, force = false) {
   const requestId = getRequestId();
   try {

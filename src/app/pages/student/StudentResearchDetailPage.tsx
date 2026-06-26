@@ -5,8 +5,10 @@ import { useData } from '../../contexts/DataContext';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
-import { LogOut, ArrowLeft, ExternalLink } from 'lucide-react';
+import { LogOut, ArrowLeft, ExternalLink, Share2 } from 'lucide-react';
 import ApplyToResearchDialog from '../../components/student/ApplyToResearchDialog';
+import ShareOpportunityDialog from '../../components/shared/ShareOpportunityDialog';
+import OpportunityPresence from '../../components/shared/OpportunityPresence';
 
 const COMPENSATION_LABELS = {
   stipend: 'Stipend',
@@ -21,6 +23,7 @@ export default function StudentResearchDetailPage() {
   const { user, logout, setupState } = useAuth();
   const { postings } = useData();
   const [selectedPosting, setSelectedPosting] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const posting = useMemo(
     () => postings.find((p) => p.id === postingId && p.status === 'published') ?? null,
@@ -85,6 +88,9 @@ export default function StudentResearchDetailPage() {
                   <ExternalLink className="h-4 w-4" />
                 </a>
               ) : null}
+              <div className="mt-3">
+                <OpportunityPresence opportunityId={posting.id} />
+              </div>
             </CardHeader>
             <CardContent className="space-y-0 text-sm">
               <div className="mb-0 rounded-lg border-b border-[#f0ece8] pb-4 transition-colors duration-150 hover:bg-[#faf6f3]">
@@ -122,6 +128,27 @@ export default function StudentResearchDetailPage() {
                 <p>
                   <span className="font-medium">Time Commitment:</span> {posting.timeCommitmentExpected}
                 </p>
+                {posting.requirements?.length ? (
+                  <div className="mt-4 rounded-lg border border-[#eadfd9] bg-white p-3">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#6f625d]">Application Requirements</p>
+                    <div className="space-y-2">
+                      {posting.requirements.map((requirement) => (
+                        <div key={`${requirement.title}-${requirement.displayOrder}`} className="rounded-md border border-[#f0ece8] p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium">{requirement.title}</p>
+                            <Badge variant="outline" className="rounded-full text-[11px]">
+                              {requirement.requirementType === 'must_have' ? 'Required' : 'Preferred'}
+                            </Badge>
+                          </div>
+                          {requirement.description ? <p className="mt-1 text-sm leading-6 text-[#5f5752]">{requirement.description}</p> : null}
+                          {requirement.minimumThreshold ? (
+                            <p className="mt-1 text-xs text-[#766b65]">Minimum: {requirement.minimumThreshold}</p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
               <div className="mb-0 rounded-lg border-b border-[#f0ece8] pb-4 pt-5 transition-colors duration-150 hover:bg-[#faf6f3]">
                 <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-red-700">Timeline</p>
@@ -161,6 +188,14 @@ export default function StudentResearchDetailPage() {
               </div>
               <div className="mt-3 flex justify-end border-t border-[#e8e4e0] pt-5">
                 <Button
+                  variant="outline"
+                  onClick={() => setShareOpen(true)}
+                  className="mr-2 rounded-md border-[#d0ceca] bg-white px-4 py-2 text-sm font-medium shadow-none"
+                >
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Share
+                </Button>
+                <Button
                   onClick={() => setSelectedPosting(posting.id)}
                   className="rounded-md bg-[#c92e1f] px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md hover:bg-[#b3271b] active:translate-y-0.5 active:shadow-sm active:bg-[#a92318] focus-visible:ring-2 focus-visible:ring-red-700/25"
                 >
@@ -179,6 +214,7 @@ export default function StudentResearchDetailPage() {
           onOpenChange={(open) => !open && setSelectedPosting(null)}
         />
       )}
+      <ShareOpportunityDialog posting={posting} open={shareOpen} onOpenChange={setShareOpen} />
     </div>
   );
 }

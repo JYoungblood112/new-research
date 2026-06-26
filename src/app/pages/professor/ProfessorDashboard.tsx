@@ -27,6 +27,7 @@ import {
   MessageSquare,
   PlusCircle,
   Search,
+  Share2,
   Send,
   Settings,
   SlidersHorizontal,
@@ -59,6 +60,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import PostResearchDialog from '../../components/professor/PostResearchDialog';
 import ProgressReportsReview from '../../components/professor/ProgressReportsReview';
 import ViewApplicationsDialog from '../../components/professor/ViewApplicationsDialog';
+import ShareOpportunityDialog from '../../components/shared/ShareOpportunityDialog';
+import { scoreApplicationAgainstRequirements } from '../../lib/opportunityScoring';
 import ResearchMetadataPicker, {
   normalizeResearchAreas,
   normalizeResearchInterests,
@@ -599,6 +602,7 @@ export default function ProfessorDashboard() {
   const [editingTemplateSubject, setEditingTemplateSubject] = useState('');
   const [editingTemplateBody, setEditingTemplateBody] = useState('');
   const [activeEditorField, setActiveEditorField] = useState<'subject' | 'body'>('body');
+  const [editorTemplateTab, setEditorTemplateTab] = useState<'message' | 'preview'>('message');
   const [templateOverrides, setTemplateOverrides] = useState<Partial<Record<MessageTemplateKind, MessageTemplateContent>>>({});
   const [customTemplateTokens, setCustomTemplateTokens] = useState<CustomTemplateToken[]>([]);
   const [newCustomTokenLabel, setNewCustomTokenLabel] = useState('');
@@ -846,10 +850,12 @@ export default function ProfessorDashboard() {
     }
 
     return myApplications.map((application) => {
-      const score = computeMatchScore(application);
+      const posting = postingById.get(application.postingId);
+      const fallbackScore = computeMatchScore(application);
+      const score = scoreApplicationAgainstRequirements({ application, posting, fallbackScore }).score;
       return {
         application,
-        posting: postingById.get(application.postingId),
+        posting,
         score,
       };
     });
@@ -1312,6 +1318,45 @@ export default function ProfessorDashboard() {
     return [...defaults, ...customs];
   }, [customTemplateTokens]);
 
+  const savedEditingTemplate = templateOverrides[editingTemplateKind] ?? DEFAULT_MESSAGE_TEMPLATES[editingTemplateKind];
+  const hasUnsavedTemplateChanges =
+    editingTemplateSubject !== savedEditingTemplate.subject ||
+    editingTemplateBody !== savedEditingTemplate.body;
+
+  const previewTemplateSubject = useMemo(() => {
+    const sampleValues: Record<string, string> = {
+      '[Student Name]': 'Maya Chen',
+      '[Opportunity Title]': 'Computational Biology Research Assistant',
+      '[Professor Name]': user?.name ?? 'Professor Rivera',
+    };
+
+    customTemplateTokens.forEach((token) => {
+      sampleValues[token.value] = token.label || token.value;
+    });
+
+    return Object.entries(sampleValues).reduce(
+      (text, [token, sample]) => text.split(token).join(sample),
+      editingTemplateSubject
+    );
+  }, [customTemplateTokens, editingTemplateSubject, user?.name]);
+
+  const previewTemplateBody = useMemo(() => {
+    const sampleValues: Record<string, string> = {
+      '[Student Name]': 'Maya Chen',
+      '[Opportunity Title]': 'Computational Biology Research Assistant',
+      '[Professor Name]': user?.name ?? 'Professor Rivera',
+    };
+
+    customTemplateTokens.forEach((token) => {
+      sampleValues[token.value] = token.label || token.value;
+    });
+
+    return Object.entries(sampleValues).reduce(
+      (text, [token, sample]) => text.split(token).join(sample),
+      editingTemplateBody
+    );
+  }, [customTemplateTokens, editingTemplateBody, user?.name]);
+
   const addCustomToken = () => {
     const label = newCustomTokenLabel.trim();
     const value = newCustomTokenValue.trim();
@@ -1353,6 +1398,7 @@ export default function ProfessorDashboard() {
     setEditingTemplateKind(kind);
     setEditingTemplateSubject(template.subject);
     setEditingTemplateBody(template.body);
+    setEditorTemplateTab('message');
     setOpenTemplateEditorDialog(true);
   };
 
@@ -1384,6 +1430,22 @@ export default function ProfessorDashboard() {
     setEditingTemplateBody(defaultTemplate.body);
     toast.success('Template reset to default.');
   };
+
+  useEffect(() => {
+    if (!openTemplateEditorDialog) {
+      return;
+    }
+
+    const handleTemplateEditorShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        saveTemplateEdits();
+      }
+    };
+
+    window.addEventListener('keydown', handleTemplateEditorShortcut);
+    return () => window.removeEventListener('keydown', handleTemplateEditorShortcut);
+  }, [openTemplateEditorDialog, saveTemplateEdits]);
 
   const commandItems = useMemo(
     () => [...NAV_ITEMS, { key: 'settings' as SectionKey, label: 'Settings', icon: Settings }]
@@ -2964,161 +3026,192 @@ export default function ProfessorDashboard() {
       </Dialog>
 
       <Dialog open={openTemplateEditorDialog} onOpenChange={setOpenTemplateEditorDialog}>
-        <DialogContent className="mx-auto w-[min(90vw,860px)] max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-[0_18px_45px_rgba(15,23,42,0.16)]">
-          <DialogHeader className="border-b border-slate-200 pb-4">
-            <DialogTitle className="text-2xl font-semibold tracking-tight">Edit Message Templates</DialogTitle>
+        <DialogContent className="mx-auto grid max-h-[90vh] w-[min(96vw,1200px)] max-w-[1200px] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-[0_18px_45px_rgba(15,23,42,0.16)]">
+          <DialogHeader className="border-b border-slate-200 px-6 py-5">
+            <div className="flex flex-wrap items-center gap-3">
+              <DialogTitle className="text-2xl font-semibold tracking-tight">Edit Message Templates</DialogTitle>
+              {hasUnsavedTemplateChanges ? (
+                <Badge variant="outline" className="rounded-full border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                  Unsaved changes
+                </Badge>
+              ) : null}
+            </div>
             <DialogDescription className="text-sm text-slate-600">
               Customize templates and insert tokens where your cursor is active.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="box-border w-full max-w-full rounded-xl bg-transparent p-1 pt-5 shadow-none">
-            <div className="grid w-full box-border items-start gap-4 [grid-template-columns:minmax(240px,300px)_minmax(0,1fr)]">
-            <div>
-              <section className="box-border rounded-xl border border-slate-200 bg-slate-50/80 p-5 text-slate-900">
-              <div className="space-y-2">
-                <Label htmlFor="template-kind" className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Template Type</Label>
-                <Select
-                  value={editingTemplateKind}
-                  onValueChange={(value) => {
-                    const nextKind = value as MessageTemplateKind;
-                    setEditingTemplateKind(nextKind);
-                    const nextTemplate = templateOverrides[nextKind] ?? DEFAULT_MESSAGE_TEMPLATES[nextKind];
-                    setEditingTemplateSubject(nextTemplate.subject);
-                    setEditingTemplateBody(nextTemplate.body);
-                  }}
-                >
-                  <SelectTrigger id="template-kind" className="h-11 rounded-lg border-slate-300 bg-white text-slate-900 shadow-sm">
-                    <SelectValue placeholder="Template Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="interview">Interview Invitation</SelectItem>
-                    <SelectItem value="request-info">Request Information</SelectItem>
-                    <SelectItem value="accept">Accept Candidate</SelectItem>
-                    <SelectItem value="reject">Reject Candidate</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="my-4 h-px bg-slate-200" />
-
-              <div>
-                <Label className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Insert Tokens</Label>
-                <div className="mt-3 space-y-2">
-                  {allTemplateTokens.map((token) => (
-                    <Button
-                      key={`editor-token-${token.key}`}
-                      type="button"
-                      variant="outline"
-                      className="flex h-11 w-full items-center justify-start gap-2 rounded-lg border-slate-300 bg-white text-left text-slate-900 shadow-sm hover:bg-slate-100"
-                      onClick={() => insertTokenIntoEditor(token.value)}
-                    >
-                      {token.value === '[Student Name]' ? <UserCircle className="h-4 w-4 text-slate-500" /> : null}
-                      {token.value === '[Opportunity Title]' ? <Briefcase className="h-4 w-4 text-slate-500" /> : null}
-                      {token.value === '[Professor Name]' ? <Sparkles className="h-4 w-4 text-slate-500" /> : null}
-                      {token.value !== '[Student Name]' && token.value !== '[Opportunity Title]' && token.value !== '[Professor Name]' ? <PlusCircle className="h-4 w-4 text-slate-500" /> : null}
-                      {token.value}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="my-4 h-px bg-slate-200" />
-
-              <div>
-                <Label className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Custom Token</Label>
-                <div className="mt-3 space-y-2">
-                  <Input
-                    id="new-custom-token"
-                    value={newCustomTokenLabel}
-                    onChange={(event) => setNewCustomTokenLabel(event.target.value)}
-                    placeholder="Display label"
-                    className="h-11 rounded-lg border-slate-300 bg-white text-slate-900 placeholder:text-slate-400"
-                  />
-                  <Input
-                    value={newCustomTokenValue}
-                    onChange={(event) => setNewCustomTokenValue(event.target.value)}
-                    placeholder="Token value e.g. [Deadline Date]"
-                    className="h-11 rounded-lg border-slate-300 bg-white text-slate-900 placeholder:text-slate-400"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-11 w-full rounded-lg border-slate-300 bg-white text-slate-900 shadow-sm hover:bg-slate-100"
-                    onClick={addCustomToken}
+          <div className="min-h-0 overflow-y-auto px-6 py-5">
+            <div className="grid w-full items-start gap-5 lg:[grid-template-columns:minmax(320px,35%)_minmax(0,65%)]">
+              <aside className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 text-slate-900">
+                <div className="space-y-2">
+                  <Label htmlFor="template-kind" className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Template Type</Label>
+                  <Select
+                    value={editingTemplateKind}
+                    onValueChange={(value) => {
+                      const nextKind = value as MessageTemplateKind;
+                      setEditingTemplateKind(nextKind);
+                      const nextTemplate = templateOverrides[nextKind] ?? DEFAULT_MESSAGE_TEMPLATES[nextKind];
+                      setEditingTemplateSubject(nextTemplate.subject);
+                      setEditingTemplateBody(nextTemplate.body);
+                      setEditorTemplateTab('message');
+                    }}
                   >
-                    + Add Token
-                  </Button>
+                    <SelectTrigger id="template-kind" className="h-10 rounded-lg border-slate-300 bg-white text-slate-900 shadow-sm">
+                      <SelectValue placeholder="Template Type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="interview">Interview Invitation</SelectItem>
+                      <SelectItem value="request-info">Request Information</SelectItem>
+                      <SelectItem value="accept">Accept Candidate</SelectItem>
+                      <SelectItem value="reject">Reject Candidate</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
-                {customTemplateTokens.length > 0 ? (
+                <div className="my-4 h-px bg-slate-200" />
+
+                <div>
+                  <Label className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Insert Tokens</Label>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {customTemplateTokens.map((token) => (
-                      <span
-                        key={`custom-token-${token.id}`}
-                        className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm"
+                    {allTemplateTokens.map((token) => (
+                      <Button
+                        key={`editor-token-${token.key}`}
+                        type="button"
+                        variant="outline"
+                        className="h-8 max-w-full gap-1.5 rounded-full border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-100"
+                        onClick={() => insertTokenIntoEditor(token.value)}
+                        title={`Insert ${token.value}`}
                       >
-                        <span className="max-w-[160px] truncate">{token.label}: {token.value}</span>
-                        <button
-                          type="button"
-                          className="text-slate-500 hover:text-red-500"
-                          onClick={() => removeCustomToken(token.id)}
-                          aria-label={`Remove ${token.label}`}
-                        >
-                          x
-                        </button>
-                      </span>
+                        {token.value === '[Student Name]' ? <UserCircle className="h-3.5 w-3.5 text-slate-500" /> : null}
+                        {token.value === '[Opportunity Title]' ? <Briefcase className="h-3.5 w-3.5 text-slate-500" /> : null}
+                        {token.value === '[Professor Name]' ? <Sparkles className="h-3.5 w-3.5 text-slate-500" /> : null}
+                        {token.value !== '[Student Name]' && token.value !== '[Opportunity Title]' && token.value !== '[Professor Name]' ? <PlusCircle className="h-3.5 w-3.5 text-slate-500" /> : null}
+                        <span className="truncate">{token.value}</span>
+                      </Button>
                     ))}
                   </div>
-                ) : null}
-              </div>
+                </div>
+
+                <div className="my-4 h-px bg-slate-200" />
+
+                <div>
+                  <Label className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Custom Token</Label>
+                  <div className="mt-3 grid gap-2">
+                    <Input
+                      id="new-custom-token"
+                      value={newCustomTokenLabel}
+                      onChange={(event) => setNewCustomTokenLabel(event.target.value)}
+                      placeholder="Display label"
+                      className="h-10 rounded-lg border-slate-300 bg-white text-slate-900 placeholder:text-slate-400"
+                    />
+                    <Input
+                      value={newCustomTokenValue}
+                      onChange={(event) => setNewCustomTokenValue(event.target.value)}
+                      placeholder="Token value e.g. [Deadline Date]"
+                      className="h-10 rounded-lg border-slate-300 bg-white text-slate-900 placeholder:text-slate-400"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 rounded-lg border-slate-300 bg-white text-slate-900 shadow-sm hover:bg-slate-100"
+                      onClick={addCustomToken}
+                    >
+                      Add Token
+                    </Button>
+                  </div>
+
+                  {customTemplateTokens.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {customTemplateTokens.map((token) => (
+                        <span
+                          key={`custom-token-${token.id}`}
+                          className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm"
+                        >
+                          <span className="max-w-[220px] truncate">{token.label}: {token.value}</span>
+                          <button
+                            type="button"
+                            className="text-slate-500 hover:text-red-500"
+                            onClick={() => removeCustomToken(token.id)}
+                            aria-label={`Remove ${token.label}`}
+                          >
+                            x
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </aside>
+
+              <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-sm">
+                <Tabs value={editorTemplateTab} onValueChange={(value) => setEditorTemplateTab(value as 'message' | 'preview')} className="gap-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <Label htmlFor="editor-template-subject" className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Subject</Label>
+                    </div>
+                    <TabsList className="h-9 rounded-lg bg-slate-100 p-1">
+                      <TabsTrigger value="message" className="rounded-md px-3 text-xs">Message</TabsTrigger>
+                      <TabsTrigger value="preview" className="rounded-md px-3 text-xs">Preview</TabsTrigger>
+                    </TabsList>
+                  </div>
+
+                  <Input
+                    id="editor-template-subject"
+                    ref={editorSubjectRef}
+                    value={editingTemplateSubject}
+                    onFocus={() => setActiveEditorField('subject')}
+                    onClick={() => setActiveEditorField('subject')}
+                    onChange={(event) => setEditingTemplateSubject(event.target.value)}
+                    className="h-12 w-full rounded-lg border-slate-300 bg-white text-base text-slate-900 shadow-sm"
+                  />
+
+                  <TabsContent value="message" className="mt-0">
+                    <div className="space-y-2">
+                      <Label htmlFor="editor-template-body" className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Message</Label>
+                      <Textarea
+                        id="editor-template-body"
+                        ref={editorBodyRef}
+                        value={editingTemplateBody}
+                        onFocus={() => setActiveEditorField('body')}
+                        onClick={() => setActiveEditorField('body')}
+                        onChange={(event) => setEditingTemplateBody(event.target.value)}
+                        rows={18}
+                        className="min-h-[500px] resize-y rounded-lg border-slate-300 bg-white font-mono text-[15px] leading-7 text-slate-900 shadow-sm"
+                      />
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="preview" className="mt-0">
+                    <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+                      <div className="border-b border-slate-200 px-5 py-4">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Subject Preview</p>
+                        <p className="mt-1 break-words text-base font-semibold leading-6 text-slate-950">{previewTemplateSubject}</p>
+                      </div>
+                      <div className="min-h-[500px] whitespace-pre-wrap px-5 py-5 text-[15px] leading-7 text-slate-800">
+                        {previewTemplateBody}
+                      </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
               </section>
             </div>
+          </div>
 
-            <div className="min-w-0 w-full">
-              <section className="box-border flex min-h-[420px] w-full flex-col rounded-xl border border-slate-200 bg-white p-5 text-slate-900">
-              <div className="space-y-2">
-                <Label htmlFor="editor-template-subject" className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Subject</Label>
-                <Input
-                  id="editor-template-subject"
-                  ref={editorSubjectRef}
-                  value={editingTemplateSubject}
-                  onFocus={() => setActiveEditorField('subject')}
-                  onClick={() => setActiveEditorField('subject')}
-                  onChange={(event) => setEditingTemplateSubject(event.target.value)}
-                  className="h-11 rounded-lg border-slate-300 bg-white text-slate-900 shadow-sm"
-                />
-              </div>
-
-              <div className="my-4 h-px bg-slate-200" />
-
-              <div className="space-y-2">
-                <Label htmlFor="editor-template-body" className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Message</Label>
-                <Textarea
-                  id="editor-template-body"
-                  ref={editorBodyRef}
-                  value={editingTemplateBody}
-                  onFocus={() => setActiveEditorField('body')}
-                  onClick={() => setActiveEditorField('body')}
-                  onChange={(event) => setEditingTemplateBody(event.target.value)}
-                  rows={8}
-                  className="h-[210px] resize-none rounded-lg border-slate-300 bg-white text-slate-900 shadow-sm"
-                />
-              </div>
-
-              <div className="mt-3 flex flex-row gap-2">
-                <Button variant="ghost" className="h-10 flex-none rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100" onClick={resetTemplateEdits}>
-                  Reset to Default
-                </Button>
-                <Button variant="ghost" className="h-10 flex-none rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100" onClick={() => setOpenTemplateEditorDialog(false)}>
-                  Cancel
-                </Button>
-                <Button className="h-10 flex-1 rounded-lg bg-slate-900 text-white shadow-sm hover:bg-slate-800" onClick={saveTemplateEdits}>
-                  Save Template
-                </Button>
-              </div>
-              </section>
-            </div>
+          <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-4 shadow-[0_-8px_20px_rgba(15,23,42,0.06)]">
+            <span className="text-sm text-slate-500">
+              {hasUnsavedTemplateChanges ? 'Unsaved changes' : 'All changes saved'}
+            </span>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="ghost" className="h-10 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100" onClick={resetTemplateEdits}>
+                Reset to Default
+              </Button>
+              <Button variant="ghost" className="h-10 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100" onClick={() => setOpenTemplateEditorDialog(false)}>
+                Cancel
+              </Button>
+              <Button className="h-10 rounded-lg bg-slate-900 px-5 text-white shadow-sm hover:bg-slate-800" onClick={saveTemplateEdits}>
+                Save Template
+              </Button>
             </div>
           </div>
         </DialogContent>
@@ -3755,6 +3848,7 @@ function PostingCard({
   const { getApplicationsByPosting } = useData();
   const applications = getApplicationsByPosting(posting.id);
   const pendingCount = applications.filter((application) => application.status === 'Pending').length;
+  const [shareOpen, setShareOpen] = useState(false);
 
   const statusClassName =
     posting.status === 'published'
@@ -3828,6 +3922,15 @@ function PostingCard({
             Clone Position
           </Button>
           <Button
+            onClick={() => setShareOpen(true)}
+            variant="outline"
+            size="sm"
+            className="rounded-xl border-[#d8d8d8] bg-white text-[#575757] hover:bg-[#f7f7f7] hover:text-[#111111]"
+          >
+            <Share2 className="mr-2 h-4 w-4" />
+            Share
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             className="rounded-xl border-[#d8d8d8] bg-white text-[#575757] hover:bg-[#f7f7f7] hover:text-[#111111]"
@@ -3850,6 +3953,7 @@ function PostingCard({
           ) : null}
         </div>
       </CardContent>
+      <ShareOpportunityDialog posting={posting} open={shareOpen} onOpenChange={setShareOpen} />
     </Card>
   );
 }
